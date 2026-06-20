@@ -1,0 +1,28 @@
+node_modules/
+dist/
+dist-tests/
+coverage/
+*.tgz
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Local environment and registry credentials
+.env
+.env.*
+!.env.example
+.npmrc
+
+# Certificates and private keys
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Local editor and agent state
+.agents/
+.idea/
+.vscode/*
+!.vscode/settings.json
+.DS_Store
+Thumbs.db

@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "es2017",
+    "esModuleInterop": true,
+    "noImplicitAny": false,
+    "removeComments": false,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "sourceMap": false,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "outDir": "dist-tests",
+    "lib": [
+      "dom",
+      "es2017"
+    ]
+  },
+  "include": [
+    "src/types.ts",
+    "src/commandLibrary.ts",
+    "src/shortcutManager.ts",
+    "src/safety.ts",
+    "src/scriptParser.ts",
+    "src/outputAutomation.ts",
+    "src/translations.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "dist-tests"
+  ]
+}

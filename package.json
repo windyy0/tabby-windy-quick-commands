@@ -1,0 +1,65 @@
+{
+  "name": "tabby-windy-quick-commands",
+  "version": "1.0.0",
+  "description": "快速命令|local quick-command drawer for Tabby terminal.",
+  "homepage": "https://github.com/windyy0/tabby-windy-quick-commands",
+  "keywords": [
+    "tabby-plugin",
+    "tabby",
+    "terminal",
+    "quick-commands",
+    "productivity"
+  ],
+  "private": false,
+  "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
+  "scripts": {
+    "test": "tsc -p tsconfig.test.json && node dist-tests/tests/run-tests.js",
+    "clean": "node -e \"for (const dir of ['dist', 'dist-tests']) require('fs').rmSync(dir, { recursive: true, force: true })\"",
+    "build": "npm run clean && webpack --stats errors-warnings --no-color",
+    "build:debug": "webpack --progress --color",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "watch": "webpack --watch --stats errors-warnings --no-color",
+    "watch:debug": "webpack --progress --color --watch",
+    "install:tabby": "pwsh -ExecutionPolicy Bypass -File scripts/install-tabby-plugin.ps1",
+    "install:tabby:restart": "pwsh -ExecutionPolicy Bypass -File scripts/install-tabby-plugin.ps1 -Restart",
+    "clean:pack": "node -e \"const fs=require('fs'); for (const file of fs.readdirSync('.')) if (file.endsWith('.tgz')) fs.rmSync(file, { force: true })\"",
+    "publish:check": "node scripts/publish-check.js",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm test"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "author": "windyy0",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@angular/animations": "^15.2.10",
+    "@angular/common": "^15.2.10",
+    "@angular/core": "^15.2.10",
+    "@angular/forms": "^15.2.10",
+    "@angular/platform-browser": "^15.2.10",
+    "@ng-bootstrap/ng-bootstrap": "^14.2.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/webpack-env": "^1.18.8",
+    "css-loader": "^6.10.0",
+    "js-yaml": "^4.2.0",
+    "rxjs": "^7.8.1",
+    "style-loader": "^3.3.4",
+    "tabby-core": "^1.0.231-nightly.0",
+    "tabby-settings": "^1.0.231-nightly.0",
+    "tabby-terminal": "^1.0.231-nightly.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^4.9.5",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
+  }
+}

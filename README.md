@@ -1,0 +1,121 @@
+# Tabby Windy Quick Commands
+
+一个面向 [Tabby](https://tabby.sh/) 终端的本地快速命令管理插件。
+
+插件在 Tabby 右上角提供快速命令按钮，并从右侧展开抽屉，用于集中管理、搜索和执行常用命令。支持快捷键、多会话发送、逐行执行、输出触发器，以及命令库导入导出。
+
+> 这是一个个人维护的开源项目。发布前会执行类型检查、自动化测试和构建检查；如果遇到问题，欢迎通过 GitHub Issues 反馈。
+
+## 功能
+
+- 通过工具栏按钮或快捷键开关抽屉
+- 搜索、新建、编辑、删除、复制、收藏和置顶命令
+- 为单条命令录制快捷键
+- 整段粘贴和逐行执行两种模式
+- 发送到当前终端，或广播到所有已打开的终端会话
+- 导入、导出命令库和插件配置
+- 中文界面与英文界面自动切换
+
+## 安装
+
+### 从 Tabby 插件管理器安装
+
+发布到 npm 后，在 Tabby 中打开 `设置 -> 插件`，搜索：
+
+```text
+windy-quick-commands
+```
+
+安装完成后请完整重启 Tabby。
+
+### 从源码安装
+
+仓库提供了适用于Windows本地安装脚本。准备好下方开发环境后，在仓库目录执行：
+
+```powershell
+npm ci
+npm run install:tabby:restart
+```
+
+这里推荐使用 `npm ci`，它会严格按照 `package-lock.json` 安装依赖；如果锁文件缺失、不可用或需要更新依赖，可改用 `npm install`。
+
+脚本会构建插件，将最小运行文件复制到 Tabby 的用户插件目录，并重启 Tabby。也可以只安装、不重启：
+
+```powershell
+npm run install:tabby
+```
+
+卸载时可直接在 Tabby 的插件管理器中点击卸载。
+
+## 使用
+
+点击 Tabby 右上角的快速命令按钮打开抽屉。全局开关快捷键可在 `设置 -> 快捷键` 中搜索“快速命令”或 “Quick Commands” 后配置；
+
+好像没啥特殊的功能要写的，应该上手随便点点看看都能理解。
+
+适配了各种配色主题，应该没啥问题。
+
+## 开发
+
+### 环境和工具准备
+
+- [Tabby 官网](https://tabby.sh/)：安装 Tabby 客户端；建议使用当前稳定版。
+- [Tabby 最新版本](https://github.com/Eugeny/tabby/releases/latest)：下载安装包和查看发布说明。
+- [Node.js](https://nodejs.org/)：需要 Node.js 18 或更高版本，npm 随 Node.js 安装。
+- [Git](https://git-scm.com/)：用于克隆仓库和版本管理。
+- [PowerShell 7](https://learn.microsoft.com/powershell/)：Windows 本地安装/重启脚本需要 `pwsh`；单纯测试和构建不依赖 Windows。
+- 可选编辑器：[Visual Studio Code](https://code.visualstudio.com/) 及其内置 TypeScript 支持。
+- [NPM 账号](https://www.npmjs.com)。
+
+> Tabby 当前依赖 Angular 15，因此项目使用其兼容的 TypeScript 4.9。仓库已配置 VS Code/Cursor 使用 `node_modules/typescript` 中的工作区版本；若编辑器仍显示新版 TypeScript 的弃用提示，请重载窗口或执行 `TypeScript: Restart TS Server`。
+
+Tabby 开发相关资料：
+
+- [Tabby 源码仓库](https://github.com/Eugeny/tabby)
+- [Tabby 插件 API 文档](https://docs.tabby.sh/)
+- [Tabby 开发说明 HACKING.md](https://github.com/Eugeny/tabby/blob/master/HACKING.md)
+- [Tabby Core API](https://docs.tabby.sh/classes/LocaleService.html)
+
+常用开发命令：
+
+| 命令 | 说明 |
+| --- | --- |
+| `npm run typecheck` | 检查 TypeScript 类型 |
+| `npm test` | 编译并运行测试 |
+| `npm run clean` | 清理 `dist` 和 `dist-tests` |
+| `npm run build` | 清理并构建 `dist` |
+| `npm run watch` | 监听源码变化并持续构建 |
+| `npm run install:tabby` | 构建并安装到本机 Tabby |
+| `npm run install:tabby:restart` | 构建、安装并重启 Tabby |
+| `npm run publish:check` | 完整执行发布前检查并预览 npm 包 |
+| `npm pack` | 生成本地 npm 安装包 |
+| `npm run clean:pack` | 清理本地 `.tgz` 安装包 |
+
+插件入口为 `dist/index.js`。`dist` 不提交到 Git，而是在构建和 npm 发布前生成。
+
+## 发布到 npm
+
+> 在 NPM 上发布插件，并使用 tabby-plugin 关键词，就会出现在tabby客户端的插件管理器中。
+
+发布流程：
+
+```
+1. npm login # 登录
+2. npm whoami # 查看当前账号
+3. 更改版本号，三选一
+  npm version patch --no-git-tag-version # 1.0.0 -> 1.0.1，修bug、小改动
+  npm version minor --no-git-tag-version # 1.0.0 -> 1.1.0，新增功能、小版本
+  npm version major --no-git-tag-version # 1.0.0 -> 2.0.0，不兼容改动、大版本
+4. npm run publish:check  # 发布前检查
+5. npm publish # 发布
+```
+
+当前包名可用性可用下面的命令再次确认。若返回 `E404`，表示 npm 上尚无这个包名；包名可能随时被其他人注册，因此应在正式发布前复查。
+
+```powershell
+npm view tabby-windy-quick-commands
+```
+
+## License
+
+本项目采用 [MIT License](./LICENSE)。
