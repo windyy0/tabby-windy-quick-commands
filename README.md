@@ -6,6 +6,18 @@
 
 > 没有仔细的测试过，就纯觉得没有好用点好看点的相关快速命令的插件，用AI辅助写了一个。可能存在大量的bug还有一些没考虑的，见谅🫨可以提issue，慢慢改~
 
+## 项目链接
+
+- GitHub 源码仓库：[windyy0/tabby-windy-quick-commands](https://github.com/windyy0/tabby-windy-quick-commands)
+- 问题反馈：[GitHub Issues](https://github.com/windyy0/tabby-windy-quick-commands/issues)
+- npm 包：[tabby-windy-quick-commands](https://www.npmjs.com/package/tabby-windy-quick-commands)
+
+## 截图
+
+### 预览
+
+![快速命令界面](https://raw.githubusercontent.com/windyy0/tabby-windy-quick-commands/main/docs/images/overview.png)
+
 ## 功能
 
 - 通过工具栏按钮或快捷键开关抽屉
