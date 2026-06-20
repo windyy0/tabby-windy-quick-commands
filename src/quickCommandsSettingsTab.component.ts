@@ -24,7 +24,7 @@ import { QuickCommandsI18n } from './i18n'
         <div class="wqc-plugin-intro">
           <strong>Tabby Windy Quick Commands</strong>
           <p>在 Tabby 中集中管理和执行常用终端命令，支持分类搜索、快捷键、多会话发送、逐行执行、输出触发器以及命令库导入导出。</p>
-          <span>插件配置、命令库、运行日志和使用统计均采用独立文件存储；Tabby 总配置中只保留全局快捷键。</span>
+          <span>可能存在大量的bug还有一些没考虑的，见谅🫨可以提issue，慢慢改~</span>
         </div>
 
         <section class="wqc-section wqc-config-section">

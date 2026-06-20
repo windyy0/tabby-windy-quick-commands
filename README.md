@@ -4,7 +4,7 @@
 
 插件在 Tabby 右上角提供快速命令按钮，并从右侧展开抽屉，用于集中管理、搜索和执行常用命令。支持快捷键、多会话发送、逐行执行、输出触发器，以及命令库导入导出。
 
-> 没有仔细的测试过，就纯觉得没有好用点好看点的相关快速命令的插件，用AI辅助写了一个。可能存在大量的bug还有一些没考虑的，见谅🫨
+> 没有仔细的测试过，就纯觉得没有好用点好看点的相关快速命令的插件，用AI辅助写了一个。可能存在大量的bug还有一些没考虑的，见谅🫨可以提issue，慢慢改~
 
 ## 功能
 
@@ -34,18 +34,11 @@ windy-quick-commands
 
 ```powershell
 npm ci
-npm run install:tabby:restart
-```
-
-这里推荐使用 `npm ci`，它会严格按照 `package-lock.json` 安装依赖；如果锁文件缺失、不可用或需要更新依赖，可改用 `npm install`。
-
-脚本会构建插件，将最小运行文件复制到 Tabby 的用户插件目录，并重启 Tabby。也可以只安装、不重启：
-
-```powershell
 npm run install:tabby
 ```
 
-卸载时可直接在 Tabby 的插件管理器中点击卸载。
+脚本会构建插件，将最小运行文件复制到 Tabby 的用户插件目录，并重启 Tabby。也可以只安装、不重启：
+
 
 ## 使用
 
@@ -69,6 +62,34 @@ npm run install:tabby
 
 > Tabby 当前依赖 Angular 15，因此项目使用其兼容的 TypeScript 4.9。仓库已配置 VS Code/Cursor 使用 `node_modules/typescript` 中的工作区版本；若编辑器仍显示新版 TypeScript 的弃用提示，请重载窗口或执行 `TypeScript: Restart TS Server`。
 
+### 本地安装
+
+安装依赖，安装到本机tabby插件目录下：
+
+```powershell
+npm ci
+npm run install:tabby
+```
+
+> 推荐使用 `npm ci`；锁文件缺失、不可用或需要更新依赖时，可改用 `npm install`。
+
+运行测试和构建：
+
+```powershell
+npm test
+npm run build
+```
+
+安装到本机 Tabby并重启：
+
+```powershell
+npm run install:tabby:restart
+```
+
+**卸载时直接在 Tabby 插件管理器中点击卸载即可。**
+
+---
+
 Tabby 开发相关资料：
 
 - [Tabby 源码仓库](https://github.com/Eugeny/tabby)
@@ -78,18 +99,18 @@ Tabby 开发相关资料：
 
 常用开发命令：
 
-| 命令 | 说明 |
-| --- | --- |
-| `npm run typecheck` | 检查 TypeScript 类型 |
-| `npm test` | 编译并运行测试 |
-| `npm run clean` | 清理 `dist` 和 `dist-tests` |
-| `npm run build` | 清理并构建 `dist` |
-| `npm run watch` | 监听源码变化并持续构建 |
-| `npm run install:tabby` | 构建并安装到本机 Tabby |
-| `npm run install:tabby:restart` | 构建、安装并重启 Tabby |
-| `npm run publish:check` | 完整执行发布前检查并预览 npm 包 |
-| `npm pack` | 生成本地 npm 安装包 |
-| `npm run clean:pack` | 清理本地 `.tgz` 安装包 |
+| 命令                              | 说明                            |
+| --------------------------------- | ------------------------------- |
+| `npm run typecheck`             | 检查 TypeScript 类型            |
+| `npm test`                      | 编译并运行测试                  |
+| `npm run clean`                 | 清理 `dist` 和 `dist-tests` |
+| `npm run build`                 | 清理并构建 `dist`             |
+| `npm run watch`                 | 监听源码变化并持续构建          |
+| `npm run install:tabby`         | 构建并安装到本机 Tabby          |
+| `npm run install:tabby:restart` | 构建、安装并重启 Tabby          |
+| `npm run publish:check`         | 完整执行发布前检查并预览 npm 包 |
+| `npm pack`                      | 生成本地 npm 安装包             |
+| `npm run clean:pack`            | 清理本地 `.tgz` 安装包        |
 
 插件入口为 `dist/index.js`。`dist` 不提交到 Git，而是在构建和 npm 发布前生成。
 

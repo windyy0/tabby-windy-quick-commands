@@ -16,7 +16,7 @@ const englishPhrases: Record<string, string> = {
     '每个会话独立匹配；后续规则只读取上一条规则结束后的新输出。': 'Each session is matched independently. Later rules only read output produced after the previous rule finishes.',
     '新分类会显示在分类栏里，可以先建空分类，再向其中添加命令。': 'New categories appear in the category bar. You can create an empty category before adding commands to it.',
     '按关键词、分类和使用状态筛选，并按最近使用时间排序，每页 6 条。': 'Filter by keyword, category, and usage, sorted by most recently used, with 6 commands per page.',
-    '插件配置、命令库、运行日志和使用统计均采用独立文件存储；Tabby 总配置中只保留全局快捷键。': 'Plugin settings, command libraries, runtime logs, and usage statistics use separate files. Only the global shortcut remains in Tabby\'s main configuration.',
+    '可能存在大量的bug还有一些没考虑的，见谅🫨可以提issue，慢慢改~': 'There may still be plenty of bugs and overlooked cases, so please bear with me 🫨 Feel free to open an issue; I will improve things over time~',
     '粘贴模式会把命令发送到目标会话，可选择是否自动回车。': 'Paste mode sends the command to the target sessions and can optionally press Enter.',
     '当前会话不支持输出监听，已跳过输出触发器。': 'The current session does not support output monitoring, so output triggers were skipped.',
     '逐行模式支持为每一行设置延迟和执行后暂停。': 'Line-by-line mode supports a delay and pause-after-run setting for each line.',
