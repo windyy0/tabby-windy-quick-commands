@@ -174,12 +174,23 @@ function testImportValidation (): void {
             id: 'rule',
             name: '规则',
             enabled: true,
+            collapsed: false,
             matchMode: 'literal',
             waitFor: 'ok',
+            waitForLogic: 'single',
             timeoutMs: 1000,
             errorPattern: '',
+            errorPatternLogic: 'single',
+            onMatchAction: 'command',
+            onMatchCommand: '',
+            onMatchAutoEnter: true,
             onMatchCommandId: 'missing-command',
+            onErrorAction: 'none',
+            onErrorCommand: '',
+            onErrorAutoEnter: true,
             onErrorCommandId: '',
+            onTimeoutCommand: '',
+            onTimeoutAutoEnter: true,
             onTimeoutCommandId: '',
             timeoutAction: 'continue',
         }],
@@ -261,8 +272,12 @@ function testVisibleCommandSelection (): void {
 function testOutputAutomation (): void {
     assert(findOutputMatch('server.ready', '.', 'literal').text === '.', 'literal output matching should not treat dots as regex wildcards')
     assert(findOutputMatch('ready', '^ready$', 'regex').matched, 'regex output matching should support regular expressions')
+    assert(findOutputMatch('server started', 'ready\nstarted', 'literal', 'any').text === 'started', 'any-line matching should accept the first matched non-empty line')
+    assert(findOutputMatch('login ok\nworkspace loaded', 'login ok\nworkspace loaded', 'literal', 'all').matched, 'all-line matching should require every non-empty line')
+    assert(!findOutputMatch('login ok', 'login ok\nworkspace loaded', 'literal', 'all').matched, 'all-line matching should reject partial matches')
     assert(!findOutputMatch('ready', '[', 'regex').matched, 'invalid regex should never fall back to a broad literal match')
     assert(!isValidOutputPattern('[', 'regex'), 'invalid regex should be reported during configuration')
+    assert(!isValidOutputPattern('ready\n[', 'regex', 'any'), 'invalid multi-line regex patterns should be reported during configuration')
     assert(normalizeTerminalOutput('\x1b[32mreaX\bdy\x1b[0m') === 'ready', 'terminal output matching should remove ANSI sequences and apply backspaces')
 
     const normalized = normalizeCommandConfig({
@@ -280,7 +295,24 @@ function testOutputAutomation (): void {
     }, createId)
     assert(normalized.automationRules[0].enabled, 'legacy automation rules should remain enabled after migration')
     assert(normalized.automationRules[0].matchMode === 'literal', 'legacy automation rules should migrate to literal matching')
+    assert(normalized.automationRules[0].waitForLogic === 'single', 'legacy success matching should remain single-pattern')
     assert(normalized.automationRules[0].timeoutMs === 10000, 'legacy zero timeouts should migrate to the documented default')
+    assert(normalized.automationRules[0].onMatchAction === 'none', 'legacy empty action should migrate to no action')
+    assert(normalized.automationRules[0].onMatchAutoEnter, 'custom action auto-enter should default to enabled')
+
+    const migratedAction = normalizeCommandConfig({
+        name: '旧引用动作',
+        command: 'echo ready',
+        automationRules: [{
+            waitFor: 'ready',
+            onMatchCommandId: 'next-command',
+            onErrorCommand: 'echo failed',
+            onErrorAutoEnter: false,
+        } as any],
+    }, createId)
+    assert(migratedAction.automationRules[0].onMatchAction === 'command', 'legacy command references should migrate to command actions')
+    assert(migratedAction.automationRules[0].onErrorAction === 'custom', 'custom action text should migrate to custom actions')
+    assert(!migratedAction.automationRules[0].onErrorAutoEnter, 'custom action auto-enter should preserve disabled values')
 }
 
 function testRuntimeStorage (): void {

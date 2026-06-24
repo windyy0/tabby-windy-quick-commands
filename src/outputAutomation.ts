@@ -1,4 +1,4 @@
-import { OutputMatchMode } from './types'
+import { OutputMatchMode, OutputPatternLogic } from './types'
 
 export interface OutputMatch {
     matched: boolean
@@ -27,12 +27,30 @@ export function findOutputMatch (
     output: string,
     pattern: string,
     mode: OutputMatchMode,
+    logic: OutputPatternLogic = 'single',
 ): OutputMatch {
-    if (!pattern) {
+    const patterns = splitOutputPatterns(pattern, logic)
+    if (!patterns.length) {
         return { matched: false, text: '' }
     }
 
     const normalized = normalizeTerminalOutput(output)
+    const matches = patterns.map(item => findSingleOutputMatch(normalized, item, mode))
+    if (logic === 'all') {
+        const matched = matches.every(match => match.matched)
+        return {
+            matched,
+            text: matched ? matches.map(match => match.text).filter(Boolean).join(' / ') : '',
+        }
+    }
+    return matches.find(match => match.matched) || { matched: false, text: '' }
+}
+
+function findSingleOutputMatch (
+    normalized: string,
+    pattern: string,
+    mode: OutputMatchMode,
+): OutputMatch {
     if (mode === 'regex') {
         try {
             const match = normalized.match(new RegExp(pattern, 'i'))
@@ -48,14 +66,30 @@ export function findOutputMatch (
         : { matched: true, text: normalized.slice(index, index + pattern.length) }
 }
 
-export function isValidOutputPattern (pattern: string, mode: OutputMatchMode): boolean {
+export function isValidOutputPattern (
+    pattern: string,
+    mode: OutputMatchMode,
+    logic: OutputPatternLogic = 'single',
+): boolean {
     if (!pattern || mode === 'literal') {
         return true
     }
-    try {
-        new RegExp(pattern, 'i')
-        return true
-    } catch {
-        return false
+    return splitOutputPatterns(pattern, logic).every(item => {
+        try {
+            new RegExp(item, 'i')
+            return true
+        } catch {
+            return false
+        }
+    })
+}
+
+function splitOutputPatterns (pattern: string, logic: OutputPatternLogic): string[] {
+    if (logic === 'single') {
+        return pattern ? [pattern] : []
     }
+    return pattern
+        .split(/\r?\n/)
+        .map(item => item.trim())
+        .filter(Boolean)
 }

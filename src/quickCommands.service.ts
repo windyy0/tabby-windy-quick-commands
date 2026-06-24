@@ -984,6 +984,42 @@ const css = `
   min-width: 0;
 }
 
+.tqc-rule-action-detail {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--tqc-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tqc-subtle) 72%, transparent);
+}
+
+.tqc-rule-action-detail .tqc-checkbox {
+  margin-top: 7px;
+}
+
+.tqc-rule-command {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.tqc-rule-pattern {
+  margin-top: 8px;
+  min-height: 36px;
+  resize: vertical;
+}
+
+.tqc-rule-command-search {
+  height: 30px;
+  margin-bottom: 5px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.tqc-rule-menu-empty {
+  padding: 7px 9px;
+  color: var(--tqc-muted);
+  font-size: 12px;
+}
+
 .tqc-category-select .tqc-select,
 .tqc-target-select .tqc-select,
 .tqc-rule-select .tqc-select {
@@ -1282,9 +1318,21 @@ const css = `
 
 .tqc-primary {
   flex: 1;
+  position: relative;
   border-color: var(--tqc-accent);
   background: var(--tqc-accent);
   color: white;
+}
+
+.tqc-primary .tqc-kbd {
+  position: absolute;
+  right: 10px;
+  min-height: 18px;
+  border-color: color-mix(in srgb, white 48%, transparent);
+  border-bottom-color: color-mix(in srgb, white 72%, transparent);
+  background: color-mix(in srgb, white 14%, transparent);
+  color: white;
+  font-size: 10px;
 }
 
 .tqc-primary:not(:disabled):hover {
@@ -1409,6 +1457,28 @@ const css = `
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.tqc-rule-title,
+.tqc-rule-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tqc-rule-title {
+  flex-wrap: wrap;
+}
+
+.tqc-rule-title strong {
+  font-size: 13px;
+  color: var(--tqc-text);
+  white-space: nowrap;
+}
+
+.tqc-rule-head-actions {
+  flex: none;
 }
 
 .tqc-rule-disabled {
@@ -1736,6 +1806,7 @@ export class QuickCommandsService {
     private targetKeys = new WeakMap<TerminalTabLike, string>()
     private nextTargetKey = 0
     private renderedCommandId: string | null = null
+    private pendingAutomationRuleScrollId: string | null = null
     private runtimeStore: QuickCommandsRuntimeStore
     private pluginConfigStore: QuickCommandsPluginConfigStore
     private state: QuickCommandsConfig
@@ -1926,6 +1997,7 @@ export class QuickCommandsService {
         this.layoutCategories()
         this.bindEvents()
         this.restoreScroll(detailScrollTop, listScrollTop)
+        this.scrollToPendingAutomationRule()
     }
 
     private renderCommandListItem (command: QuickCommand, selected: boolean): string {
@@ -2126,7 +2198,7 @@ export class QuickCommandsService {
                     <button class="tqc-mini" type="button" data-action="add-rule">${icons.plus} 规则</button>
                   </div>
                   <div class="tqc-rule-list">
-                    ${command.automationRules.length ? command.automationRules.map(rule => this.renderAutomationRule(rule)).join('') : '<div class="tqc-muted">暂无规则</div>'}
+                    ${command.automationRules.length ? command.automationRules.map((rule, index) => this.renderAutomationRule(rule, index)).join('') : '<div class="tqc-muted">暂无规则</div>'}
                   </div>
                 </div>
               </div>
@@ -2135,18 +2207,25 @@ export class QuickCommandsService {
         `
     }
 
-    private renderAutomationRule (rule: QuickAutomationRule): string {
-        const invalidWaitPattern = !isValidOutputPattern(rule.waitFor, rule.matchMode)
-        const invalidErrorPattern = !isValidOutputPattern(rule.errorPattern, rule.matchMode)
+    private renderAutomationRule (rule: QuickAutomationRule, index: number): string {
+        const invalidWaitPattern = !isValidOutputPattern(rule.waitFor, rule.matchMode, rule.waitForLogic)
+        const invalidErrorPattern = !isValidOutputPattern(rule.errorPattern, rule.matchMode, rule.errorPatternLogic)
         return `
           <div class="tqc-rule${rule.enabled ? '' : ' tqc-rule-disabled'}" data-rule-id="${this.escapeAttr(rule.id)}">
             <div class="tqc-rule-head">
-              <label class="tqc-checkbox">
-                <input class="tqc-checkbox-control" type="checkbox" data-rule-field="enabled" ${rule.enabled ? 'checked' : ''}>
-                <span>启用规则</span>
-              </label>
-              <button class="tqc-mini" type="button" data-action="remove-rule" data-rule-action-id="${this.escapeAttr(rule.id)}">${icons.trash} 删除规则</button>
+              <div class="tqc-rule-title">
+                <strong>规则 ${index + 1}</strong>
+                <label class="tqc-checkbox">
+                  <input class="tqc-checkbox-control" type="checkbox" data-rule-field="enabled" ${rule.enabled ? 'checked' : ''}>
+                  <span>启用规则</span>
+                </label>
+              </div>
+              <div class="tqc-rule-head-actions">
+                <button class="tqc-mini" type="button" data-action="remove-rule" data-rule-action-id="${this.escapeAttr(rule.id)}">${icons.trash} 删除规则</button>
+                <button class="tqc-mini" type="button" data-action="toggle-rule-collapsed" data-rule-action-id="${this.escapeAttr(rule.id)}">${icons.chevron} ${rule.collapsed ? '展开' : '折叠'}</button>
+              </div>
             </div>
+            ${rule.collapsed ? '' : `
             <div class="tqc-field-grid">
               <label>
                 <span class="tqc-label">规则名</span>
@@ -2161,37 +2240,141 @@ export class QuickCommandsService {
               </label>
             </div>
             <div class="tqc-field-grid">
-              <label>
-                <span class="tqc-label">成功匹配</span>
-                <input class="tqc-input" data-rule-field="waitFor" value="${this.escapeAttr(rule.waitFor)}">
-              </label>
-              <label>
-                <span class="tqc-label">错误匹配</span>
-                <input class="tqc-input" data-rule-field="errorPattern" value="${this.escapeAttr(rule.errorPattern)}">
-              </label>
+              ${this.renderAutomationPatternField(rule, 'waitFor', 'waitForLogic', '成功匹配')}
+              ${this.renderAutomationPatternField(rule, 'errorPattern', 'errorPatternLogic', '错误匹配')}
             </div>
             ${invalidWaitPattern || invalidErrorPattern ? '<div class="tqc-rule-warning">正则表达式无效，请修正后再执行。</div>' : ''}
             <div class="tqc-field-grid">
-              <label>
+              <div>
                 <span class="tqc-label">成功后执行</span>
-                ${this.renderAutomationRuleSelect(rule, 'onMatchCommandId', rule.onMatchCommandId, this.getAutomationCommandOptions(rule.onMatchCommandId))}
-              </label>
-              <label>
+                ${this.renderAutomationRuleAction(rule, 'match')}
+              </div>
+              <div>
                 <span class="tqc-label">错误后执行</span>
-                ${this.renderAutomationRuleSelect(rule, 'onErrorCommandId', rule.onErrorCommandId, this.getAutomationCommandOptions(rule.onErrorCommandId))}
-              </label>
+                ${this.renderAutomationRuleAction(rule, 'error')}
+              </div>
             </div>
             <div class="tqc-field-grid">
               <label>
                 <span class="tqc-label">超时 ms</span>
                 <input class="tqc-input" type="number" min="100" step="500" data-rule-field="timeoutMs" data-tooltip="等待成功或错误输出的最长时间，单位为毫秒；到时后执行右侧的超时动作，最少 100ms。" value="${this.escapeAttr(String(rule.timeoutMs))}">
               </label>
-              <label>
+              <div>
                 <span class="tqc-label">超时后</span>
-                ${this.renderAutomationTimeoutSelect(rule)}
-              </label>
+                ${this.renderAutomationRuleAction(rule, 'timeout')}
+              </div>
             </div>
             <div class="tqc-field-hint">每个会话独立匹配；后续规则只读取上一条规则结束后的新输出。</div>
+            `}
+          </div>
+        `
+    }
+
+    private renderAutomationPatternField (
+        rule: QuickAutomationRule,
+        patternField: 'waitFor' | 'errorPattern',
+        logicField: 'waitForLogic' | 'errorPatternLogic',
+        label: string,
+    ): string {
+        return `
+          <div>
+            <span class="tqc-label">${label}</span>
+            ${this.renderAutomationRuleSelect(rule, logicField, rule[logicField], [
+                { value: 'single', label: '单条匹配' },
+                { value: 'any', label: '任一行匹配' },
+                { value: 'all', label: '全部行匹配' },
+            ])}
+            <textarea class="tqc-textarea tqc-rule-pattern" data-rule-field="${patternField}" rows="${rule[logicField] === 'single' ? '1' : '3'}" spellcheck="false" placeholder="${rule[logicField] === 'single' ? '输入匹配文本' : '每行一个匹配文本'}">${this.escape(rule[patternField])}</textarea>
+          </div>
+        `
+    }
+
+    private renderAutomationRuleAction (rule: QuickAutomationRule, outcome: 'match' | 'error' | 'timeout'): string {
+        if (outcome === 'timeout') {
+            return `
+              ${this.renderAutomationRuleSelect(rule, 'timeoutAction', rule.timeoutAction, [
+                { value: 'continue', label: '继续下一条规则' },
+                { value: 'stop', label: '停止该会话自动化' },
+                { value: 'custom', label: '发送自定义命令' },
+                { value: 'command', label: '执行已有命令' },
+              ])}
+              ${this.renderAutomationActionDetail(rule, 'timeout', rule.timeoutAction)}
+            `
+        }
+        const actionField = outcome === 'match' ? 'onMatchAction' : 'onErrorAction'
+        const actionValue = outcome === 'match' ? rule.onMatchAction : rule.onErrorAction
+        return `
+          ${this.renderAutomationRuleSelect(rule, actionField, actionValue, [
+            { value: 'none', label: '不执行' },
+            { value: 'custom', label: '发送自定义命令' },
+            { value: 'command', label: '执行已有命令' },
+          ])}
+          ${this.renderAutomationActionDetail(rule, outcome, actionValue)}
+        `
+    }
+
+    private renderAutomationActionDetail (
+        rule: QuickAutomationRule,
+        outcome: 'match' | 'error' | 'timeout',
+        action: string,
+    ): string {
+        if (action === 'custom') {
+            const field = outcome === 'match'
+                ? 'onMatchCommand'
+                : outcome === 'error'
+                    ? 'onErrorCommand'
+                    : 'onTimeoutCommand'
+            const autoEnterField = outcome === 'match'
+                ? 'onMatchAutoEnter'
+                : outcome === 'error'
+                    ? 'onErrorAutoEnter'
+                    : 'onTimeoutAutoEnter'
+            return `
+              <div class="tqc-rule-action-detail">
+                <textarea class="tqc-textarea tqc-rule-command" data-rule-field="${field}" rows="2" spellcheck="false" placeholder="输入要发送到终端的命令">${this.escape(rule[field])}</textarea>
+                <label class="tqc-checkbox">
+                  <input class="tqc-checkbox-control" type="checkbox" data-rule-field="${autoEnterField}" ${rule[autoEnterField] ? 'checked' : ''}>
+                  <span>发送后自动回车</span>
+                </label>
+              </div>
+            `
+        }
+        if (action === 'command') {
+            const field = outcome === 'match'
+                ? 'onMatchCommandId'
+                : outcome === 'error'
+                    ? 'onErrorCommandId'
+                    : 'onTimeoutCommandId'
+            return `
+              <div class="tqc-rule-action-detail">
+                ${this.renderAutomationCommandPicker(rule, field, rule[field])}
+              </div>
+            `
+        }
+        return ''
+    }
+
+    private renderAutomationCommandPicker (rule: QuickAutomationRule, field: string, selectedId: string): string {
+        const menuKey = `${rule.id}:${field}`
+        const open = this.automationRuleMenuKey === menuKey
+        const options = this.getAutomationCommandOptions(selectedId)
+        const selectedLabel = options.find(option => option.value === selectedId)?.label || '请选择命令'
+        const selectedTitle = open ? '' : ` title="${this.escapeAttr(selectedLabel)}"`
+        return `
+          <div class="tqc-rule-select" data-rule-menu-key="${this.escapeAttr(menuKey)}">
+            <button class="tqc-select" type="button" data-action="rule-menu-toggle" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(field)}" aria-haspopup="listbox" aria-expanded="${open}">
+              <span${selectedTitle}>${this.escape(selectedLabel)}</span>
+              ${icons.chevron}
+            </button>
+            ${open ? `
+              <div class="tqc-rule-menu" role="listbox">
+                <input class="tqc-input tqc-rule-command-search" data-role="automation-command-search" placeholder="搜索命令">
+                ${options.map(option => `
+                  <button class="tqc-rule-option${option.value === selectedId ? ' tqc-active' : ''}" type="button" role="option" aria-selected="${option.value === selectedId}" data-action="rule-option-select" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(field)}" data-rule-value="${this.escapeAttr(option.value)}" data-command-search-text="${this.escapeAttr(option.label.toLowerCase())}" title="${this.escapeAttr(option.label)}">${this.escape(option.label)}</button>
+                `).join('')}
+                <div class="tqc-rule-menu-empty" data-role="automation-command-empty" hidden>没有匹配的命令</div>
+              </div>
+            ` : ''}
           </div>
         `
     }
@@ -2205,16 +2388,17 @@ export class QuickCommandsService {
         const menuKey = `${rule.id}:${field}`
         const open = this.automationRuleMenuKey === menuKey
         const selectedLabel = options.find(option => option.value === selectedValue)?.label || '请选择'
+        const selectedTitle = open ? '' : ` title="${this.escapeAttr(selectedLabel)}"`
         return `
           <div class="tqc-rule-select" data-rule-menu-key="${this.escapeAttr(menuKey)}">
             <button class="tqc-select" type="button" data-action="rule-menu-toggle" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(String(field))}" aria-haspopup="listbox" aria-expanded="${open}">
-              <span title="${this.escapeAttr(selectedLabel)}">${this.escape(selectedLabel)}</span>
+              <span${selectedTitle}>${this.escape(selectedLabel)}</span>
               ${icons.chevron}
             </button>
             ${open ? `
               <div class="tqc-rule-menu" role="listbox">
                 ${options.map(option => `
-                  <button class="tqc-rule-option${option.value === selectedValue ? ' tqc-active' : ''}" type="button" role="option" aria-selected="${option.value === selectedValue}" data-action="rule-option-select" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(String(field))}" data-rule-value="${this.escapeAttr(option.value)}" title="${this.escapeAttr(option.label)}">${this.escape(option.label)}</button>
+                  <button class="tqc-rule-option${option.value === selectedValue ? ' tqc-active' : ''}" type="button" role="option" aria-selected="${option.value === selectedValue}" data-action="rule-option-select" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(String(field))}" data-rule-value="${this.escapeAttr(option.value)}">${this.escape(option.label)}</button>
                 `).join('')}
               </div>
             ` : ''}
@@ -2246,31 +2430,8 @@ export class QuickCommandsService {
         `
     }
 
-    private renderAutomationTimeoutSelect (rule: QuickAutomationRule): string {
-        const selectedValue = rule.onTimeoutCommandId
-            ? `command:${rule.onTimeoutCommandId}`
-            : rule.timeoutAction
-        const options = [
-            { value: 'continue', label: '继续下一条规则' },
-            { value: 'stop', label: '停止该会话自动化' },
-        ]
-        if (rule.onTimeoutCommandId && !this.state.commands.some(command => command.id === rule.onTimeoutCommandId)) {
-            options.push({
-                value: selectedValue,
-                label: `执行：命令不存在（${rule.onTimeoutCommandId}）`,
-            })
-        }
-        this.state.commands.forEach(command => {
-            options.push({
-                value: `command:${command.id}`,
-                label: `执行：${command.name} · ${command.category}`,
-            })
-        })
-        return this.renderAutomationRuleSelect(rule, 'timeoutBehavior', selectedValue, options)
-    }
-
     private getAutomationCommandOptions (selectedId: string): Array<{ value: string, label: string }> {
-        const options = [{ value: '', label: '不执行命令' }]
+        const options: Array<{ value: string, label: string }> = []
         if (selectedId && !this.state.commands.some(command => command.id === selectedId)) {
             options.push({ value: selectedId, label: `命令不存在（${selectedId}）` })
         }
@@ -2300,7 +2461,7 @@ export class QuickCommandsService {
           <div class="tqc-footer-row">
             <button class="tqc-secondary" type="button" data-action="copy" ${selected ? '' : 'disabled'}>${icons.copy} 复制</button>
             <button class="tqc-primary" type="button" data-action="execute" ${selected ? '' : 'disabled'}>
-              执行 (${targetCount || 0})
+              <span>执行 (${targetCount || 0})</span><span class="tqc-kbd">Enter</span>
             </button>
           </div>
         `
@@ -2622,6 +2783,31 @@ export class QuickCommandsService {
             })
         })
 
+        this.root.querySelectorAll<HTMLInputElement>('[data-role="automation-command-search"]').forEach(input => {
+            input.addEventListener('click', event => event.stopPropagation())
+            input.addEventListener('input', () => {
+                const menu = input.closest<HTMLElement>('.tqc-rule-menu')
+                const filter = input.value.trim().toLowerCase()
+                let visibleCount = 0
+                menu?.querySelectorAll<HTMLElement>('[data-command-search-text]').forEach(option => {
+                    const visible = !filter || (option.dataset.commandSearchText || '').includes(filter)
+                    option.hidden = !visible
+                    if (visible) {
+                        visibleCount++
+                    }
+                })
+                const empty = menu?.querySelector<HTMLElement>('[data-role="automation-command-empty"]')
+                if (empty) {
+                    empty.hidden = visibleCount > 0
+                }
+            })
+        })
+        if (this.root.querySelector('[data-role="automation-command-search"]')) {
+            window.requestAnimationFrame(() => {
+                this.root?.querySelector<HTMLInputElement>('[data-role="automation-command-search"]')?.focus()
+            })
+        }
+
         this.root.querySelectorAll<HTMLElement>('[data-command-id]').forEach(element => {
             element.addEventListener('click', () => {
                 const id = element.dataset.commandId
@@ -2755,7 +2941,7 @@ export class QuickCommandsService {
 
         this.bindLineSettings(this.root)
 
-        this.root.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-rule-field]').forEach(element => {
+        this.root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('[data-rule-field]').forEach(element => {
             element.addEventListener('change', () => this.updateAutomationRule(element))
         })
 
@@ -2852,6 +3038,30 @@ export class QuickCommandsService {
             if (list) {
                 list.scrollTop = listScrollTop
             }
+        })
+    }
+
+    private withPreservedScroll (callback: () => void): void {
+        const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        const detailScrollTop = this.root?.querySelector<HTMLElement>('.tqc-detail')?.scrollTop || 0
+        const listScrollTop = this.root?.querySelector<HTMLElement>('.tqc-list')?.scrollTop || 0
+        activeElement?.blur()
+        callback()
+        this.restoreScroll(detailScrollTop, listScrollTop)
+    }
+
+    private scrollToPendingAutomationRule (): void {
+        const ruleId = this.pendingAutomationRuleScrollId
+        if (!ruleId) {
+            return
+        }
+        this.pendingAutomationRuleScrollId = null
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+                const rule = Array.from(this.root?.querySelectorAll<HTMLElement>('[data-rule-id]') || [])
+                    .find(element => element.dataset.ruleId === ruleId)
+                rule?.scrollIntoView({ block: 'nearest' })
+            })
         })
     }
 
@@ -3052,10 +3262,10 @@ export class QuickCommandsService {
                 this.toggleSelectedBoolean('pinned')
                 return
             case 'toggle-detail':
-                this.updateConfig({ basicInfoCollapsed: !this.state.basicInfoCollapsed })
+                this.withPreservedScroll(() => this.updateConfig({ basicInfoCollapsed: !this.state.basicInfoCollapsed }))
                 return
             case 'toggle-more-settings':
-                this.updateConfig({ moreSettingsCollapsed: !this.state.moreSettingsCollapsed })
+                this.withPreservedScroll(() => this.updateConfig({ moreSettingsCollapsed: !this.state.moreSettingsCollapsed }))
                 return
             case 'toggle-command-menu':
                 this.commandMenuOpen = !this.commandMenuOpen
@@ -3066,7 +3276,7 @@ export class QuickCommandsService {
                 this.render()
                 return
             case 'clear-shortcut':
-                this.updateSelectedCommand({ shortcut: '' })
+                this.withPreservedScroll(() => this.updateSelectedCommand({ shortcut: '' }))
                 return
             case 'category-menu-toggle':
                 this.categoryMenuOpen = !this.categoryMenuOpen
@@ -3148,14 +3358,16 @@ export class QuickCommandsService {
                 const field = element?.dataset.ruleMenuField
                 if (ruleId && field) {
                     const menuKey = `${ruleId}:${field}`
-                    this.automationRuleMenuKey = this.automationRuleMenuKey === menuKey ? null : menuKey
-                    this.libraryMenuOpen = false
-                    this.categoryActionsOpen = false
-                    this.categoryMenuOpen = false
-                    this.targetMenuOpen = false
-                    this.commandMenuOpen = false
-                    this.categoryOverflowOpen = false
-                    this.render()
+                    this.withPreservedScroll(() => {
+                        this.automationRuleMenuKey = this.automationRuleMenuKey === menuKey ? null : menuKey
+                        this.libraryMenuOpen = false
+                        this.categoryActionsOpen = false
+                        this.categoryMenuOpen = false
+                        this.targetMenuOpen = false
+                        this.commandMenuOpen = false
+                        this.categoryOverflowOpen = false
+                        this.render()
+                    })
                 }
                 return
             }
@@ -3164,20 +3376,21 @@ export class QuickCommandsService {
                 const field = element?.dataset.ruleMenuField
                 const value = element?.dataset.ruleValue
                 if (ruleId && field && value !== undefined) {
-                    this.automationRuleMenuKey = null
-                    if (field === 'timeoutBehavior') {
-                        this.updateAutomationTimeoutBehavior(ruleId, value)
-                    } else {
+                    this.withPreservedScroll(() => {
+                        this.automationRuleMenuKey = null
                         this.updateAutomationRuleValue(ruleId, field as keyof QuickAutomationRule, value, true)
-                    }
+                    })
                 }
                 return
             }
             case 'add-rule':
                 this.addAutomationRule()
                 return
+            case 'toggle-rule-collapsed':
+                this.toggleAutomationRuleCollapsed(element?.dataset.ruleActionId || '')
+                return
             case 'remove-rule':
-                this.removeAutomationRule(element?.dataset.ruleActionId || '')
+                this.withPreservedScroll(() => this.removeAutomationRule(element?.dataset.ruleActionId || ''))
                 return
             case 'copy':
                 await this.copySelectedCommand()
@@ -3339,7 +3552,7 @@ export class QuickCommandsService {
         this.updateSelectedCommand({ linePauses })
     }
 
-    private updateAutomationRule (element: HTMLInputElement | HTMLSelectElement): void {
+    private updateAutomationRule (element: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement): void {
         const ruleElement = element.closest<HTMLElement>('[data-rule-id]')
         const ruleId = ruleElement?.dataset.ruleId
         const field = element.dataset.ruleField as keyof QuickAutomationRule | undefined
@@ -3348,12 +3561,18 @@ export class QuickCommandsService {
         }
         const value = field === 'timeoutMs'
             ? Math.max(100, Number(element.value) || 10000)
-            : field === 'enabled' && element instanceof HTMLInputElement
+            : element instanceof HTMLInputElement && element.type === 'checkbox'
                 ? element.checked
                 : element.value
         const shouldRender = field === 'enabled' || field === 'matchMode' ||
-            field === 'waitFor' || field === 'errorPattern'
-        this.updateAutomationRuleValue(ruleId, field, value, shouldRender)
+            field === 'waitFor' || field === 'errorPattern' ||
+            field === 'waitForLogic' || field === 'errorPatternLogic' ||
+            field === 'onMatchAction' || field === 'onErrorAction' || field === 'timeoutAction'
+        if (shouldRender) {
+            this.withPreservedScroll(() => this.updateAutomationRuleValue(ruleId, field, value, true))
+            return
+        }
+        this.updateAutomationRuleValue(ruleId, field, value, false)
     }
 
     private updateAutomationRuleValue (
@@ -3370,25 +3589,6 @@ export class QuickCommandsService {
             rule.id === ruleId ? { ...rule, [field]: value } : rule
         ))
         this.updateSelectedCommand({ automationRules }, false, shouldRender)
-    }
-
-    private updateAutomationTimeoutBehavior (ruleId: string, value: string): void {
-        const selected = this.getSelectedCommand()
-        if (!selected) {
-            return
-        }
-        const commandId = value.startsWith('command:') ? value.slice('command:'.length) : ''
-        const automationRules = selected.automationRules.map(rule => {
-            if (rule.id !== ruleId) {
-                return rule
-            }
-            return {
-                ...rule,
-                timeoutAction: value === 'stop' ? 'stop' as const : 'continue' as const,
-                onTimeoutCommandId: commandId,
-            }
-        })
-        this.updateSelectedCommand({ automationRules })
     }
 
     private updateSelectedCommand (
@@ -3715,16 +3915,42 @@ export class QuickCommandsService {
             id: this.createId(),
             name: '输出匹配规则',
             enabled: true,
+            collapsed: false,
             matchMode: 'literal',
             waitFor: '',
+            waitForLogic: 'single',
             timeoutMs: 10000,
             errorPattern: '',
+            errorPatternLogic: 'single',
+            onMatchAction: 'none',
+            onMatchCommand: '',
+            onMatchAutoEnter: true,
             onMatchCommandId: '',
+            onErrorAction: 'none',
+            onErrorCommand: '',
+            onErrorAutoEnter: true,
             onErrorCommandId: '',
+            onTimeoutCommand: '',
+            onTimeoutAutoEnter: true,
             onTimeoutCommandId: '',
             timeoutAction: 'continue',
         }
+        this.pendingAutomationRuleScrollId = rule.id
         this.updateSelectedCommand({ automationRules: [...selected.automationRules, rule] })
+    }
+
+    private toggleAutomationRuleCollapsed (ruleId: string): void {
+        if (!ruleId) {
+            return
+        }
+        const selected = this.getSelectedCommand()
+        if (!selected) {
+            return
+        }
+        const automationRules = selected.automationRules.map(rule => (
+            rule.id === ruleId ? { ...rule, collapsed: !rule.collapsed } : rule
+        ))
+        this.withPreservedScroll(() => this.updateSelectedCommand({ automationRules }))
     }
 
     private removeAutomationRule (ruleId: string): void {
@@ -4112,8 +4338,8 @@ export class QuickCommandsService {
             if (this.runState?.stopped) {
                 return
             }
-            if (!isValidOutputPattern(rule.waitFor, rule.matchMode) ||
-                !isValidOutputPattern(rule.errorPattern, rule.matchMode)) {
+            if (!isValidOutputPattern(rule.waitFor, rule.matchMode, rule.waitForLogic) ||
+                !isValidOutputPattern(rule.errorPattern, rule.matchMode, rule.errorPatternLogic)) {
                 this.addLog('warn', `规则正则表达式无效，已跳过：${rule.name}`, command.id, undefined, {
                     targetNames: [this.getTabTitle(target)],
                 })
@@ -4126,15 +4352,8 @@ export class QuickCommandsService {
                 return
             }
 
-            const actionCommandId = result.outcome === 'match'
-                ? rule.onMatchCommandId
-                : result.outcome === 'error'
-                    ? rule.onErrorCommandId
-                    : rule.onTimeoutCommandId
-            if (actionCommandId) {
-                this.executeAutomationCommand(actionCommandId, [target], command.id)
-            }
-            if (result.outcome === 'timeout' && rule.timeoutAction === 'stop') {
+            const shouldStop = this.executeAutomationRuleAction(rule, result.outcome, target, command.id)
+            if (shouldStop) {
                 this.addLog('warn', `会话自动化已在超时后停止：${rule.name}`, command.id, undefined, {
                     targetNames: [this.getTabTitle(target)],
                 })
@@ -4160,12 +4379,12 @@ export class QuickCommandsService {
                 return { outcome: 'stopped', matchedText: '' }
             }
             const output = this.getOutputSince(target, cursor)
-            const errorMatch = findOutputMatch(output, rule.errorPattern, rule.matchMode)
+            const errorMatch = findOutputMatch(output, rule.errorPattern, rule.matchMode, rule.errorPatternLogic)
             if (errorMatch.matched) {
                 this.addRuleMatchLog('warn', '命中错误输出', rule, errorMatch.text, commandId, targetName)
                 return { outcome: 'error', matchedText: errorMatch.text }
             }
-            const successMatch = findOutputMatch(output, rule.waitFor, rule.matchMode)
+            const successMatch = findOutputMatch(output, rule.waitFor, rule.matchMode, rule.waitForLogic)
             if (successMatch.matched) {
                 this.addRuleMatchLog('info', '命中成功输出', rule, successMatch.text, commandId, targetName)
                 return { outcome: 'match', matchedText: successMatch.text }
@@ -4193,7 +4412,50 @@ export class QuickCommandsService {
         })
     }
 
+    private executeAutomationRuleAction (
+        rule: QuickAutomationRule,
+        outcome: AutomationRuleResult['outcome'],
+        target: TerminalTabLike,
+        parentCommandId: string,
+    ): boolean {
+        if (outcome === 'stopped') {
+            return true
+        }
+        if (outcome === 'timeout' && rule.timeoutAction === 'stop') {
+            return true
+        }
+        const action = outcome === 'match'
+            ? rule.onMatchAction
+            : outcome === 'error'
+                ? rule.onErrorAction
+                : rule.timeoutAction
+        if (action === 'command') {
+            const commandId = outcome === 'match'
+                ? rule.onMatchCommandId
+                : outcome === 'error'
+                    ? rule.onErrorCommandId
+                    : rule.onTimeoutCommandId
+            this.executeAutomationCommand(commandId, [target], parentCommandId)
+        } else if (action === 'custom') {
+            const command = outcome === 'match'
+                ? rule.onMatchCommand
+                : outcome === 'error'
+                    ? rule.onErrorCommand
+                    : rule.onTimeoutCommand
+            const autoEnter = outcome === 'match'
+                ? rule.onMatchAutoEnter
+                : outcome === 'error'
+                    ? rule.onErrorAutoEnter
+                    : rule.onTimeoutAutoEnter
+            this.executeAutomationCustomCommand(command, autoEnter, target, parentCommandId, rule.name)
+        }
+        return false
+    }
+
     private executeAutomationCommand (commandId: string, targets: TerminalTabLike[], parentCommandId: string): void {
+        if (!commandId) {
+            return
+        }
         const command = this.state.commands.find(item => item.id === commandId)
         if (!command) {
             this.addLog('warn', `自动化目标命令不存在：${commandId}`, parentCommandId)
@@ -4207,6 +4469,30 @@ export class QuickCommandsService {
         targets.forEach(target => target.sendInput(this.normalizeCommand(command.command, command.autoEnter)))
         this.addLog('info', `自动化已执行：${command.name}`, parentCommandId, undefined, {
             targetNames: targets.map(target => this.getTabTitle(target)),
+        })
+    }
+
+    private executeAutomationCustomCommand (
+        command: string,
+        autoEnter: boolean,
+        target: TerminalTabLike,
+        parentCommandId: string,
+        ruleName: string,
+    ): void {
+        const normalized = normalizeCommandText(command)
+        if (!normalized.trim()) {
+            return
+        }
+        const danger = this.getDanger(normalized)
+        if (danger.dangerous) {
+            this.addLog('warn', `自动化跳过高风险自定义命令：${ruleName}`, parentCommandId, undefined, {
+                targetNames: [this.getTabTitle(target)],
+            })
+            return
+        }
+        target.sendInput(this.normalizeCommand(normalized, autoEnter))
+        this.addLog('info', `自动化已发送自定义命令：${ruleName}`, parentCommandId, undefined, {
+            targetNames: [this.getTabTitle(target)],
         })
     }
 
@@ -4250,6 +4536,16 @@ export class QuickCommandsService {
 
     private handleDocumentKeyDown (event: KeyboardEvent): void {
         if (event.repeat || event.isComposing) {
+            return
+        }
+
+        if (this.visible && event.key === 'Enter' && !this.isEditableElement(event.target) && !this.running) {
+            const selected = this.getSelectedCommand()
+            if (selected) {
+                event.preventDefault()
+                event.stopPropagation()
+                void this.executeSelectedCommand()
+            }
             return
         }
 

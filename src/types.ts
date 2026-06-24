@@ -3,18 +3,31 @@ export type TargetMode = 'current' | 'all'
 export type FailureStrategy = 'continue' | 'stop' | 'manual'
 export type ImportMode = 'merge' | 'replace'
 export type OutputMatchMode = 'literal' | 'regex'
-export type AutomationTimeoutAction = 'continue' | 'stop'
+export type OutputPatternLogic = 'single' | 'any' | 'all'
+export type AutomationCommandAction = 'none' | 'custom' | 'command'
+export type AutomationTimeoutAction = 'continue' | 'stop' | 'custom' | 'command'
 
 export interface QuickAutomationRule {
     id: string
     name: string
     enabled: boolean
+    collapsed: boolean
     matchMode: OutputMatchMode
     waitFor: string
+    waitForLogic: OutputPatternLogic
     timeoutMs: number
     errorPattern: string
+    errorPatternLogic: OutputPatternLogic
+    onMatchAction: AutomationCommandAction
+    onMatchCommand: string
+    onMatchAutoEnter: boolean
     onMatchCommandId: string
+    onErrorAction: AutomationCommandAction
+    onErrorCommand: string
+    onErrorAutoEnter: boolean
     onErrorCommandId: string
+    onTimeoutCommand: string
+    onTimeoutAutoEnter: boolean
     onTimeoutCommandId: string
     timeoutAction: AutomationTimeoutAction
 }

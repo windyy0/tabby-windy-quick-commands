@@ -83,14 +83,25 @@ export const quickCommandsSchema = {
                                 id: { type: 'string' },
                                 name: { type: 'string' },
                                 enabled: { type: 'boolean' },
+                                collapsed: { type: 'boolean' },
                                 matchMode: { enum: ['literal', 'regex'] },
                                 waitFor: { type: 'string' },
+                                waitForLogic: { enum: ['single', 'any', 'all'] },
                                 timeoutMs: { type: 'number' },
                                 errorPattern: { type: 'string' },
+                                errorPatternLogic: { enum: ['single', 'any', 'all'] },
+                                onMatchAction: { enum: ['none', 'custom', 'command'] },
+                                onMatchCommand: { type: 'string' },
+                                onMatchAutoEnter: { type: 'boolean' },
                                 onMatchCommandId: { type: 'string' },
+                                onErrorAction: { enum: ['none', 'custom', 'command'] },
+                                onErrorCommand: { type: 'string' },
+                                onErrorAutoEnter: { type: 'boolean' },
                                 onErrorCommandId: { type: 'string' },
+                                onTimeoutCommand: { type: 'string' },
+                                onTimeoutAutoEnter: { type: 'boolean' },
                                 onTimeoutCommandId: { type: 'string' },
-                                timeoutAction: { enum: ['continue', 'stop'] },
+                                timeoutAction: { enum: ['continue', 'stop', 'custom', 'command'] },
                             },
                         },
                     },
@@ -324,19 +335,34 @@ function validateImportedCommand (value: unknown, index: number, ids: Set<string
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器格式无效。`)
             }
             const record = rule as Record<string, unknown>
-            const stringFields = ['id', 'name', 'waitFor', 'errorPattern', 'onMatchCommandId', 'onErrorCommandId', 'onTimeoutCommandId']
+            const stringFields = ['id', 'name', 'waitFor', 'errorPattern', 'onMatchCommand', 'onMatchCommandId', 'onErrorCommand', 'onErrorCommandId', 'onTimeoutCommand', 'onTimeoutCommandId']
             stringFields.forEach(field => {
                 if (record[field] !== undefined && typeof record[field] !== 'string') {
                     throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器字段 ${field} 无效。`)
                 }
             })
-            if (record.enabled !== undefined && typeof record.enabled !== 'boolean') {
-                throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器启用状态无效。`)
-            }
+            const booleanFields = ['enabled', 'collapsed', 'onMatchAutoEnter', 'onErrorAutoEnter', 'onTimeoutAutoEnter']
+            booleanFields.forEach(field => {
+                if (record[field] !== undefined && typeof record[field] !== 'boolean') {
+                    throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器字段 ${field} 无效。`)
+                }
+            })
             if (record.matchMode !== undefined && record.matchMode !== 'literal' && record.matchMode !== 'regex') {
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器匹配方式无效。`)
             }
-            if (record.timeoutAction !== undefined && record.timeoutAction !== 'continue' && record.timeoutAction !== 'stop') {
+            if (record.waitForLogic !== undefined && record.waitForLogic !== 'single' && record.waitForLogic !== 'any' && record.waitForLogic !== 'all') {
+                throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器成功条件无效。`)
+            }
+            if (record.errorPatternLogic !== undefined && record.errorPatternLogic !== 'single' && record.errorPatternLogic !== 'any' && record.errorPatternLogic !== 'all') {
+                throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器错误条件无效。`)
+            }
+            if (record.onMatchAction !== undefined && record.onMatchAction !== 'none' && record.onMatchAction !== 'custom' && record.onMatchAction !== 'command') {
+                throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器成功动作无效。`)
+            }
+            if (record.onErrorAction !== undefined && record.onErrorAction !== 'none' && record.onErrorAction !== 'custom' && record.onErrorAction !== 'command') {
+                throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器错误动作无效。`)
+            }
+            if (record.timeoutAction !== undefined && record.timeoutAction !== 'continue' && record.timeoutAction !== 'stop' && record.timeoutAction !== 'custom' && record.timeoutAction !== 'command') {
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器超时动作无效。`)
             }
         })
@@ -360,17 +386,66 @@ function normalizeAutomationRules (
     if (!Array.isArray(rules)) {
         return []
     }
-    return rules.map(rule => ({
-        id: rule.id || createId(),
-        name: rule.name || '输出匹配规则',
-        enabled: rule.enabled ?? true,
-        matchMode: rule.matchMode === 'regex' ? 'regex' : 'literal',
-        waitFor: rule.waitFor || '',
-        timeoutMs: Math.max(100, Number(rule.timeoutMs) || 10000),
-        errorPattern: rule.errorPattern || '',
-        onMatchCommandId: rule.onMatchCommandId || '',
-        onErrorCommandId: rule.onErrorCommandId || '',
-        onTimeoutCommandId: rule.onTimeoutCommandId || '',
-        timeoutAction: rule.timeoutAction === 'stop' ? 'stop' : 'continue',
-    }))
+    return rules.map(rule => {
+        const onMatchCommand = normalizeCommandText(rule.onMatchCommand || '')
+        const onErrorCommand = normalizeCommandText(rule.onErrorCommand || '')
+        const onTimeoutCommand = normalizeCommandText(rule.onTimeoutCommand || '')
+        const onMatchCommandId = rule.onMatchCommandId || ''
+        const onErrorCommandId = rule.onErrorCommandId || ''
+        const onTimeoutCommandId = rule.onTimeoutCommandId || ''
+        return {
+            id: rule.id || createId(),
+            name: rule.name || '输出匹配规则',
+            enabled: rule.enabled ?? true,
+            collapsed: rule.collapsed ?? false,
+            matchMode: rule.matchMode === 'regex' ? 'regex' : 'literal',
+            waitFor: rule.waitFor || '',
+            waitForLogic: normalizePatternLogic(rule.waitForLogic),
+            timeoutMs: Math.max(100, Number(rule.timeoutMs) || 10000),
+            errorPattern: rule.errorPattern || '',
+            errorPatternLogic: normalizePatternLogic(rule.errorPatternLogic),
+            onMatchAction: normalizeCommandAction(rule.onMatchAction, onMatchCommandId, onMatchCommand),
+            onMatchCommand,
+            onMatchAutoEnter: rule.onMatchAutoEnter ?? true,
+            onMatchCommandId,
+            onErrorAction: normalizeCommandAction(rule.onErrorAction, onErrorCommandId, onErrorCommand),
+            onErrorCommand,
+            onErrorAutoEnter: rule.onErrorAutoEnter ?? true,
+            onErrorCommandId,
+            onTimeoutCommand,
+            onTimeoutAutoEnter: rule.onTimeoutAutoEnter ?? true,
+            onTimeoutCommandId,
+            timeoutAction: normalizeTimeoutAction(rule.timeoutAction, onTimeoutCommandId, onTimeoutCommand),
+        }
+    })
+}
+
+function normalizePatternLogic (logic: unknown): 'single' | 'any' | 'all' {
+    return logic === 'any' || logic === 'all' ? logic : 'single'
+}
+
+function normalizeCommandAction (action: unknown, commandId: string, command: string): 'none' | 'custom' | 'command' {
+    if (action === 'custom' || action === 'command' || action === 'none') {
+        return action
+    }
+    if (commandId) {
+        return 'command'
+    }
+    if (command) {
+        return 'custom'
+    }
+    return 'none'
+}
+
+function normalizeTimeoutAction (action: unknown, commandId: string, command: string): 'continue' | 'stop' | 'custom' | 'command' {
+    if (action === 'stop' || action === 'custom' || action === 'command') {
+        return action
+    }
+    if (commandId) {
+        return 'command'
+    }
+    if (command) {
+        return 'custom'
+    }
+    return 'continue'
 }
