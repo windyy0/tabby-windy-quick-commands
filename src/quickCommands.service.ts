@@ -2767,9 +2767,19 @@ export class QuickCommandsService {
             ${invalidWaitPattern || invalidErrorPattern ? '<div class="tqc-rule-warning">正则表达式无效，请修正后再执行。</div>' : ''}
             ${invalidTriggerLine ? '<div class="tqc-rule-warning">绑定的命令行不存在或不可执行，请重新选择触发时机。</div>' : ''}
             ${rule.triggerLine > 0 && this.state.executionMode !== 'line' ? '<div class="tqc-field-hint">该规则仅在逐行模式下生效。</div>' : ''}
+            <div class="tqc-field-grid">
+              <div>
+                <span class="tqc-label">成功后执行</span>
+                ${this.renderAutomationRuleAction(rule, 'match')}
+              </div>
+              <div>
+                <span class="tqc-label">错误后执行</span>
+                ${this.renderAutomationRuleAction(rule, 'error')}
+              </div>
+            </div>
             <div class="tqc-field-grid tqc-single">
               <div>
-                <span class="tqc-label">匹配后执行</span>
+                <span class="tqc-label">匹配后流程</span>
                 ${this.renderAutomationMatchFlow(rule)}
               </div>
             </div>
@@ -5352,6 +5362,7 @@ export class QuickCommandsService {
             return 'stop'
         }
         if (outcome === 'match' || outcome === 'error') {
+            this.executeAutomationCommandAction(rule, outcome, target, parentCommandId)
             if (rule.matchFlow === 'stop') {
                 return 'stop'
             }
@@ -5360,19 +5371,47 @@ export class QuickCommandsService {
             }
             return 'continue'
         }
-        const action = rule.timeoutAction
+        this.executeAutomationCommandAction(rule, outcome, target, parentCommandId)
+        return 'continue'
+    }
+
+    private executeAutomationCommandAction (
+        rule: QuickAutomationRule,
+        outcome: Exclude<AutomationRuleResult['outcome'], 'stopped'>,
+        target: TerminalTabLike,
+        parentCommandId: string,
+    ): void {
+        const action = outcome === 'match'
+            ? rule.onMatchAction
+            : outcome === 'error'
+                ? rule.onErrorAction
+                : rule.timeoutAction
         if (action === 'command') {
-            this.executeAutomationCommand(rule.onTimeoutCommandId, [target], parentCommandId)
+            const commandId = outcome === 'match'
+                ? rule.onMatchCommandId
+                : outcome === 'error'
+                    ? rule.onErrorCommandId
+                    : rule.onTimeoutCommandId
+            this.executeAutomationCommand(commandId, [target], parentCommandId)
         } else if (action === 'custom') {
+            const command = outcome === 'match'
+                ? rule.onMatchCommand
+                : outcome === 'error'
+                    ? rule.onErrorCommand
+                    : rule.onTimeoutCommand
+            const autoEnter = outcome === 'match'
+                ? rule.onMatchAutoEnter
+                : outcome === 'error'
+                    ? rule.onErrorAutoEnter
+                    : rule.onTimeoutAutoEnter
             this.executeAutomationCustomCommand(
-                rule.onTimeoutCommand,
-                rule.onTimeoutAutoEnter,
+                command,
+                autoEnter,
                 target,
                 parentCommandId,
                 rule.name,
             )
         }
-        return 'continue'
     }
 
     private executeAutomationCommand (commandId: string, targets: TerminalTabLike[], parentCommandId: string): void {

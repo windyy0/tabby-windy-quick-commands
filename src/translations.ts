@@ -159,6 +159,7 @@ const englishPhrases: Record<string, string> = {
     '成功后执行': 'Run on success',
     '错误后执行': 'Run on error',
     '匹配后执行': 'After a match',
+    '匹配后流程': 'After-match flow',
     '单条匹配': 'Single pattern',
     '任一行匹配': 'Match any pattern',
     '全部行匹配': 'Match all patterns',

@@ -96,6 +96,7 @@ function testTranslations (): void {
     assert(translatePluginText('执行后暂停', 'en-US') === 'Pause', 'line setting pause label should fit its button')
     assert(translatePluginText('全部折叠', 'en-US') === 'Collapse all', 'bulk collapse action should be translated')
     assert(translatePluginText('第 2 行执行后：npm test', 'en-US') === 'After source line 2: npm test', 'line trigger labels should be translated')
+    assert(translatePluginText('匹配后流程', 'en-US') === 'After-match flow', 'post-match flow label should be translated')
     assert(translatePluginText('全部行匹配', 'en-US') === 'Match all patterns', 'output pattern logic should be translated')
     assert(translatePluginText('输入要发送到终端的命令', 'en-US') === 'Enter the command to send to the terminal', 'custom automation command placeholder should be translated')
     assert(translatePluginText('确认删除该输出触发器规则？此操作不可撤销。', 'en-US') === 'Delete this output trigger rule? This action cannot be undone.', 'output trigger deletion should be translated')
