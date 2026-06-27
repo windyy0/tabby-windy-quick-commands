@@ -9,6 +9,7 @@ const englishPhrases: Record<string, string> = {
     '在 Tabby 中集中管理和执行常用终端命令，支持分类搜索、快捷键、多会话发送、逐行执行、输出触发器以及命令库导入导出。': 'Manage and run frequently used terminal commands in Tabby, with categories, search, shortcuts, multi-session sending, line-by-line execution, output triggers, and library import/export.',
     '请确认目标会话和执行方式。所有会话、多会话、生产会话和高风险命令不会静默执行。': 'Confirm the target sessions and execution mode. Broadcast, multi-session, production-session, and high-risk commands are never run silently.',
     '等待成功或错误输出的最长时间，单位为毫秒；到时后执行右侧的超时动作，最少 100 毫秒。': 'Maximum time to wait for success or error output, in milliseconds. The timeout action is used when it expires; minimum 100 ms.',
+    '等待成功或错误输出的最长时间，单位为毫秒；到时后执行右侧的超时动作，最少 100ms。': 'Maximum time to wait for success or error output, in milliseconds. The timeout action is used when it expires; minimum 100 ms.',
     '导出或恢复命令、分类、触发器和所有插件设置；运行日志与使用统计不包含在内。': 'Export or restore commands, categories, triggers, and all plugin settings. Runtime logs and usage statistics are excluded.',
     '合并会跳过全部冲突；替换会忽略与现有库的冲突，但跳过文件内部冲突。': 'Merge skips every conflict. Replace ignores conflicts with the existing library but skips conflicts inside the imported file.',
     '点击输入框后按组合键。在终端中按下即可执行；高风险命令仍需确认。': 'Click the field and press a key combination. Use it in a terminal to run the command; high-risk commands still require confirmation.',
@@ -62,10 +63,18 @@ const englishPhrases: Record<string, string> = {
     '快捷键需包含 Ctrl、Alt 或 Meta；也可以直接使用功能键。': 'Shortcuts must include Ctrl, Alt, or Meta; function keys can also be used directly.',
     '点击输入框后按组合键': 'Click the field and press a shortcut',
     '没有匹配的命令': 'No matching commands',
+    '确认删除该输出触发器规则？此操作不可撤销。': 'Delete this output trigger rule? This action cannot be undone.',
+    '输入要发送到终端的命令': 'Enter the command to send to the terminal',
+    '自动化跳过高风险自定义命令': 'Automation skipped a high-risk custom command',
+    '自动化已发送自定义命令': 'Automation sent a custom command',
+    '输出触发器超时': 'Output trigger timed out',
     '编辑名称和说明': 'Edit name and description',
     '收藏/取消收藏': 'Add/remove favorite',
     '置顶/取消置顶': 'Pin/unpin',
     '发送后自动回车': 'Press Enter after sending',
+    '发送自定义命令': 'Send a custom command',
+    '执行已有命令': 'Run an existing command',
+    '请选择命令': 'Select a command',
     '继续下一条规则': 'Continue to the next rule',
     '跳过该行剩余规则，继续下一行': 'Skip the remaining rules for this line and continue to the next line',
     '删除分类和命令': 'Delete category and commands',
@@ -150,6 +159,12 @@ const englishPhrases: Record<string, string> = {
     '成功后执行': 'Run on success',
     '错误后执行': 'Run on error',
     '匹配后执行': 'After a match',
+    '单条匹配': 'Single pattern',
+    '任一行匹配': 'Match any pattern',
+    '全部行匹配': 'Match all patterns',
+    '输入匹配文本': 'Enter match text',
+    '每行一个匹配文本': 'One match pattern per line',
+    '不执行': 'Do nothing',
     '不执行命令': 'Do not run a command',
     '停止该会话自动化': 'Stop automation for this session',
     '停止后续逐行执行': 'Stop remaining line-by-line execution',
@@ -342,6 +357,7 @@ export function translatePluginText (text: string, locale: string | null | undef
         .replace(/所有会话（\s*(\d+)\s*）/g, 'All sessions ($1)')
         .replace(/该分类中有\s*(\d+)\s*条命令。确认后将同时删除这些命令，此操作无法撤销。/g, 'This category contains $1 commands. Confirming deletes them as well and cannot be undone.')
         .replace(/该分类中没有命令，确认删除该分类？/g, 'This category has no commands. Delete it?')
+        .replace(/确认删除“(.+?)”？/g, 'Delete "$1"?')
         .replace(/第\s*(\d+)\s*行执行后暂停，等待继续。/g, 'Source line $1 paused after running and is waiting to continue.')
         .replace(/第\s*(\d+)\s*行的输出规则已停止后续逐行执行。/g, 'Output rules after source line $1 stopped the remaining line-by-line execution.')
         .replace(/查看第\s*(\d+)\s*行的\s*(\d+)\s*条输出规则/g, 'View $2 output rules after source line $1')
@@ -368,7 +384,11 @@ export function translatePluginText (text: string, locale: string | null | undef
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器启用状态无效。/g, '$1 output trigger $2 has an invalid enabled state.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器匹配方式无效。/g, '$1 output trigger $2 has an invalid match mode.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器触发行无效。/g, '$1 output trigger $2 has an invalid trigger line.')
+        .replace(/(.+?)的第\s*(\d+)\s*条输出触发器成功条件无效。/g, '$1 output trigger $2 has an invalid success condition.')
+        .replace(/(.+?)的第\s*(\d+)\s*条输出触发器错误条件无效。/g, '$1 output trigger $2 has an invalid error condition.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器匹配后动作无效。/g, '$1 output trigger $2 has an invalid post-match action.')
+        .replace(/(.+?)的第\s*(\d+)\s*条输出触发器成功动作无效。/g, '$1 output trigger $2 has an invalid success action.')
+        .replace(/(.+?)的第\s*(\d+)\s*条输出触发器错误动作无效。/g, '$1 output trigger $2 has an invalid error action.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器超时动作无效。/g, '$1 output trigger $2 has an invalid timeout action.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器格式无效。/g, '$1 output trigger $2 has an invalid format.')
         .replace(/第\s*(\d+)\s*条命令/g, 'Command $1')

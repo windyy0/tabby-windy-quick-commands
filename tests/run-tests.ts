@@ -96,6 +96,10 @@ function testTranslations (): void {
     assert(translatePluginText('执行后暂停', 'en-US') === 'Pause', 'line setting pause label should fit its button')
     assert(translatePluginText('全部折叠', 'en-US') === 'Collapse all', 'bulk collapse action should be translated')
     assert(translatePluginText('第 2 行执行后：npm test', 'en-US') === 'After source line 2: npm test', 'line trigger labels should be translated')
+    assert(translatePluginText('全部行匹配', 'en-US') === 'Match all patterns', 'output pattern logic should be translated')
+    assert(translatePluginText('输入要发送到终端的命令', 'en-US') === 'Enter the command to send to the terminal', 'custom automation command placeholder should be translated')
+    assert(translatePluginText('确认删除该输出触发器规则？此操作不可撤销。', 'en-US') === 'Delete this output trigger rule? This action cannot be undone.', 'output trigger deletion should be translated')
+    assert(translatePluginText('命令 1的第 2 条输出触发器错误动作无效。', 'en-US') === 'Command 1 output trigger 2 has an invalid error action.', 'output trigger validation errors should be translated')
     assert(translatePluginText('将“部署”移动到指定分类。', 'en-US') === 'Move "部署" to the selected category.', 'move dialog should translate dynamic command names')
     assert(translatePluginText('将选中的 3 条命令移动到', 'en-US') === 'Move the selected 3 commands to', 'batch move prompt should be translated')
 }
