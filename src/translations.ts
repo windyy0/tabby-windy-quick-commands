@@ -27,6 +27,9 @@ const englishPhrases: Record<string, string> = {
     '只支持当前版本的快速命令插件配置文件。': 'Only configuration files from the current plugin version are supported.',
     '复制失败，可以手动选中命令内容复制。': 'Copy failed. Select and copy the command text manually.',
     '正则表达式无效，请修正后再执行。': 'The regular expression is invalid. Fix it before running.',
+    '绑定的命令行不存在或不可执行，请重新选择触发时机。': 'The bound command line is missing or not executable. Select another trigger time.',
+    '该规则仅在逐行模式下生效。': 'This rule only runs in line-by-line mode.',
+    '当前行不存在或不可执行': 'The current line is missing or not executable',
     '新建一条命令，或者调整搜索条件。': 'Create a command or change the search filters.',
     '请继续按下字母、数字或功能键。': 'Press a letter, number, or function key to continue.',
     '没有找到可发送命令的终端会话。': 'No terminal session is available for sending the command.',
@@ -64,6 +67,7 @@ const englishPhrases: Record<string, string> = {
     '置顶/取消置顶': 'Pin/unpin',
     '发送后自动回车': 'Press Enter after sending',
     '继续下一条规则': 'Continue to the next rule',
+    '跳过该行剩余规则，继续下一行': 'Skip the remaining rules for this line and continue to the next line',
     '删除分类和命令': 'Delete category and commands',
     '分类名称已存在。': 'The category name already exists.',
     '复制当前命令并创建新的命令项': 'Copy the current command into a new item',
@@ -81,7 +85,9 @@ const englishPhrases: Record<string, string> = {
     '后再确认。': 'before confirming.',
     '个失效触发器引用': 'invalid trigger references',
     '会话自动化已在超时后停止': 'Session automation stopped after timing out',
+    '会话自动化已在匹配后停止': 'Session automation stopped after a match',
     '等待输出触发器': 'Waiting for output trigger',
+    '正在等待：': 'Waiting for: ',
     '已发送到': 'Sent to',
     '个会话。': 'sessions.',
     '已发送第': 'Sent source line',
@@ -143,8 +149,11 @@ const englishPhrases: Record<string, string> = {
     '正则表达式': 'Regular expression',
     '成功后执行': 'Run on success',
     '错误后执行': 'Run on error',
+    '匹配后执行': 'After a match',
     '不执行命令': 'Do not run a command',
     '停止该会话自动化': 'Stop automation for this session',
+    '停止后续逐行执行': 'Stop remaining line-by-line execution',
+    '会话已在匹配后跳过该行剩余规则': 'Session skipped the remaining rules for this line after a match',
     '命令已复制。': 'Command copied.',
     '执行已停止。': 'Execution stopped.',
     '未命名会话': 'Unnamed session',
@@ -187,6 +196,7 @@ const englishPhrases: Record<string, string> = {
     '命令内容': 'Command text',
     '逐行执行设置': 'Line-by-line settings',
     '延迟 / 执行后状态': 'Delay / post-run state',
+    '延迟 / 执行后状态 / 输出规则': 'Delay / post-run state / output rules',
     '逐行设置': 'Line settings',
     '该行延迟': 'Line delay',
     '执行设置': 'Execution settings',
@@ -251,6 +261,9 @@ const englishPhrases: Record<string, string> = {
     '命令库': 'Command library',
     '快捷键': 'Shortcut',
     '规则名': 'Rule name',
+    '触发时机': 'Trigger time',
+    '整个命令发送后': 'After the whole command is sent',
+    '输出规则': 'Output rules',
     '超时后': 'On timeout',
     '请选择': 'Select',
     '未分类': 'Uncategorized',
@@ -330,6 +343,12 @@ export function translatePluginText (text: string, locale: string | null | undef
         .replace(/该分类中有\s*(\d+)\s*条命令。确认后将同时删除这些命令，此操作无法撤销。/g, 'This category contains $1 commands. Confirming deletes them as well and cannot be undone.')
         .replace(/该分类中没有命令，确认删除该分类？/g, 'This category has no commands. Delete it?')
         .replace(/第\s*(\d+)\s*行执行后暂停，等待继续。/g, 'Source line $1 paused after running and is waiting to continue.')
+        .replace(/第\s*(\d+)\s*行的输出规则已停止后续逐行执行。/g, 'Output rules after source line $1 stopped the remaining line-by-line execution.')
+        .replace(/查看第\s*(\d+)\s*行的\s*(\d+)\s*条输出规则/g, 'View $2 output rules after source line $1')
+        .replace(/为第\s*(\d+)\s*行添加输出规则/g, 'Add an output rule after source line $1')
+        .replace(/第\s*(\d+)\s*行执行后：/g, 'After source line $1: ')
+        .replace(/第\s*(\d+)\s*行执行后/g, 'After source line $1')
+        .replace(/第\s*(\d+)\s*行（当前不可执行）/g, 'Source line $1 (currently not executable)')
         .replace(/第\s*(\d+)\s*行发送失败，需要手动确认后继续。/g, 'Source line $1 failed to send and needs confirmation to continue.')
         .replace(/第\s*(\d+)\s*行发送失败。/g, 'Source line $1 failed to send.')
         .replace(/已发送第\s*(\d+)\s*行。/g, 'Sent source line $1.')
@@ -348,6 +367,8 @@ export function translatePluginText (text: string, locale: string | null | undef
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器字段 (.+?) 无效。/g, '$1 output trigger $2 has an invalid $3 field.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器启用状态无效。/g, '$1 output trigger $2 has an invalid enabled state.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器匹配方式无效。/g, '$1 output trigger $2 has an invalid match mode.')
+        .replace(/(.+?)的第\s*(\d+)\s*条输出触发器触发行无效。/g, '$1 output trigger $2 has an invalid trigger line.')
+        .replace(/(.+?)的第\s*(\d+)\s*条输出触发器匹配后动作无效。/g, '$1 output trigger $2 has an invalid post-match action.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器超时动作无效。/g, '$1 output trigger $2 has an invalid timeout action.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器格式无效。/g, '$1 output trigger $2 has an invalid format.')
         .replace(/第\s*(\d+)\s*条命令/g, 'Command $1')

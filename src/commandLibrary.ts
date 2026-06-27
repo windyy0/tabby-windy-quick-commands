@@ -84,17 +84,19 @@ export const quickCommandsSchema = {
                                 name: { type: 'string' },
                                 enabled: { type: 'boolean' },
                                 collapsed: { type: 'boolean' },
+                                triggerLine: { type: 'number', minimum: 0 },
                                 matchMode: { enum: ['literal', 'regex'] },
                                 waitFor: { type: 'string' },
                                 waitForLogic: { enum: ['single', 'any', 'all'] },
                                 timeoutMs: { type: 'number' },
                                 errorPattern: { type: 'string' },
                                 errorPatternLogic: { enum: ['single', 'any', 'all'] },
+                                matchFlow: { enum: ['continue', 'nextLine', 'stop'] },
                                 onMatchAction: { enum: ['none', 'custom', 'command'] },
                                 onMatchCommand: { type: 'string' },
                                 onMatchAutoEnter: { type: 'boolean' },
                                 onMatchCommandId: { type: 'string' },
-                                onErrorAction: { enum: ['none', 'custom', 'command'] },
+                                onErrorAction: { enum: ['none', 'nextLine', 'stop', 'custom', 'command'] },
                                 onErrorCommand: { type: 'string' },
                                 onErrorAutoEnter: { type: 'boolean' },
                                 onErrorCommandId: { type: 'string' },
@@ -347,6 +349,13 @@ function validateImportedCommand (value: unknown, index: number, ids: Set<string
                     throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器字段 ${field} 无效。`)
                 }
             })
+            if (record.triggerLine !== undefined && (
+                typeof record.triggerLine !== 'number' ||
+                !Number.isInteger(record.triggerLine) ||
+                record.triggerLine < 0
+            )) {
+                throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器触发行无效。`)
+            }
             if (record.matchMode !== undefined && record.matchMode !== 'literal' && record.matchMode !== 'regex') {
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器匹配方式无效。`)
             }
@@ -356,10 +365,13 @@ function validateImportedCommand (value: unknown, index: number, ids: Set<string
             if (record.errorPatternLogic !== undefined && record.errorPatternLogic !== 'single' && record.errorPatternLogic !== 'any' && record.errorPatternLogic !== 'all') {
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器错误条件无效。`)
             }
+            if (record.matchFlow !== undefined && record.matchFlow !== 'continue' && record.matchFlow !== 'nextLine' && record.matchFlow !== 'stop') {
+                throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器匹配后动作无效。`)
+            }
             if (record.onMatchAction !== undefined && record.onMatchAction !== 'none' && record.onMatchAction !== 'custom' && record.onMatchAction !== 'command') {
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器成功动作无效。`)
             }
-            if (record.onErrorAction !== undefined && record.onErrorAction !== 'none' && record.onErrorAction !== 'custom' && record.onErrorAction !== 'command') {
+            if (record.onErrorAction !== undefined && record.onErrorAction !== 'none' && record.onErrorAction !== 'nextLine' && record.onErrorAction !== 'stop' && record.onErrorAction !== 'custom' && record.onErrorAction !== 'command') {
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器错误动作无效。`)
             }
             if (record.timeoutAction !== undefined && record.timeoutAction !== 'continue' && record.timeoutAction !== 'stop' && record.timeoutAction !== 'custom' && record.timeoutAction !== 'command') {
@@ -393,17 +405,20 @@ function normalizeAutomationRules (
         const onMatchCommandId = rule.onMatchCommandId || ''
         const onErrorCommandId = rule.onErrorCommandId || ''
         const onTimeoutCommandId = rule.onTimeoutCommandId || ''
+        const triggerLine = Math.max(0, Math.floor(Number(rule.triggerLine) || 0))
         return {
             id: rule.id || createId(),
             name: rule.name || '输出匹配规则',
             enabled: rule.enabled ?? true,
             collapsed: rule.collapsed ?? false,
+            triggerLine,
             matchMode: rule.matchMode === 'regex' ? 'regex' : 'literal',
             waitFor: rule.waitFor || '',
             waitForLogic: normalizePatternLogic(rule.waitForLogic),
             timeoutMs: Math.max(100, Number(rule.timeoutMs) || 10000),
             errorPattern: rule.errorPattern || '',
             errorPatternLogic: normalizePatternLogic(rule.errorPatternLogic),
+            matchFlow: normalizeMatchFlow(rule.matchFlow, triggerLine, rule.onErrorAction),
             onMatchAction: normalizeCommandAction(rule.onMatchAction, onMatchCommandId, onMatchCommand),
             onMatchCommand,
             onMatchAutoEnter: rule.onMatchAutoEnter ?? true,
@@ -435,6 +450,21 @@ function normalizeCommandAction (action: unknown, commandId: string, command: st
         return 'custom'
     }
     return 'none'
+}
+
+function normalizeMatchFlow (
+    flow: unknown,
+    triggerLine: number,
+    legacyErrorAction: unknown,
+): 'continue' | 'nextLine' | 'stop' {
+    const candidate = flow ?? legacyErrorAction
+    if (candidate === 'stop') {
+        return 'stop'
+    }
+    if (candidate === 'nextLine' && triggerLine > 0) {
+        return 'nextLine'
+    }
+    return 'continue'
 }
 
 function normalizeTimeoutAction (action: unknown, commandId: string, command: string): 'continue' | 'stop' | 'custom' | 'command' {

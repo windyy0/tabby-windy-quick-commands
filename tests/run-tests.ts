@@ -95,6 +95,7 @@ function testTranslations (): void {
     assert(translatePluginText('执行后继续', 'en-US') === 'Continue', 'line setting continue label should fit its button')
     assert(translatePluginText('执行后暂停', 'en-US') === 'Pause', 'line setting pause label should fit its button')
     assert(translatePluginText('全部折叠', 'en-US') === 'Collapse all', 'bulk collapse action should be translated')
+    assert(translatePluginText('第 2 行执行后：npm test', 'en-US') === 'After source line 2: npm test', 'line trigger labels should be translated')
     assert(translatePluginText('将“部署”移动到指定分类。', 'en-US') === 'Move "部署" to the selected category.', 'move dialog should translate dynamic command names')
     assert(translatePluginText('将选中的 3 条命令移动到', 'en-US') === 'Move the selected 3 commands to', 'batch move prompt should be translated')
 }
@@ -169,6 +170,24 @@ function testImportValidation (): void {
     }
     assert(invalidFieldRejected, 'import parser should reject invalid command field types')
 
+    let invalidTriggerLineRejected = false
+    try {
+        parseImportPayload(JSON.stringify({
+            format: 'tabby-windy-quick-commands',
+            version: 3,
+            customCategories: [],
+            categoryOrder: [],
+            commands: [{
+                name: '错误触发行',
+                command: 'echo ok',
+                automationRules: [{ triggerLine: -1 }],
+            }],
+        }))
+    } catch {
+        invalidTriggerLineRejected = true
+    }
+    assert(invalidTriggerLineRejected, 'import parser should reject invalid automation trigger lines')
+
     const withMissingReference = normalizeCommandConfig({
         id: 'reference-source',
         name: '引用测试',
@@ -178,12 +197,14 @@ function testImportValidation (): void {
             name: '规则',
             enabled: true,
             collapsed: false,
+            triggerLine: 0,
             matchMode: 'literal',
             waitFor: 'ok',
             waitForLogic: 'single',
             timeoutMs: 1000,
             errorPattern: '',
             errorPatternLogic: 'single',
+            matchFlow: 'continue',
             onMatchAction: 'command',
             onMatchCommand: '',
             onMatchAutoEnter: true,
@@ -297,11 +318,54 @@ function testOutputAutomation (): void {
         } as any],
     }, createId)
     assert(normalized.automationRules[0].enabled, 'legacy automation rules should remain enabled after migration')
+    assert(normalized.automationRules[0].triggerLine === 0, 'legacy automation rules should run after the whole command')
     assert(normalized.automationRules[0].matchMode === 'literal', 'legacy automation rules should migrate to literal matching')
     assert(normalized.automationRules[0].waitForLogic === 'single', 'legacy success matching should remain single-pattern')
     assert(normalized.automationRules[0].timeoutMs === 10000, 'legacy zero timeouts should migrate to the documented default')
     assert(normalized.automationRules[0].onMatchAction === 'none', 'legacy empty action should migrate to no action')
     assert(normalized.automationRules[0].onMatchAutoEnter, 'custom action auto-enter should default to enabled')
+
+    const lineTriggered = normalizeCommandConfig({
+        name: '逐行触发规则',
+        command: 'echo one\necho two',
+        automationRules: [{ triggerLine: 2 } as any],
+    }, createId)
+    assert(lineTriggered.automationRules[0].triggerLine === 2, 'line-triggered automation rules should preserve their source line')
+
+    const lineMatchControl = normalizeCommandConfig({
+        name: '逐行匹配控制',
+        command: 'echo one\necho two',
+        automationRules: [{ triggerLine: 2, matchFlow: 'nextLine' } as any],
+    }, createId)
+    assert(lineMatchControl.automationRules[0].matchFlow === 'nextLine', 'line-triggered rules should preserve skip-to-next-line match flow')
+
+    const wholeCommandMatchControl = normalizeCommandConfig({
+        name: '整段匹配控制',
+        command: 'echo one',
+        automationRules: [{ triggerLine: 0, matchFlow: 'nextLine' } as any],
+    }, createId)
+    assert(wholeCommandMatchControl.automationRules[0].matchFlow === 'continue', 'whole-command rules should discard line-only match flow')
+
+    const stopWholeCommandOnMatch = normalizeCommandConfig({
+        name: '整段匹配后停止',
+        command: 'echo one',
+        automationRules: [{ triggerLine: 0, matchFlow: 'stop' } as any],
+    }, createId)
+    assert(stopWholeCommandOnMatch.automationRules[0].matchFlow === 'stop', 'whole-command rules should preserve stop-on-match flow')
+
+    const stopOnMatch = normalizeCommandConfig({
+        name: '匹配后停止',
+        command: 'echo one\necho two',
+        automationRules: [{ triggerLine: 2, matchFlow: 'stop' } as any],
+    }, createId)
+    assert(stopOnMatch.automationRules[0].matchFlow === 'stop', 'line-triggered rules should preserve stop-on-match flow')
+
+    const legacyLineErrorFlow = normalizeCommandConfig({
+        name: '旧逐行错误流程',
+        command: 'echo one\necho two',
+        automationRules: [{ triggerLine: 2, onErrorAction: 'nextLine' } as any],
+    }, createId)
+    assert(legacyLineErrorFlow.automationRules[0].matchFlow === 'nextLine', 'legacy line error flow should migrate to match flow')
 
     const migratedAction = normalizeCommandConfig({
         name: '旧引用动作',

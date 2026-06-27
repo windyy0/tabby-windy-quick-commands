@@ -53,6 +53,8 @@ interface AutomationRuleResult {
     matchedText: string
 }
 
+type AutomationRuleControl = 'continue' | 'skipLineRules' | 'stop'
+
 interface TerminalTabLike {
     title?: string
     profile?: {
@@ -87,6 +89,7 @@ interface RunState {
     paused: boolean
     stopped: boolean
     waitingManual: boolean
+    waitingRuleName?: string
     manualResolver?: () => void
 }
 
@@ -101,7 +104,7 @@ const css = `
 
 .tqc-drawer {
   position: relative;
-  container-type: inline-size;
+  container: tqc-drawer / inline-size;
   --tqc-accent: color-mix(in srgb, var(--bs-primary, #1677ff) 72%, var(--tqc-text) 28%);
   --tqc-danger: var(--bs-danger, #c2410c);
   --tqc-success: var(--bs-success, #15803d);
@@ -1207,13 +1210,15 @@ const css = `
   background: var(--tqc-code);
   border-radius: 7px;
   overflow: hidden;
+  container: tqc-line-settings / inline-size;
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
 }
 
 .tqc-code-line {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) 178px;
+  grid-template-columns: 36px minmax(0, 1fr) 250px;
+  grid-template-areas: "number text tools";
   align-items: stretch;
   transition: background-color 150ms ease, box-shadow 150ms ease;
 }
@@ -1229,6 +1234,7 @@ const css = `
 }
 
 .tqc-line-no {
+  grid-area: number;
   color: var(--tqc-muted);
   background: rgba(15, 23, 42, 0.04);
   text-align: right;
@@ -1237,6 +1243,7 @@ const css = `
 }
 
 .tqc-line-text {
+  grid-area: text;
   min-width: 0;
   padding: 7px 10px;
   overflow: hidden;
@@ -1244,7 +1251,12 @@ const css = `
   white-space: pre;
 }
 
+.tqc-run-status {
+  flex-wrap: wrap;
+}
+
 .tqc-line-tools {
+  grid-area: tools;
   justify-content: flex-end;
   padding: 4px 6px;
   border-left: 1px solid var(--tqc-border);
@@ -1290,6 +1302,30 @@ const css = `
 .tqc-line-pause:not(.tqc-active) {
   color: var(--tqc-muted);
   background: var(--tqc-panel-solid);
+}
+
+.tqc-line-rule {
+  width: 72px;
+  min-width: 72px;
+  height: 28px;
+  gap: 4px;
+  padding: 0 5px;
+  border-radius: 6px;
+  color: var(--tqc-muted);
+  background: var(--tqc-panel-solid);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.tqc-line-rule svg {
+  width: 13px;
+  height: 13px;
+}
+
+.tqc-line-rule.tqc-has-rules {
+  color: var(--tqc-accent);
+  background: var(--tqc-accent-soft);
+  border-color: color-mix(in srgb, var(--tqc-accent) 42%, var(--tqc-control-border));
 }
 
 .tqc-mode-row {
@@ -1526,7 +1562,7 @@ const css = `
 }
 
 .tqc-rule-title {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .tqc-rule-title strong {
@@ -1537,6 +1573,41 @@ const css = `
 
 .tqc-rule-head-actions {
   flex: none;
+}
+
+.tqc-rule-head.tqc-rule-head-compact .tqc-rule-enable-text,
+.tqc-rule-head.tqc-rule-head-compact .tqc-rule-delete-text {
+  display: none;
+}
+
+.tqc-rule-head.tqc-rule-head-compact {
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.tqc-rule-head.tqc-rule-head-compact .tqc-rule-title {
+  display: contents;
+}
+
+.tqc-rule-enable-text,
+.tqc-rule-delete-text {
+  white-space: nowrap;
+}
+
+.tqc-rule-head.tqc-rule-head-compact .tqc-rule-title .tqc-checkbox {
+  gap: 0;
+  margin-left: auto;
+}
+
+.tqc-rule-head.tqc-rule-head-compact .tqc-rule-head-actions {
+  gap: 6px;
+}
+
+.tqc-rule-head.tqc-rule-head-compact .tqc-rule-delete {
+  width: 30px;
+  min-width: 30px;
+  justify-content: center;
+  padding-inline: 0;
 }
 
 .tqc-rule-disabled {
@@ -1794,6 +1865,46 @@ const css = `
   height: 18px;
 }
 
+.tqc-rule-group {
+  display: grid;
+  gap: 8px;
+}
+
+.tqc-rule-group + .tqc-rule-group {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--tqc-border);
+}
+
+.tqc-rule-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tqc-rule-group-title {
+  flex: none;
+  color: var(--tqc-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tqc-rule-group-preview {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--tqc-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tqc-rule-group-head .tqc-mini {
+  flex: none;
+  margin-left: auto;
+}
+
 .tqc-confirm .tqc-move-follow input.tqc-checkbox-control[type="checkbox"]:not(:checked) {
   background-color: var(--tqc-confirm-input) !important;
   border: 1px solid #94a3b8 !important;
@@ -1820,7 +1931,7 @@ const css = `
   display: none;
 }
 
-@container (max-width: 480px) {
+@container tqc-drawer (max-width: 480px) {
   .tqc-body {
     grid-template-columns: 138px minmax(0, 1fr);
     gap: 10px;
@@ -1840,53 +1951,39 @@ const css = `
     grid-template-columns: 1fr;
   }
 
-  .tqc-code-line {
-    grid-template-columns: 28px minmax(0, 1fr) 96px;
-  }
-
-  .tqc-line-no {
-    padding-right: 5px;
-  }
-
-  .tqc-line-text {
-    min-width: 0;
-    white-space: pre;
-    overflow: hidden;
-    overflow-wrap: normal;
-    text-overflow: ellipsis;
-  }
-
-  .tqc-line-tools {
-    gap: 4px;
-    padding-inline: 4px;
-  }
-
-  .tqc-line-delay {
-    width: 50px;
-  }
-
-  .tqc-line-pause {
-    width: 30px;
-    min-width: 30px;
-    padding: 0;
-  }
-
-  .tqc-line-pause span {
+  .tqc-rule-enable-text,
+  .tqc-rule-delete-text {
     display: none;
   }
 
   .tqc-rule-head {
-    align-items: flex-start;
-    flex-direction: column;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .tqc-rule-title {
+    display: contents;
+  }
+
+  .tqc-rule-title .tqc-checkbox {
+    gap: 0;
+    margin-left: auto;
   }
 
   .tqc-rule-head-actions {
-    width: 100%;
-    flex-wrap: wrap;
+    gap: 6px;
   }
+
+  .tqc-rule-delete {
+    width: 30px;
+    min-width: 30px;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
 }
 
-@container (max-width: 400px) {
+@container tqc-drawer (max-width: 400px) {
   .tqc-header,
   .tqc-footer {
     padding-right: 10px;
@@ -1951,6 +2048,64 @@ const css = `
 
   .tqc-automation-actions .tqc-mini {
     padding-inline: 7px;
+  }
+}
+
+/* Medium: keep tools inline, but use icon-only controls. */
+@container tqc-line-settings (max-width: 380px) {
+  .tqc-code-line {
+    grid-template-columns: 28px minmax(0, 1fr) 132px;
+  }
+
+  .tqc-line-no {
+    padding-right: 5px;
+  }
+
+  .tqc-line-tools {
+    gap: 4px;
+    padding-inline: 4px;
+  }
+
+  .tqc-line-delay {
+    width: 50px;
+  }
+
+  .tqc-line-pause,
+  .tqc-line-rule {
+    width: 30px;
+    min-width: 30px;
+    padding: 0;
+  }
+
+  .tqc-line-pause span,
+  .tqc-line-rule span {
+    display: none;
+  }
+}
+
+/* Narrow: move the compact tool group below the command and align it left. */
+@container tqc-line-settings (max-width: 260px) {
+  .tqc-code-line {
+    grid-template-columns: 28px minmax(0, 1fr);
+    grid-template-areas:
+      "number text"
+      "number tools";
+  }
+
+  .tqc-line-tools {
+    min-width: 0;
+    justify-content: flex-start;
+    padding: 4px 8px;
+    border-top: 1px solid var(--tqc-border);
+    border-left: 0;
+  }
+
+  .tqc-code-line.tqc-non-executable {
+    grid-template-areas: "number text";
+  }
+
+  .tqc-code-line.tqc-non-executable .tqc-line-tools {
+    display: none;
   }
 }
 
@@ -2099,6 +2254,7 @@ export class QuickCommandsService {
     private outputSubscriptions: OutputSubscription[] = []
     private recentOutput = new Map<string, OutputBuffer>()
     private outputBufferKeys: string[] = []
+    private ruleHeadResizeObserver?: ResizeObserver
     private targetKeys = new WeakMap<TerminalTabLike, string>()
     private nextTargetKey = 0
     private renderedCommandId: string | null = null
@@ -2404,19 +2560,27 @@ export class QuickCommandsService {
           <div data-role="line-settings" style="margin-top:12px">
             <div class="tqc-card-head">
               <span class="tqc-label">逐行执行设置</span>
-              <span class="tqc-card-summary">延迟 / 执行后状态</span>
+              <span class="tqc-card-summary">延迟 / 执行后状态 / 输出规则</span>
             </div>
             <div class="tqc-code" aria-label="逐行设置">
               ${lines.map((line, index) => {
                   const executable = Boolean(line.trim() && !line.trim().startsWith('#'))
                   const pauseAfter = executable && command.linePauses?.[index] === true
+                  const ruleCount = executable
+                      ? command.automationRules.filter(rule => rule.triggerLine === index + 1).length
+                      : 0
+                  const ruleAction = ruleCount ? 'focus-line-rules' : 'add-line-rule'
+                  const ruleTooltip = ruleCount
+                      ? `查看第 ${index + 1} 行的 ${ruleCount} 条输出规则`
+                      : `为第 ${index + 1} 行添加输出规则`
                   return `
-                <div class="tqc-code-line${pauseAfter ? ' tqc-pause-after' : ''}">
+                <div class="tqc-code-line${executable ? '' : ' tqc-non-executable'}${pauseAfter ? ' tqc-pause-after' : ''}">
                   <div class="tqc-line-no">${index + 1}</div>
                   <div class="tqc-line-text" title="${this.escapeAttr(line || ' ')}">${this.escape(line || ' ')}</div>
                   <div class="tqc-line-tools">
                     <input class="tqc-input tqc-line-delay" type="number" min="0" step="100" data-line-delay="${index}" title="该行延迟" value="${this.escapeAttr(String(command.lineDelays?.[index] ?? command.lineDelay))}"${executable ? '' : ' disabled'}>
                     <button class="tqc-icon-button tqc-line-pause${pauseAfter ? ' tqc-active' : ''}" type="button" data-line-pause="${index}" data-tooltip="${pauseAfter ? '点击改为执行后继续' : '点击改为执行后暂停'}" aria-label="${pauseAfter ? '当前为执行后暂停，点击改为执行后继续' : '当前为执行后继续，点击改为执行后暂停'}" aria-pressed="${pauseAfter}"${executable ? '' : ' disabled'}>${pauseAfter ? `${icons.play}<span>执行后暂停</span>` : `${icons.pause}<span>执行后继续</span>`}</button>
+                    <button class="tqc-icon-button tqc-line-rule${ruleCount ? ' tqc-has-rules' : ''}" type="button" data-line-rule-action="${ruleAction}" data-rule-line="${index + 1}" data-tooltip="${ruleTooltip}" aria-label="${ruleTooltip}"${executable ? '' : ' disabled'}>${icons.bolt}<span>${ruleCount ? `规则 ${ruleCount}` : '规则 +'}</span></button>
                   </div>
                 </div>
               `}).join('')}
@@ -2506,7 +2670,7 @@ export class QuickCommandsService {
                     </div>
                   </div>
                   <div class="tqc-rule-list">
-                    ${command.automationRules.length ? command.automationRules.map((rule, index) => this.renderAutomationRule(rule, index)).join('') : '<div class="tqc-muted">暂无规则</div>'}
+                    ${this.renderAutomationRuleGroups(command)}
                   </div>
                 </div>
               </div>
@@ -2515,29 +2679,78 @@ export class QuickCommandsService {
         `
     }
 
-    private renderAutomationRule (rule: QuickAutomationRule, index: number): string {
+    private renderAutomationRuleGroups (command: QuickCommand): string {
+        if (!command.automationRules.length) {
+            return '<div class="tqc-muted">暂无规则</div>'
+        }
+        const lines = command.command.split(/\r?\n/)
+        const groups = new Map<number, QuickAutomationRule[]>()
+        command.automationRules.forEach(rule => {
+            const triggerLine = Math.max(0, Number(rule.triggerLine) || 0)
+            const group = groups.get(triggerLine) || []
+            group.push(rule)
+            groups.set(triggerLine, group)
+        })
+        const triggerLines = Array.from(groups.keys()).sort((left, right) => {
+            if (left === 0) {
+                return 1
+            }
+            if (right === 0) {
+                return -1
+            }
+            return left - right
+        })
+        return triggerLines.map(triggerLine => {
+            const line = triggerLine > 0 ? lines[triggerLine - 1] : ''
+            const executable = triggerLine === 0 || Boolean(line?.trim() && !line.trim().startsWith('#'))
+            const title = triggerLine === 0 ? '整个命令发送后' : `第 ${triggerLine} 行执行后`
+            const preview = triggerLine > 0
+                ? executable ? line.trim() : '当前行不存在或不可执行'
+                : ''
+            return `
+              <div class="tqc-rule-group" data-rule-group-line="${triggerLine}">
+                <div class="tqc-rule-group-head">
+                  <span class="tqc-rule-group-title">${this.escape(title)}</span>
+                  ${preview ? `<span class="tqc-rule-group-preview" title="${this.escapeAttr(preview)}">${this.escape(preview)}</span>` : ''}
+                  ${executable ? `<button class="tqc-mini" type="button" data-action="${triggerLine ? 'add-line-rule' : 'add-rule'}"${triggerLine ? ` data-rule-line="${triggerLine}"` : ''}>${icons.plus} 规则</button>` : ''}
+                </div>
+                ${groups.get(triggerLine)?.map((rule, groupIndex) => this.renderAutomationRule(command, rule, groupIndex)).join('') || ''}
+              </div>
+            `
+        }).join('')
+    }
+
+    private renderAutomationRule (command: QuickCommand, rule: QuickAutomationRule, index: number): string {
         const invalidWaitPattern = !isValidOutputPattern(rule.waitFor, rule.matchMode, rule.waitForLogic)
         const invalidErrorPattern = !isValidOutputPattern(rule.errorPattern, rule.matchMode, rule.errorPatternLogic)
+        const ruleNumber = rule.triggerLine > 0 ? `${rule.triggerLine}-${index + 1}` : String(index + 1)
+        const triggerOptions = this.getAutomationRuleTriggerOptions(command, rule)
+        const triggerLineText = rule.triggerLine > 0 ? command.command.split(/\r?\n/)[rule.triggerLine - 1] : ''
+        const invalidTriggerLine = rule.triggerLine > 0 && !Boolean(triggerLineText?.trim() && !triggerLineText.trim().startsWith('#'))
         return `
           <div class="tqc-rule${rule.enabled ? '' : ' tqc-rule-disabled'}" data-rule-id="${this.escapeAttr(rule.id)}">
             <div class="tqc-rule-head">
               <div class="tqc-rule-title">
-                <strong>规则 ${index + 1}</strong>
-                <label class="tqc-checkbox">
-                  <input class="tqc-checkbox-control" type="checkbox" data-rule-field="enabled" ${rule.enabled ? 'checked' : ''}>
-                  <span>启用规则</span>
+                <strong>规则 ${ruleNumber}</strong>
+                <label class="tqc-checkbox" data-tooltip="启用规则">
+                  <input class="tqc-checkbox-control" type="checkbox" data-rule-field="enabled" aria-label="启用规则" ${rule.enabled ? 'checked' : ''}>
+                  <span class="tqc-rule-enable-text">启用规则</span>
                 </label>
               </div>
               <div class="tqc-rule-head-actions">
-                <button class="tqc-mini" type="button" data-action="remove-rule" data-rule-action-id="${this.escapeAttr(rule.id)}">${icons.trash} 删除规则</button>
+                <button class="tqc-mini tqc-rule-delete" type="button" data-action="remove-rule" data-rule-action-id="${this.escapeAttr(rule.id)}" data-tooltip="删除规则" aria-label="删除规则">${icons.trash}<span class="tqc-rule-delete-text">删除规则</span></button>
                 <button class="tqc-mini" type="button" data-action="toggle-rule-collapsed" data-rule-action-id="${this.escapeAttr(rule.id)}">${icons.chevron} ${rule.collapsed ? '展开' : '折叠'}</button>
               </div>
             </div>
             ${rule.collapsed ? '' : `
-            <div class="tqc-field-grid">
+            <div class="tqc-field-grid tqc-three">
               <label>
                 <span class="tqc-label">规则名</span>
                 <input class="tqc-input" data-rule-field="name" value="${this.escapeAttr(rule.name)}">
+              </label>
+              <label>
+                <span class="tqc-label">触发时机</span>
+                ${this.renderAutomationRuleSelect(rule, 'triggerLine', String(rule.triggerLine), triggerOptions)}
               </label>
               <label>
                 <span class="tqc-label">匹配方式</span>
@@ -2552,14 +2765,12 @@ export class QuickCommandsService {
               ${this.renderAutomationPatternField(rule, 'errorPattern', 'errorPatternLogic', '错误匹配')}
             </div>
             ${invalidWaitPattern || invalidErrorPattern ? '<div class="tqc-rule-warning">正则表达式无效，请修正后再执行。</div>' : ''}
-            <div class="tqc-field-grid">
+            ${invalidTriggerLine ? '<div class="tqc-rule-warning">绑定的命令行不存在或不可执行，请重新选择触发时机。</div>' : ''}
+            ${rule.triggerLine > 0 && this.state.executionMode !== 'line' ? '<div class="tqc-field-hint">该规则仅在逐行模式下生效。</div>' : ''}
+            <div class="tqc-field-grid tqc-single">
               <div>
-                <span class="tqc-label">成功后执行</span>
-                ${this.renderAutomationRuleAction(rule, 'match')}
-              </div>
-              <div>
-                <span class="tqc-label">错误后执行</span>
-                ${this.renderAutomationRuleAction(rule, 'error')}
+                <span class="tqc-label">匹配后执行</span>
+                ${this.renderAutomationMatchFlow(rule)}
               </div>
             </div>
             <div class="tqc-field-grid">
@@ -2576,6 +2787,24 @@ export class QuickCommandsService {
             `}
           </div>
         `
+    }
+
+    private getAutomationRuleTriggerOptions (
+        command: QuickCommand,
+        rule: QuickAutomationRule,
+    ): Array<{ value: string, label: string }> {
+        const options = [{ value: '0', label: '整个命令发送后' }]
+        command.command.split(/\r?\n/).forEach((line, index) => {
+            const text = line.trim()
+            if (text && !text.startsWith('#')) {
+                const preview = text.length > 42 ? `${text.slice(0, 42)}…` : text
+                options.push({ value: String(index + 1), label: `第 ${index + 1} 行执行后：${preview}` })
+            }
+        })
+        if (rule.triggerLine > 0 && !options.some(option => option.value === String(rule.triggerLine))) {
+            options.push({ value: String(rule.triggerLine), label: `第 ${rule.triggerLine} 行（当前不可执行）` })
+        }
+        return options
     }
 
     private renderAutomationPatternField (
@@ -2602,7 +2831,7 @@ export class QuickCommandsService {
             return `
               ${this.renderAutomationRuleSelect(rule, 'timeoutAction', rule.timeoutAction, [
                 { value: 'continue', label: '继续下一条规则' },
-                { value: 'stop', label: '停止该会话自动化' },
+                { value: 'stop', label: rule.triggerLine > 0 ? '停止后续逐行执行' : '停止该会话自动化' },
                 { value: 'custom', label: '发送自定义命令' },
                 { value: 'command', label: '执行已有命令' },
               ])}
@@ -2619,6 +2848,20 @@ export class QuickCommandsService {
           ])}
           ${this.renderAutomationActionDetail(rule, outcome, actionValue)}
         `
+    }
+
+    private renderAutomationMatchFlow (rule: QuickAutomationRule): string {
+        const options = [
+            { value: 'continue', label: '继续下一条规则' },
+            ...(rule.triggerLine > 0
+                ? [{ value: 'nextLine', label: '跳过该行剩余规则，继续下一行' }]
+                : []),
+            {
+                value: 'stop',
+                label: rule.triggerLine > 0 ? '停止后续逐行执行' : '停止该会话自动化',
+            },
+        ]
+        return this.renderAutomationRuleSelect(rule, 'matchFlow', rule.matchFlow, options)
     }
 
     private renderAutomationActionDetail (
@@ -2758,6 +3001,7 @@ export class QuickCommandsService {
               <div class="tqc-run-status">
                 <span class="tqc-pill">${stateText}</span>
                 <span class="tqc-muted">第 ${this.runState.currentStep}/${this.runState.totalSteps} 步，源行 ${this.runState.sourceLine || '-'}</span>
+                ${this.runState.waitingRuleName ? `<span class="tqc-muted">正在等待：${this.escape(this.runState.waitingRuleName)}</span>` : ''}
               </div>
               <div class="tqc-footer-row" style="margin-top:10px">
                 <button class="tqc-secondary" type="button" data-action="${this.runState.paused ? 'resume' : 'pause'}">${this.runState.paused ? icons.play : icons.pause} ${this.runState.paused ? '继续' : '暂停'}</button>
@@ -3390,6 +3634,39 @@ export class QuickCommandsService {
 
         this.bindTooltips()
         this.bindResizeHandle()
+        this.bindResponsiveRuleHeads()
+    }
+
+    private bindResponsiveRuleHeads (): void {
+        this.ruleHeadResizeObserver?.disconnect()
+        this.ruleHeadResizeObserver = undefined
+        const heads = Array.from(this.root?.querySelectorAll<HTMLElement>('.tqc-rule-head') || [])
+        if (!heads.length) {
+            return
+        }
+
+        const update = (head: HTMLElement) => {
+            head.classList.remove('tqc-rule-head-compact')
+            const title = head.querySelector<HTMLElement>('.tqc-rule-title')
+            const actions = head.querySelector<HTMLElement>('.tqc-rule-head-actions')
+            if (!title || !actions) {
+                return
+            }
+            const style = window.getComputedStyle(head)
+            const gap = Number.parseFloat(style.columnGap || style.gap) || 0
+            const requiredWidth = title.scrollWidth + actions.scrollWidth + gap
+            const safetySpace = 12
+            head.classList.toggle('tqc-rule-head-compact', requiredWidth + safetySpace > head.clientWidth)
+        }
+
+        heads.forEach(update)
+        window.requestAnimationFrame(() => heads.forEach(update))
+        if (typeof ResizeObserver !== 'undefined') {
+            this.ruleHeadResizeObserver = new ResizeObserver(entries => {
+                entries.forEach(entry => update(entry.target as HTMLElement))
+            })
+            heads.forEach(head => this.ruleHeadResizeObserver?.observe(head))
+        }
     }
 
     private bindTooltips (scope: ParentNode = this.root as ParentNode): void {
@@ -3841,6 +4118,9 @@ export class QuickCommandsService {
             case 'add-rule':
                 this.addAutomationRule()
                 return
+            case 'add-line-rule':
+                this.addAutomationRule(Math.max(0, Number(element?.dataset.ruleLine) || 0))
+                return
             case 'toggle-all-rules':
                 this.toggleAllAutomationRules()
                 return
@@ -4015,6 +4295,16 @@ export class QuickCommandsService {
         scope.querySelectorAll<HTMLButtonElement>('[data-line-pause]').forEach(element => {
             element.addEventListener('click', () => this.toggleLinePause(element))
         })
+        scope.querySelectorAll<HTMLButtonElement>('[data-line-rule-action]').forEach(element => {
+            element.addEventListener('click', () => {
+                const line = Math.max(0, Number(element.dataset.ruleLine) || 0)
+                if (element.dataset.lineRuleAction === 'focus-line-rules') {
+                    this.focusLineAutomationRules(line)
+                } else {
+                    this.addAutomationRule(line)
+                }
+            })
+        })
     }
 
     private refreshLineSettings (commandText: string): void {
@@ -4057,7 +4347,8 @@ export class QuickCommandsService {
         const shouldRender = field === 'enabled' || field === 'matchMode' ||
             field === 'waitFor' || field === 'errorPattern' ||
             field === 'waitForLogic' || field === 'errorPatternLogic' ||
-            field === 'onMatchAction' || field === 'onErrorAction' || field === 'timeoutAction'
+            field === 'onMatchAction' || field === 'onErrorAction' || field === 'timeoutAction' ||
+            field === 'triggerLine'
         if (shouldRender) {
             this.withPreservedScroll(() => this.updateAutomationRuleValue(ruleId, field, value, true))
             return
@@ -4075,8 +4366,11 @@ export class QuickCommandsService {
         if (!selected) {
             return
         }
+        const normalizedValue = field === 'triggerLine'
+            ? Math.max(0, Math.floor(Number(value) || 0))
+            : value
         const automationRules = selected.automationRules.map(rule => (
-            rule.id === ruleId ? { ...rule, [field]: value } : rule
+            rule.id === ruleId ? { ...rule, [field]: normalizedValue } : rule
         ))
         this.updateSelectedCommand({ automationRules }, false, shouldRender)
     }
@@ -4465,7 +4759,7 @@ export class QuickCommandsService {
             this.state.selectedCategory !== '常用'
     }
 
-    private addAutomationRule (): void {
+    private addAutomationRule (triggerLine = 0): void {
         const selected = this.getSelectedCommand()
         if (!selected) {
             return
@@ -4475,12 +4769,14 @@ export class QuickCommandsService {
             name: '输出匹配规则',
             enabled: true,
             collapsed: false,
+            triggerLine: Math.max(0, Math.floor(triggerLine)),
             matchMode: 'literal',
             waitFor: '',
             waitForLogic: 'single',
             timeoutMs: 10000,
             errorPattern: '',
             errorPatternLogic: 'single',
+            matchFlow: 'continue',
             onMatchAction: 'none',
             onMatchCommand: '',
             onMatchAutoEnter: true,
@@ -4495,7 +4791,27 @@ export class QuickCommandsService {
             timeoutAction: 'continue',
         }
         this.pendingAutomationRuleScrollId = rule.id
-        this.updateSelectedCommand({ automationRules: [...selected.automationRules, rule] })
+        const commands = this.state.commands.map(command => (
+            command.id === selected.id
+                ? { ...command, automationRules: [...command.automationRules, rule] }
+                : command
+        ))
+        this.updateConfig({
+            commands,
+            selectedCommandId: selected.id,
+            moreSettingsCollapsed: false,
+        })
+    }
+
+    private focusLineAutomationRules (triggerLine: number): void {
+        const selected = this.getSelectedCommand()
+        const rule = selected?.automationRules.find(item => item.triggerLine === triggerLine)
+        if (!selected || !rule) {
+            this.addAutomationRule(triggerLine)
+            return
+        }
+        this.pendingAutomationRuleScrollId = rule.id
+        this.updateConfig({ moreSettingsCollapsed: false })
     }
 
     private toggleAutomationRuleCollapsed (ruleId: string): void {
@@ -4715,7 +5031,12 @@ export class QuickCommandsService {
             } else {
                 this.executeBlock(selected, targets)
             }
-            await this.runAutomationRules(selected, targets)
+            const afterCommandRules = selected.automationRules.filter(rule => rule.triggerLine === 0)
+            await this.runAutomationRules(selected, targets, afterCommandRules)
+            if (this.runState?.stopped) {
+                this.showMessage('执行已停止。')
+                return
+            }
             this.addLog('info', '执行完成', selected.id, undefined, {
                 mode: summary.modeLabel,
                 targetNames: summary.targetNames,
@@ -4772,10 +5093,19 @@ export class QuickCommandsService {
         }
 
         try {
+            const rules = command.automationRules.filter(rule => rule.triggerLine === step.sourceLine)
+            const outputCursors = this.captureOutputCursors(targets)
             const payload = this.normalizeCommand(step.text, command.autoEnter)
             targets.forEach(target => target.sendInput(payload))
             this.addLog('info', `已发送第 ${step.sourceLine} 行。`, command.id, step.sourceLine)
-            await this.delayWithControl(step.delay)
+            const [, stoppedByRule] = await Promise.all([
+                this.delayWithControl(step.delay),
+                this.runAutomationRules(command, targets, rules, outputCursors),
+            ])
+            if (stoppedByRule && this.runState) {
+                this.runState.stopped = true
+                this.addLog('warn', `第 ${step.sourceLine} 行的输出规则已停止后续逐行执行。`, command.id, step.sourceLine)
+            }
             if (step.pauseAfter && !this.runState?.stopped) {
                 this.pauseExecution()
                 this.addLog('info', `第 ${step.sourceLine} 行执行后暂停，等待继续。`, command.id, step.sourceLine)
@@ -4878,10 +5208,15 @@ export class QuickCommandsService {
         }
     }
 
-    private async runAutomationRules (command: QuickCommand, targets: TerminalTabLike[]): Promise<void> {
-        const rules = command.automationRules.filter(rule => rule.enabled && (rule.waitFor || rule.errorPattern))
+    private async runAutomationRules (
+        command: QuickCommand,
+        targets: TerminalTabLike[],
+        candidateRules: QuickAutomationRule[],
+        initialCursors?: Map<string, number>,
+    ): Promise<boolean> {
+        const rules = candidateRules.filter(rule => rule.enabled && (rule.waitFor || rule.errorPattern))
         if (!rules.length || this.runState?.stopped) {
-            return
+            return false
         }
         const availableTargets = targets.filter(target => {
             const available = this.recentOutput.has(this.getTargetKey(target))
@@ -4892,20 +5227,31 @@ export class QuickCommandsService {
             }
             return available
         })
-        await Promise.all(availableTargets.map(target => this.runAutomationRulesForTarget(command, rules, target)))
+        const results = await Promise.all(availableTargets.map(target => this.runAutomationRulesForTarget(
+            command,
+            rules,
+            target,
+            initialCursors?.get(this.getTargetKey(target)),
+        )))
+        if (this.runState) {
+            this.runState.waitingRuleName = undefined
+            this.render()
+        }
+        return results.some(Boolean)
     }
 
     private async runAutomationRulesForTarget (
         command: QuickCommand,
         rules: QuickAutomationRule[],
         target: TerminalTabLike,
-    ): Promise<void> {
+        initialCursor?: number,
+    ): Promise<boolean> {
         const key = this.getTargetKey(target)
-        let cursor = this.recentOutput.get(key)?.startOffset || 0
+        let cursor = initialCursor ?? this.recentOutput.get(key)?.startOffset ?? 0
 
         for (const rule of rules) {
             if (this.runState?.stopped) {
-                return
+                return false
             }
             if (!isValidOutputPattern(rule.waitFor, rule.matchMode, rule.waitForLogic) ||
                 !isValidOutputPattern(rule.errorPattern, rule.matchMode, rule.errorPatternLogic)) {
@@ -4918,17 +5264,25 @@ export class QuickCommandsService {
             const result = await this.waitForRule(rule, target, cursor, command.id)
             cursor = this.recentOutput.get(key)?.endOffset || cursor
             if (result.outcome === 'stopped') {
-                return
+                return false
             }
 
-            const shouldStop = this.executeAutomationRuleAction(rule, result.outcome, target, command.id)
-            if (shouldStop) {
-                this.addLog('warn', `会话自动化已在超时后停止：${rule.name}`, command.id, undefined, {
+            const control = this.executeAutomationRuleAction(rule, result.outcome, target, command.id)
+            if (control === 'skipLineRules') {
+                this.addLog('info', `会话已在匹配后跳过该行剩余规则：${rule.name}`, command.id, undefined, {
                     targetNames: [this.getTabTitle(target)],
                 })
-                return
+                return false
+            }
+            if (control === 'stop') {
+                const reason = result.outcome === 'timeout' ? '超时' : '匹配'
+                this.addLog('warn', `会话自动化已在${reason}后停止：${rule.name}`, command.id, undefined, {
+                    targetNames: [this.getTabTitle(target)],
+                })
+                return true
             }
         }
+        return false
     }
 
     private async waitForRule (
@@ -4940,6 +5294,10 @@ export class QuickCommandsService {
         const timeout = Math.max(100, Number(rule.timeoutMs) || 10000)
         const started = Date.now()
         const targetName = this.getTabTitle(target)
+        if (this.runState) {
+            this.runState.waitingRuleName = rule.name
+            this.render()
+        }
         this.addLog('info', `等待输出触发器：${rule.name}`, commandId, undefined, {
             targetNames: [targetName],
         })
@@ -4986,39 +5344,35 @@ export class QuickCommandsService {
         outcome: AutomationRuleResult['outcome'],
         target: TerminalTabLike,
         parentCommandId: string,
-    ): boolean {
+    ): AutomationRuleControl {
         if (outcome === 'stopped') {
-            return true
+            return 'stop'
         }
         if (outcome === 'timeout' && rule.timeoutAction === 'stop') {
-            return true
+            return 'stop'
         }
-        const action = outcome === 'match'
-            ? rule.onMatchAction
-            : outcome === 'error'
-                ? rule.onErrorAction
-                : rule.timeoutAction
+        if (outcome === 'match' || outcome === 'error') {
+            if (rule.matchFlow === 'stop') {
+                return 'stop'
+            }
+            if (rule.matchFlow === 'nextLine') {
+                return 'skipLineRules'
+            }
+            return 'continue'
+        }
+        const action = rule.timeoutAction
         if (action === 'command') {
-            const commandId = outcome === 'match'
-                ? rule.onMatchCommandId
-                : outcome === 'error'
-                    ? rule.onErrorCommandId
-                    : rule.onTimeoutCommandId
-            this.executeAutomationCommand(commandId, [target], parentCommandId)
+            this.executeAutomationCommand(rule.onTimeoutCommandId, [target], parentCommandId)
         } else if (action === 'custom') {
-            const command = outcome === 'match'
-                ? rule.onMatchCommand
-                : outcome === 'error'
-                    ? rule.onErrorCommand
-                    : rule.onTimeoutCommand
-            const autoEnter = outcome === 'match'
-                ? rule.onMatchAutoEnter
-                : outcome === 'error'
-                    ? rule.onErrorAutoEnter
-                    : rule.onTimeoutAutoEnter
-            this.executeAutomationCustomCommand(command, autoEnter, target, parentCommandId, rule.name)
+            this.executeAutomationCustomCommand(
+                rule.onTimeoutCommand,
+                rule.onTimeoutAutoEnter,
+                target,
+                parentCommandId,
+                rule.name,
+            )
         }
-        return false
+        return 'continue'
     }
 
     private executeAutomationCommand (commandId: string, targets: TerminalTabLike[], parentCommandId: string): void {
@@ -5086,6 +5440,18 @@ export class QuickCommandsService {
                 })
             }))
         })
+    }
+
+    private captureOutputCursors (targets: TerminalTabLike[]): Map<string, number> {
+        const cursors = new Map<string, number>()
+        targets.forEach(target => {
+            const key = this.getTargetKey(target)
+            const buffer = this.recentOutput.get(key)
+            if (buffer) {
+                cursors.set(key, buffer.endOffset)
+            }
+        })
+        return cursors
     }
 
     private getOutputSince (target: TerminalTabLike, cursor: number): string {

@@ -5,6 +5,7 @@ export type ImportMode = 'merge' | 'replace'
 export type OutputMatchMode = 'literal' | 'regex'
 export type OutputPatternLogic = 'single' | 'any' | 'all'
 export type AutomationCommandAction = 'none' | 'custom' | 'command'
+export type AutomationMatchFlow = 'continue' | 'nextLine' | 'stop'
 export type AutomationTimeoutAction = 'continue' | 'stop' | 'custom' | 'command'
 
 export interface QuickAutomationRule {
@@ -12,12 +13,15 @@ export interface QuickAutomationRule {
     name: string
     enabled: boolean
     collapsed: boolean
+    /** 0 waits until the whole command is sent; positive values run after that source line. */
+    triggerLine: number
     matchMode: OutputMatchMode
     waitFor: string
     waitForLogic: OutputPatternLogic
     timeoutMs: number
     errorPattern: string
     errorPatternLogic: OutputPatternLogic
+    matchFlow: AutomationMatchFlow
     onMatchAction: AutomationCommandAction
     onMatchCommand: string
     onMatchAutoEnter: boolean
