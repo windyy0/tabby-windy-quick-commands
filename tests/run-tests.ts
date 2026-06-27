@@ -94,6 +94,9 @@ function testTranslations (): void {
     assert(translatePluginText('确认永久删除选中的 3 条命令？运行日志将保留。', 'en-US') === 'Permanently delete the selected 3 commands? Runtime logs will be kept.', 'dynamic confirmations should be fully translated')
     assert(translatePluginText('执行后继续', 'en-US') === 'Continue', 'line setting continue label should fit its button')
     assert(translatePluginText('执行后暂停', 'en-US') === 'Pause', 'line setting pause label should fit its button')
+    assert(translatePluginText('全部折叠', 'en-US') === 'Collapse all', 'bulk collapse action should be translated')
+    assert(translatePluginText('将“部署”移动到指定分类。', 'en-US') === 'Move "部署" to the selected category.', 'move dialog should translate dynamic command names')
+    assert(translatePluginText('将选中的 3 条命令移动到', 'en-US') === 'Move the selected 3 commands to', 'batch move prompt should be translated')
 }
 
 function testImportValidation (): void {

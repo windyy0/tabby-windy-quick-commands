@@ -643,6 +643,8 @@ const css = `
 }
 
 .tqc-command {
+  min-width: 0;
+  overflow: hidden;
   border-color: var(--tqc-surface-border);
   border-radius: 8px;
   padding: 10px;
@@ -659,13 +661,13 @@ const css = `
 
 .tqc-command-shell .tqc-command {
   width: 100%;
-  padding-right: 42px;
+  padding-right: 70px;
 }
 
-.tqc-command-edit {
+.tqc-command-edit,
+.tqc-command-run {
   position: absolute;
   top: 7px;
-  right: 7px;
   width: 28px;
   height: 28px;
   padding: 0;
@@ -679,8 +681,18 @@ const css = `
   transition: opacity 140ms ease, transform 140ms ease, background-color 140ms ease, border-color 140ms ease;
 }
 
+.tqc-command-edit {
+  right: 6px;
+}
+
+.tqc-command-run {
+  right: 34px;
+}
+
 .tqc-command-edit:hover,
-.tqc-command-edit:focus-visible {
+.tqc-command-edit:focus-visible,
+.tqc-command-run:hover,
+.tqc-command-run:focus-visible {
   color: var(--tqc-accent);
   background: var(--tqc-accent-soft);
   border-color: transparent;
@@ -688,8 +700,11 @@ const css = `
 }
 
 .tqc-command-shell:hover .tqc-command-edit,
+.tqc-command-shell:hover .tqc-command-run,
 .tqc-command-shell:focus-within .tqc-command-edit,
-.tqc-command.tqc-selected + .tqc-command-edit {
+.tqc-command-shell:focus-within .tqc-command-run,
+.tqc-command.tqc-selected ~ .tqc-command-edit,
+.tqc-command.tqc-selected ~ .tqc-command-run {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
@@ -698,6 +713,11 @@ const css = `
 .tqc-command-edit svg {
   width: 14px;
   height: 14px;
+}
+
+.tqc-command-run svg {
+  width: 18px;
+  height: 18px;
 }
 
 .tqc-command.tqc-dragging {
@@ -718,6 +738,9 @@ const css = `
   display: flex;
   gap: 7px;
   align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .tqc-command-name,
@@ -727,9 +750,14 @@ const css = `
 }
 
 .tqc-command-name {
+  display: block;
   flex: 1;
   min-width: 0;
+  max-width: 100%;
   font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tqc-command-desc,
@@ -738,6 +766,11 @@ const css = `
 }
 
 .tqc-command-desc {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -954,6 +987,22 @@ const css = `
 .tqc-more-section {
   padding-top: 10px;
   border-top: 1px solid var(--tqc-border);
+}
+
+.tqc-automation-toolbar {
+  position: sticky;
+  top: -3px;
+  z-index: 6;
+  margin: -3px -4px 0;
+  padding: 7px 4px;
+  background: var(--tqc-panel-solid);
+  border-bottom: 1px solid var(--tqc-border);
+}
+
+.tqc-automation-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
 }
 
 .tqc-label {
@@ -1188,9 +1237,11 @@ const css = `
 }
 
 .tqc-line-text {
+  min-width: 0;
   padding: 7px 10px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
 }
 
 .tqc-line-tools {
@@ -1200,10 +1251,17 @@ const css = `
 }
 
 .tqc-line-delay {
-  width: 68px;
+  width: 56px;
   height: 26px;
   font-size: 11px;
   padding: 0 5px;
+  appearance: textfield;
+}
+
+.tqc-line-delay::-webkit-inner-spin-button,
+.tqc-line-delay::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
 }
 
 .tqc-line-pause {
@@ -1585,7 +1643,8 @@ const css = `
   padding: 14px;
 }
 
-.tqc-confirm .tqc-input {
+.tqc-confirm .tqc-input,
+.tqc-confirm .tqc-select {
   background: var(--tqc-confirm-input);
   border-color: var(--tqc-confirm-border);
   color: var(--tqc-confirm-text);
@@ -1643,6 +1702,120 @@ const css = `
   flex: 1;
 }
 
+.tqc-move-select {
+  position: relative;
+}
+
+.tqc-move-select-button {
+  justify-content: space-between;
+  text-align: left;
+}
+
+.tqc-move-select-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tqc-move-select-button svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  transition: transform 140ms ease;
+}
+
+.tqc-move-select.tqc-open .tqc-move-select-button svg {
+  transform: rotate(180deg);
+}
+
+.tqc-move-select-menu {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 30;
+  max-height: 210px;
+  margin-top: 6px;
+  padding: 5px;
+  overflow: auto;
+  background: var(--tqc-confirm-bg);
+  border: 1px solid var(--tqc-confirm-border);
+  border-radius: 9px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+}
+
+.tqc-move-select-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 12px;
+  color: var(--tqc-confirm-text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  font: inherit;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.tqc-move-confirm {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.tqc-move-confirm.tqc-selecting {
+  min-height: min(520px, calc(100vh - 32px));
+}
+
+.tqc-move-confirm.tqc-selecting .tqc-move-follow {
+  margin-top: auto;
+}
+
+.tqc-confirm label.tqc-move-follow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  color: var(--tqc-confirm-text);
+  cursor: pointer;
+}
+
+.tqc-confirm .tqc-move-follow .tqc-checkbox-control {
+  background: var(--tqc-confirm-input);
+  border-color: var(--tqc-confirm-border);
+}
+
+.tqc-confirm .tqc-move-follow input.tqc-checkbox-control[type="checkbox"] {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+}
+
+.tqc-confirm .tqc-move-follow input.tqc-checkbox-control[type="checkbox"]:not(:checked) {
+  background-color: var(--tqc-confirm-input) !important;
+  border: 1px solid #94a3b8 !important;
+  box-shadow: none;
+}
+
+.tqc-confirm .tqc-move-follow .tqc-checkbox-control:checked {
+  background: var(--tqc-confirm-primary);
+  border-color: var(--tqc-confirm-primary);
+}
+
+.tqc-move-select-option:hover {
+  color: var(--tqc-confirm-text);
+  background: color-mix(in srgb, var(--tqc-confirm-border) 18%, transparent);
+}
+
+.tqc-move-select-option.tqc-active {
+  color: var(--tqc-confirm-primary);
+  background: color-mix(in srgb, var(--tqc-confirm-primary) 12%, transparent);
+  font-weight: 600;
+}
+
 .tqc-hidden-file {
   display: none;
 }
@@ -1665,6 +1838,119 @@ const css = `
   .tqc-field-grid,
   .tqc-field-grid.tqc-three {
     grid-template-columns: 1fr;
+  }
+
+  .tqc-code-line {
+    grid-template-columns: 28px minmax(0, 1fr) 96px;
+  }
+
+  .tqc-line-no {
+    padding-right: 5px;
+  }
+
+  .tqc-line-text {
+    min-width: 0;
+    white-space: pre;
+    overflow: hidden;
+    overflow-wrap: normal;
+    text-overflow: ellipsis;
+  }
+
+  .tqc-line-tools {
+    gap: 4px;
+    padding-inline: 4px;
+  }
+
+  .tqc-line-delay {
+    width: 50px;
+  }
+
+  .tqc-line-pause {
+    width: 30px;
+    min-width: 30px;
+    padding: 0;
+  }
+
+  .tqc-line-pause span {
+    display: none;
+  }
+
+  .tqc-rule-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .tqc-rule-head-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}
+
+@container (max-width: 400px) {
+  .tqc-header,
+  .tqc-footer {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .tqc-title span,
+  .tqc-primary .tqc-kbd {
+    display: none;
+  }
+
+  .tqc-title {
+    flex: none;
+  }
+
+  .tqc-header-menu-shell {
+    margin-left: auto;
+  }
+
+  .tqc-header-menu-shell > .tqc-secondary {
+    width: 34px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .tqc-header-menu-shell > .tqc-secondary svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .tqc-body {
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 8px;
+    padding-inline: 10px;
+  }
+
+  .tqc-command-shell .tqc-command {
+    padding: 9px 34px 9px 8px;
+  }
+
+  .tqc-command-run {
+    top: 37px;
+    right: 5px;
+  }
+
+  .tqc-command-edit {
+    right: 5px;
+  }
+
+  .tqc-card {
+    padding: 9px;
+  }
+
+  .tqc-card-head {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .tqc-footer-row .tqc-secondary {
+    padding-inline: 9px;
+  }
+
+  .tqc-automation-actions .tqc-mini {
+    padding-inline: 7px;
   }
 }
 
@@ -1744,6 +2030,8 @@ const icons = {
     copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
     duplicate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M8 8h11v11H8z"/><path d="M5 16H4V5h11v1"/></svg>',
+    move: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m14 7 5 5-5 5"/><path d="M5 5v14"/></svg>',
+    run: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.3 5.35c-.93-.58-2.13.09-2.13 1.19v10.92c0 1.1 1.2 1.77 2.13 1.19l8.72-5.46c.88-.55.88-1.83 0-2.38L8.3 5.35z"/></svg>',
     up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>',
     down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
     collapse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
@@ -1776,6 +2064,14 @@ export class QuickCommandsService {
     private message = ''
     private pendingExecutionId: string | null = null
     private pendingDeleteId: string | null = null
+    private pendingRuleDeleteId: string | null = null
+    private addingCommand = false
+    private newCommandName = '新命令'
+    private newCommandDescription = ''
+    private movingCommandId: string | null = null
+    private moveTargetCategory = ''
+    private moveCategoryMenuOpen = false
+    private moveNavigateAfterMove = false
     private editingCommandId: string | null = null
     private editCommandName = ''
     private editCommandDescription = ''
@@ -1855,6 +2151,13 @@ export class QuickCommandsService {
         this.visible = false
         this.pendingExecutionId = null
         this.pendingDeleteId = null
+        this.pendingRuleDeleteId = null
+        this.addingCommand = false
+        this.newCommandName = '新命令'
+        this.newCommandDescription = ''
+        this.movingCommandId = null
+        this.moveTargetCategory = ''
+        this.moveCategoryMenuOpen = false
         this.addingCategory = false
         this.renamingCategory = false
         this.deletingCategory = false
@@ -2011,12 +2314,13 @@ export class QuickCommandsService {
           <div class="tqc-command-shell">
             <button class="tqc-command${selected ? ' tqc-selected' : ''}" type="button" draggable="true" data-command-id="${this.escapeAttr(command.id)}">
               <div class="tqc-command-top">
-                <div class="tqc-command-name">${this.escape(command.name)}</div>
+                <div class="tqc-command-name" title="${this.escapeAttr(command.name)}">${this.escape(command.name)}</div>
               </div>
               ${command.description ? `<div class="tqc-command-desc">${this.escape(command.description)}</div>` : ''}
               ${badges.length ? `<div class="tqc-command-meta">${badges.join('')}</div>` : ''}
             </button>
             <button class="tqc-icon-button tqc-command-edit" type="button" data-action="edit-command" data-command-edit-id="${this.escapeAttr(command.id)}" data-tooltip="编辑名称和说明" aria-label="编辑名称和说明">${icons.edit}</button>
+            <button class="tqc-icon-button tqc-command-run" type="button" data-action="execute-command" data-command-execute-id="${this.escapeAttr(command.id)}" data-tooltip="执行命令" aria-label="执行命令">${icons.run}</button>
           </div>
         `
     }
@@ -2033,6 +2337,7 @@ export class QuickCommandsService {
                 ${this.commandMenuOpen ? `
                   <div class="tqc-command-menu" role="menu">
                     <button type="button" role="menuitem" data-action="duplicate" data-tooltip="复制当前命令并创建新的命令项">${icons.duplicate}<span>复制为新命令</span></button>
+                    <button type="button" role="menuitem" data-action="move-command">${icons.move}<span>移动命令</span></button>
                   </div>
                 ` : ''}
               </div>
@@ -2108,7 +2413,7 @@ export class QuickCommandsService {
                   return `
                 <div class="tqc-code-line${pauseAfter ? ' tqc-pause-after' : ''}">
                   <div class="tqc-line-no">${index + 1}</div>
-                  <div class="tqc-line-text">${this.escape(line || ' ')}</div>
+                  <div class="tqc-line-text" title="${this.escapeAttr(line || ' ')}">${this.escape(line || ' ')}</div>
                   <div class="tqc-line-tools">
                     <input class="tqc-input tqc-line-delay" type="number" min="0" step="100" data-line-delay="${index}" title="该行延迟" value="${this.escapeAttr(String(command.lineDelays?.[index] ?? command.lineDelay))}"${executable ? '' : ' disabled'}>
                     <button class="tqc-icon-button tqc-line-pause${pauseAfter ? ' tqc-active' : ''}" type="button" data-line-pause="${index}" data-tooltip="${pauseAfter ? '点击改为执行后继续' : '点击改为执行后暂停'}" aria-label="${pauseAfter ? '当前为执行后暂停，点击改为执行后继续' : '当前为执行后继续，点击改为执行后暂停'}" aria-pressed="${pauseAfter}"${executable ? '' : ' disabled'}>${pauseAfter ? `${icons.play}<span>执行后暂停</span>` : `${icons.pause}<span>执行后继续</span>`}</button>
@@ -2193,9 +2498,12 @@ export class QuickCommandsService {
                   <span class="tqc-field-hint" data-role="shortcut-hint">点击输入框后按组合键。在终端中按下即可执行；高风险命令仍需确认。</span>
                 </label>
                 <div class="tqc-more-section">
-                  <div class="tqc-card-head">
+                  <div class="tqc-card-head tqc-automation-toolbar">
                     <span class="tqc-label">输出触发器</span>
-                    <button class="tqc-mini" type="button" data-action="add-rule">${icons.plus} 规则</button>
+                    <div class="tqc-automation-actions">
+                      <button class="tqc-mini" type="button" data-action="toggle-all-rules" ${command.automationRules.length ? '' : 'disabled'}>${icons.chevron} ${command.automationRules.some(rule => !rule.collapsed) ? '全部折叠' : '全部展开'}</button>
+                      <button class="tqc-mini" type="button" data-action="add-rule">${icons.plus} 规则</button>
+                    </div>
                   </div>
                   <div class="tqc-rule-list">
                     ${command.automationRules.length ? command.automationRules.map((rule, index) => this.renderAutomationRule(rule, index)).join('') : '<div class="tqc-muted">暂无规则</div>'}
@@ -2257,7 +2565,7 @@ export class QuickCommandsService {
             <div class="tqc-field-grid">
               <label>
                 <span class="tqc-label">超时 ms</span>
-                <input class="tqc-input" type="number" min="100" step="500" data-rule-field="timeoutMs" data-tooltip="等待成功或错误输出的最长时间，单位为毫秒；到时后执行右侧的超时动作，最少 100ms。" value="${this.escapeAttr(String(rule.timeoutMs))}">
+                <input class="tqc-input" type="number" data-rule-field="timeoutMs" data-tooltip="等待成功或错误输出的最长时间，单位为毫秒；到时后执行右侧的超时动作，最少 100ms。" value="${this.escapeAttr(String(rule.timeoutMs))}">
               </label>
               <div>
                 <span class="tqc-label">超时后</span>
@@ -2471,6 +2779,15 @@ export class QuickCommandsService {
         if (this.importPreview) {
             return this.renderImportPreviewDialog()
         }
+        if (this.pendingRuleDeleteId) {
+            return this.renderDeleteRuleDialog()
+        }
+        if (this.addingCommand) {
+            return this.renderAddCommandDialog()
+        }
+        if (this.movingCommandId) {
+            return this.renderMoveCommandDialog()
+        }
         if (this.pendingDeleteId) {
             const command = this.state.commands.find(item => item.id === this.pendingDeleteId)
             return this.renderDeleteDialog(command)
@@ -2513,6 +2830,61 @@ export class QuickCommandsService {
               <div class="tqc-confirm-actions">
                 <button class="tqc-secondary" type="button" data-action="edit-command-cancel">取消</button>
                 <button class="tqc-primary" type="button" data-action="edit-command-save">保存</button>
+              </div>
+            </div>
+          </div>
+        `
+    }
+
+    private renderAddCommandDialog (): string {
+        return `
+          <div class="tqc-confirm-backdrop" data-action="new-command-cancel">
+            <div class="tqc-confirm" role="dialog" aria-modal="true" aria-label="新增名称和说明" data-role="confirm-dialog">
+              <div class="tqc-confirm-title">新增名称和说明</div>
+              <div class="tqc-confirm-desc">保存后，新命令会添加到左侧命令列表。</div>
+              <label style="display:block;margin-top:12px">
+                <span class="tqc-label">名称</span>
+                <input class="tqc-input" data-role="new-command-name" value="${this.escapeAttr(this.newCommandName)}">
+              </label>
+              <label style="display:block;margin-top:10px">
+                <span class="tqc-label">说明</span>
+                <input class="tqc-input" data-role="new-command-description" value="${this.escapeAttr(this.newCommandDescription)}">
+              </label>
+              <div class="tqc-confirm-actions">
+                <button class="tqc-secondary" type="button" data-action="new-command-cancel">取消</button>
+                <button class="tqc-primary" type="button" data-action="new-command-save">保存</button>
+              </div>
+            </div>
+          </div>
+        `
+    }
+
+    private renderMoveCommandDialog (): string {
+        const command = this.state.commands.find(item => item.id === this.movingCommandId)
+        const categories = this.getOrderedRealCategories()
+        return `
+          <div class="tqc-confirm-backdrop" data-action="move-command-cancel">
+            <div class="tqc-confirm tqc-move-confirm${this.moveCategoryMenuOpen ? ' tqc-selecting' : ''}" role="dialog" aria-modal="true" aria-label="移动命令" data-role="confirm-dialog">
+              <div class="tqc-confirm-title">移动命令</div>
+              <div class="tqc-confirm-desc">将“${this.escape(command?.name || '未命名命令')}”移动到指定分类。</div>
+              <label>
+                <span class="tqc-label">目标分类</span>
+                <div class="tqc-move-select${this.moveCategoryMenuOpen ? ' tqc-open' : ''}">
+                  <button class="tqc-select tqc-move-select-button" type="button" data-action="toggle-move-category-menu" aria-haspopup="listbox" aria-expanded="${this.moveCategoryMenuOpen}">
+                    <span>${this.escape(this.moveTargetCategory || '请选择')}</span>${icons.chevron}
+                  </button>
+                  ${this.moveCategoryMenuOpen ? `<div class="tqc-move-select-menu" role="listbox">
+                    ${categories.map(category => `<button class="tqc-move-select-option${category === this.moveTargetCategory ? ' tqc-active' : ''}" type="button" role="option" aria-selected="${category === this.moveTargetCategory}" data-action="select-move-category" data-move-category="${this.escapeAttr(category)}">${this.escape(category)}</button>`).join('')}
+                  </div>` : ''}
+                </div>
+              </label>
+              <label class="tqc-checkbox tqc-move-follow">
+                <input class="tqc-checkbox-control" type="checkbox" data-role="move-follow-category" ${this.moveNavigateAfterMove ? 'checked' : ''}>
+                <span>移动后跳转到目标分类</span>
+              </label>
+              <div class="tqc-confirm-actions">
+                <button class="tqc-secondary" type="button" data-action="move-command-cancel">取消</button>
+                <button class="tqc-primary" type="button" data-action="move-command-confirm" ${command && this.moveTargetCategory ? '' : 'disabled'}>移动</button>
               </div>
             </div>
           </div>
@@ -2566,6 +2938,21 @@ export class QuickCommandsService {
                 <button class="tqc-secondary" type="button" data-action="import-cancel">取消</button>
                 <button class="tqc-secondary" type="button" data-action="import-replace">替换导入</button>
                 <button class="tqc-primary" type="button" data-action="import-merge">合并导入</button>
+              </div>
+            </div>
+          </div>
+        `
+    }
+
+    private renderDeleteRuleDialog (): string {
+        return `
+          <div class="tqc-confirm-backdrop" data-action="rule-delete-cancel">
+            <div class="tqc-confirm" role="dialog" aria-modal="true" aria-label="删除规则" data-role="confirm-dialog">
+              <div class="tqc-confirm-title">删除规则</div>
+              <div class="tqc-confirm-desc">确认删除该输出触发器规则？此操作不可撤销。</div>
+              <div class="tqc-confirm-actions">
+                <button class="tqc-secondary" type="button" data-action="rule-delete-cancel">取消</button>
+                <button class="tqc-primary" type="button" data-action="rule-delete-confirm">删除</button>
               </div>
             </div>
           </div>
@@ -2889,6 +3276,37 @@ export class QuickCommandsService {
             })
         }
 
+        const newCommandName = this.root.querySelector<HTMLInputElement>('[data-role="new-command-name"]')
+        const newCommandDescription = this.root.querySelector<HTMLInputElement>('[data-role="new-command-description"]')
+        newCommandName?.addEventListener('input', () => {
+            this.newCommandName = newCommandName.value
+        })
+        newCommandDescription?.addEventListener('input', () => {
+            this.newCommandDescription = newCommandDescription.value
+        })
+        const handleNewCommandKey = (event: KeyboardEvent) => {
+            if (event.key === 'Enter' && !event.isComposing) {
+                event.preventDefault()
+                this.createCommand()
+            } else if (event.key === 'Escape') {
+                event.preventDefault()
+                this.closeAddCommand()
+            }
+        }
+        newCommandName?.addEventListener('keydown', handleNewCommandKey)
+        newCommandDescription?.addEventListener('keydown', handleNewCommandKey)
+        if (newCommandName) {
+            window.requestAnimationFrame(() => {
+                newCommandName.focus()
+                newCommandName.select()
+            })
+        }
+
+        const moveFollowCategory = this.root.querySelector<HTMLInputElement>('[data-role="move-follow-category"]')
+        moveFollowCategory?.addEventListener('change', () => {
+            this.moveNavigateAfterMove = moveFollowCategory.checked
+        })
+
         const categoryInput = this.root.querySelector<HTMLInputElement>('[data-role="category-input"]')
         categoryInput?.addEventListener('input', () => {
             this.categoryInput = categoryInput.value
@@ -3208,6 +3626,12 @@ export class QuickCommandsService {
                 this.applyImport('replace')
                 return
             case 'new':
+                this.openAddCommand()
+                return
+            case 'new-command-cancel':
+                this.closeAddCommand()
+                return
+            case 'new-command-save':
                 this.createCommand()
                 return
             case 'add-category':
@@ -3324,6 +3748,29 @@ export class QuickCommandsService {
                 this.commandMenuOpen = false
                 this.duplicateSelectedCommand()
                 return
+            case 'move-command':
+                this.commandMenuOpen = false
+                this.openMoveCommand()
+                return
+            case 'move-command-cancel':
+                this.movingCommandId = null
+                this.moveTargetCategory = ''
+                this.moveCategoryMenuOpen = false
+                this.moveNavigateAfterMove = false
+                this.render()
+                return
+            case 'toggle-move-category-menu':
+                this.moveCategoryMenuOpen = !this.moveCategoryMenuOpen
+                this.render()
+                return
+            case 'select-move-category':
+                this.moveTargetCategory = element?.dataset.moveCategory || ''
+                this.moveCategoryMenuOpen = false
+                this.render()
+                return
+            case 'move-command-confirm':
+                this.confirmMoveCommand()
+                return
             case 'delete':
                 this.commandMenuOpen = false
                 this.pendingDeleteId = this.getSelectedCommand()?.id || null
@@ -3353,6 +3800,14 @@ export class QuickCommandsService {
             case 'edit-command-save':
                 this.saveCommandListEdit()
                 return
+            case 'execute-command': {
+                const commandId = element?.dataset.commandExecuteId
+                if (commandId && this.state.commands.some(command => command.id === commandId)) {
+                    this.updateConfig({ selectedCommandId: commandId })
+                    await this.executeSelectedCommand()
+                }
+                return
+            }
             case 'rule-menu-toggle': {
                 const ruleId = element?.dataset.ruleActionId
                 const field = element?.dataset.ruleMenuField
@@ -3386,11 +3841,26 @@ export class QuickCommandsService {
             case 'add-rule':
                 this.addAutomationRule()
                 return
+            case 'toggle-all-rules':
+                this.toggleAllAutomationRules()
+                return
             case 'toggle-rule-collapsed':
                 this.toggleAutomationRuleCollapsed(element?.dataset.ruleActionId || '')
                 return
             case 'remove-rule':
-                this.withPreservedScroll(() => this.removeAutomationRule(element?.dataset.ruleActionId || ''))
+                this.pendingRuleDeleteId = element?.dataset.ruleActionId || null
+                this.render()
+                return
+            case 'rule-delete-cancel':
+                this.pendingRuleDeleteId = null
+                this.render()
+                return
+            case 'rule-delete-confirm':
+                this.withPreservedScroll(() => {
+                    const ruleId = this.pendingRuleDeleteId || ''
+                    this.pendingRuleDeleteId = null
+                    this.removeAutomationRule(ruleId)
+                })
                 return
             case 'copy':
                 await this.copySelectedCommand()
@@ -3515,12 +3985,32 @@ export class QuickCommandsService {
         }
         const lineDelays = [...(selected.lineDelays || [])]
         lineDelays[index] = Math.max(0, Number(element.value) || 0)
-        this.updateSelectedCommand({ lineDelays }, false, false)
+        this.updateSelectedCommand({ lineDelays }, false, false, false)
     }
 
     private bindLineSettings (scope: ParentNode): void {
         scope.querySelectorAll<HTMLInputElement>('[data-line-delay]').forEach(element => {
             element.addEventListener('change', () => this.updateLineDelay(element))
+            element.addEventListener('blur', () => this.persistPluginConfig())
+            element.addEventListener('wheel', event => {
+                if (document.activeElement !== element) {
+                    return
+                }
+                event.preventDefault()
+                const step = event.shiftKey ? 500 : 100
+                const direction = event.deltaY < 0 ? 1 : -1
+                element.value = String(Math.max(0, (Number(element.value) || 0) + direction * step))
+                this.updateLineDelay(element)
+            }, { passive: false })
+            element.addEventListener('keydown', event => {
+                if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                    event.preventDefault()
+                    const step = event.shiftKey ? 500 : 100
+                    const direction = event.key === 'ArrowUp' ? 1 : -1
+                    element.value = String(Math.max(0, (Number(element.value) || 0) + direction * step))
+                    this.updateLineDelay(element)
+                }
+            })
         })
         scope.querySelectorAll<HTMLButtonElement>('[data-line-pause]').forEach(element => {
             element.addEventListener('click', () => this.toggleLinePause(element))
@@ -3619,7 +4109,26 @@ export class QuickCommandsService {
         this.updateSelectedCommand({ [field]: !selected[field] } as Partial<QuickCommand>)
     }
 
+    private openAddCommand (): void {
+        this.addingCommand = true
+        this.newCommandName = '新命令'
+        this.newCommandDescription = ''
+        this.render()
+    }
+
+    private closeAddCommand (): void {
+        this.addingCommand = false
+        this.newCommandName = '新命令'
+        this.newCommandDescription = ''
+        this.render()
+    }
+
     private createCommand (): void {
+        const name = this.newCommandName.trim()
+        if (!name) {
+            this.showMessage('命令名称不能为空。')
+            return
+        }
         const category = this.state.selectedCategory === '全部' ||
             this.state.selectedCategory === '收藏' ||
             this.state.selectedCategory === '常用'
@@ -3627,11 +4136,16 @@ export class QuickCommandsService {
             : this.state.selectedCategory
         const command = normalizeCommandConfig({
             id: this.createId(),
-            name: '新命令',
+            name,
+            description: this.newCommandDescription.trim(),
             category,
             command: '',
             lineDelay: 500,
         }, () => this.createId())
+        this.addingCommand = false
+        this.newCommandName = '新命令'
+        this.newCommandDescription = ''
+        this.clearSearchState()
         this.updateConfig({
             commands: [...this.state.commands, command],
             selectedCommandId: command.id,
@@ -3678,10 +4192,55 @@ export class QuickCommandsService {
             usageCount: 0,
             lastUsedAt: null,
         }
+        this.clearSearchState()
         this.updateConfig({
             commands: [...this.state.commands, command],
             selectedCommandId: command.id,
+            selectedCategory: command.category,
         })
+    }
+
+    private openMoveCommand (): void {
+        const selected = this.getSelectedCommand()
+        if (!selected) {
+            return
+        }
+        this.movingCommandId = selected.id
+        this.moveTargetCategory = ''
+        this.moveCategoryMenuOpen = false
+        this.moveNavigateAfterMove = false
+        this.render()
+    }
+
+    private confirmMoveCommand (): void {
+        const commandId = this.movingCommandId
+        const category = this.moveTargetCategory
+        if (!commandId || !category || this.isSystemCategory(category)) {
+            return
+        }
+        const commands = this.state.commands.map(command => (
+            command.id === commandId ? { ...command, category } : command
+        ))
+        const navigateAfterMove = this.moveNavigateAfterMove
+        const currentCategory = this.state.selectedCategory
+        this.movingCommandId = null
+        this.moveTargetCategory = ''
+        this.moveCategoryMenuOpen = false
+        this.moveNavigateAfterMove = false
+        if (navigateAfterMove) {
+            this.clearSearchState()
+        }
+        this.updateConfig({
+            commands,
+            selectedCommandId: commandId,
+            selectedCategory: navigateAfterMove ? category : currentCategory,
+        })
+    }
+
+    private clearSearchState (): void {
+        this.filter = ''
+        this.searchReturnCategory = null
+        this.searchReturnCommandId = null
     }
 
     private moveSelectedCommand (direction: -1 | 1): void {
@@ -3950,6 +4509,16 @@ export class QuickCommandsService {
         const automationRules = selected.automationRules.map(rule => (
             rule.id === ruleId ? { ...rule, collapsed: !rule.collapsed } : rule
         ))
+        this.withPreservedScroll(() => this.updateSelectedCommand({ automationRules }))
+    }
+
+    private toggleAllAutomationRules (): void {
+        const selected = this.getSelectedCommand()
+        if (!selected || !selected.automationRules.length) {
+            return
+        }
+        const collapsed = selected.automationRules.some(rule => !rule.collapsed)
+        const automationRules = selected.automationRules.map(rule => ({ ...rule, collapsed }))
         this.withPreservedScroll(() => this.updateSelectedCommand({ automationRules }))
     }
 

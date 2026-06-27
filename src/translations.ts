@@ -164,6 +164,19 @@ const englishPhrases: Record<string, string> = {
     '删除分类': 'Delete category',
     '搜索分类': 'Search categories',
     '新建命令': 'New command',
+    '新增名称和说明': 'Add name and description',
+    '保存后，新命令会添加到左侧命令列表。': 'After saving, the new command appears in the command list.',
+    '移动命令': 'Move command',
+    '批量移动': 'Move selected',
+    '请选择目标分类': 'Select a target category',
+    '确认移动': 'Move',
+    '选择并移动': 'Select and move',
+    '目标分类': 'Target category',
+    '移动后跳转到目标分类': 'Go to the target category after moving',
+    '移动': 'Move',
+    '执行命令': 'Run command',
+    '全部折叠': 'Collapse all',
+    '全部展开': 'Expand all',
     '上移命令': 'Move command up',
     '下移命令': 'Move command down',
     '删除命令': 'Delete command',
@@ -311,6 +324,7 @@ export function translatePluginText (text: string, locale: string | null | undef
     let translated = text
         .replace(/(\d+)\s*条命令，\s*(\d+)\s*条运行日志/g, '$1 commands, $2 runtime logs')
         .replace(/确认永久删除选中的\s*(\d+)\s*条命令？运行日志将保留。/g, 'Permanently delete the selected $1 commands? Runtime logs will be kept.')
+        .replace(/将选中的\s*(\d+)\s*条命令移动到/g, 'Move the selected $1 commands to')
         .replace(/默认保留\s*(\d+)\s*条，最多\s*(\d+)\s*条；每页\s*(\d+)\s*条，最新日志在前。/g, 'Keeps $1 entries by default and up to $2; $3 per page, newest first.')
         .replace(/所有会话（\s*(\d+)\s*）/g, 'All sessions ($1)')
         .replace(/该分类中有\s*(\d+)\s*条命令。确认后将同时删除这些命令，此操作无法撤销。/g, 'This category contains $1 commands. Confirming deletes them as well and cannot be undone.')
@@ -321,6 +335,7 @@ export function translatePluginText (text: string, locale: string | null | undef
         .replace(/已发送第\s*(\d+)\s*行。/g, 'Sent source line $1.')
         .replace(/并清理\s*(\d+)\s*个失效触发器引用/g, 'and cleared $1 invalid trigger references')
         .replace(/将“(.+?)”修改为新的分类名称。/g, 'Rename "$1" to a new category name.')
+        .replace(/将“(.+?)”移动到指定分类。/g, 'Move "$1" to the selected category.')
         .replace(/执行：命令不存在（(.+?)）/g, 'Run: command does not exist ($1)')
         .replace(/导入文件内快捷键已被“(.+?)”使用/g, 'Shortcut is already used by "$1" inside the import file')
         .replace(/快捷键已被“(.+?)”使用。?/g, 'Shortcut is already used by "$1".')

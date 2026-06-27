@@ -128,7 +128,23 @@ import { QuickCommandsI18n } from './i18n'
             <button class="btn btn-secondary" type="button" [disabled]="allCommandsSelected || !commandStats.length" (click)="selectAllCommands()">全选</button>
             <button class="btn btn-secondary" type="button" [disabled]="!selectedCommandCount" (click)="clearCommandSelection()">取消选择</button>
             <span class="wqc-selection-count">已选择 {{ selectedCommandCount }} 条</span>
+            <button class="btn btn-secondary" type="button" [disabled]="!selectedCommandCount" (click)="$event.stopPropagation(); openBatchMove()">批量移动</button>
             <button class="btn wqc-danger-button" type="button" [disabled]="!selectedCommandCount" (click)="openBatchDeleteConfirm()">批量删除</button>
+          </div>
+          <div class="wqc-batch-move" *ngIf="batchMoveOpen">
+            <span>将选中的 {{ selectedCommandCount }} 条命令移动到</span>
+            <div class="wqc-select-shell wqc-batch-move-select" [class.wqc-open]="batchMoveCategoryMenuOpen" (click)="$event.stopPropagation()">
+              <button class="form-control wqc-select" type="button" aria-haspopup="listbox" [attr.aria-expanded]="batchMoveCategoryMenuOpen" (click)="toggleBatchMoveCategoryMenu()">
+                <span>{{ batchMoveCategory || '请选择目标分类' }}</span>
+              </button>
+              <div class="wqc-select-menu" role="listbox" *ngIf="batchMoveCategoryMenuOpen">
+                <button type="button" role="option" *ngFor="let category of moveCategories" [attr.aria-selected]="batchMoveCategory === category" [class.wqc-selected]="batchMoveCategory === category" (click)="selectBatchMoveCategory(category)">{{ category }}</button>
+              </div>
+            </div>
+            <div class="wqc-batch-confirm-actions">
+              <button class="btn btn-secondary" type="button" (click)="closeBatchMove()">取消</button>
+              <button class="btn btn-primary" type="button" [disabled]="!batchMoveCategory" (click)="moveSelectedCommands()">确认移动</button>
+            </div>
           </div>
           <div class="wqc-batch-confirm" *ngIf="batchDeleteConfirmOpen">
             <span>确认永久删除选中的 {{ selectedCommandCount }} 条命令？运行日志将保留。</span>
@@ -574,7 +590,6 @@ import { QuickCommandsI18n } from './i18n'
         border-color: color-mix(in srgb, var(--bs-primary) 38%, var(--wqc-control-border));
         background: color-mix(in srgb, var(--bs-primary) 6%, var(--bs-body-bg));
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-        transform: translateY(-1px);
       }
 
       .wqc-select:focus {
@@ -764,6 +779,37 @@ import { QuickCommandsI18n } from './i18n'
         border: 1px solid color-mix(in srgb, var(--bs-danger) 34%, var(--bs-border-color));
         border-radius: 8px;
         font-size: 12px;
+      }
+
+      .wqc-batch-move {
+        display: grid;
+        grid-template-columns: auto minmax(190px, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+        padding: 10px 12px;
+        color: var(--wqc-text);
+        background: color-mix(in srgb, var(--bs-primary) 7%, var(--bs-body-bg));
+        border: 1px solid color-mix(in srgb, var(--bs-primary) 30%, var(--wqc-surface-border));
+        border-radius: 8px;
+        font-size: 12px;
+      }
+
+      .wqc-batch-move-select {
+        min-width: 0;
+      }
+
+      .wqc-batch-move-select .wqc-select > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .wqc-batch-move-select .wqc-select-menu {
+        max-height: 230px;
+        overflow-x: hidden;
+        overflow-y: auto;
       }
 
       .wqc-batch-confirm-actions {
@@ -1080,6 +1126,11 @@ import { QuickCommandsI18n } from './i18n'
           justify-content: flex-end;
         }
 
+        .wqc-batch-move {
+          grid-template-columns: 1fr;
+          align-items: stretch;
+        }
+
         .wqc-log-toolbar {
           grid-template-columns: 1fr;
         }
@@ -1128,6 +1179,9 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     logPage = 1
     readonly logPageSize = 3
     batchDeleteConfirmOpen = false
+    batchMoveOpen = false
+    batchMoveCategoryMenuOpen = false
+    batchMoveCategory = ''
     selectedCommandIds = new Set<string>()
     runtimeLogs: any[] = []
     runtimeStats: CommandUsageStats = {}
@@ -1163,6 +1217,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         if (this.configMessageTimer) {
             clearTimeout(this.configMessageTimer)
         }
+
         this.stopLocalizing?.()
         this.localeSubscription?.unsubscribe()
     }
@@ -1223,6 +1278,15 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     get commandCategories (): string[] {
         return Array.from(new Set(this.allCommandStats.map(command => String(command.category || '未分类'))))
+            .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+    }
+
+    get moveCategories (): string[] {
+        const customCategories = Array.isArray(this.root.customCategories) ? this.root.customCategories : []
+        return Array.from(new Set([
+            ...customCategories,
+            ...this.allCommandStats.map(command => String(command.category || '未分类')),
+        ].filter(category => category && category !== '全部' && category !== '常用' && category !== '收藏')))
             .sort((a, b) => a.localeCompare(b, 'zh-CN'))
     }
 
@@ -1327,6 +1391,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.failureMenuOpen = false
         this.commandCategoryMenuOpen = false
         this.commandUsageMenuOpen = false
+        this.batchMoveCategoryMenuOpen = false
     }
 
     @HostListener('document:keydown.escape')
@@ -1335,6 +1400,8 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.commandCategoryMenuOpen = false
         this.commandUsageMenuOpen = false
         this.batchDeleteConfirmOpen = false
+        this.batchMoveOpen = false
+        this.batchMoveCategoryMenuOpen = false
     }
 
     @HostListener('window:windy-quick-commands-runtime-changed')
@@ -1454,9 +1521,54 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     clearCommandSelection (): void {
         this.selectedCommandIds = new Set<string>()
         this.batchDeleteConfirmOpen = false
+        this.closeBatchMove()
+    }
+
+    openBatchMove (): void {
+        if (!this.selectedCommandCount) {
+            return
+        }
+        this.batchDeleteConfirmOpen = false
+        this.batchMoveOpen = true
+        this.batchMoveCategory = ''
+        this.batchMoveCategoryMenuOpen = true
+    }
+
+    closeBatchMove (): void {
+        this.batchMoveOpen = false
+        this.batchMoveCategoryMenuOpen = false
+        this.batchMoveCategory = ''
+    }
+
+    toggleBatchMoveCategoryMenu (): void {
+        this.batchMoveCategoryMenuOpen = !this.batchMoveCategoryMenuOpen
+    }
+
+    selectBatchMoveCategory (category: string): void {
+        this.batchMoveCategory = category
+        this.batchMoveCategoryMenuOpen = false
+    }
+
+    moveSelectedCommands (): void {
+        const category = this.batchMoveCategory
+        if (!category || !this.selectedCommandCount) {
+            return
+        }
+        const selectedIds = new Set(this.selectedCommandIds)
+        this.root.commands = (Array.isArray(this.root.commands) ? this.root.commands : []).map((command: any) => (
+            selectedIds.has(command.id) ? { ...command, category } : command
+        ))
+        this.root.selectedCategory = category
+        this.commandCategory = category
+        this.commandUsage = 'all'
+        this.commandQuery = ''
+        this.commandPage = 1
+        this.clearCommandSelection()
+        this.save()
     }
 
     openBatchDeleteConfirm (): void {
+        this.closeBatchMove()
         this.batchDeleteConfirmOpen = this.selectedCommandCount > 0
     }
 
