@@ -934,8 +934,60 @@ const css = `
   min-height: calc(1.48em + 22px);
   max-height: 20vh;
   box-sizing: border-box;
+  overflow-x: hidden;
   overflow-y: auto;
   resize: none;
+}
+
+.tqc-command-editor-shell {
+  position: relative;
+}
+
+.tqc-command-editor-shell .tqc-command-editor {
+  padding-right: 34px;
+}
+
+.tqc-command-line-endings {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 28px;
+  padding-top: 10px;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--tqc-muted);
+  background: linear-gradient(to right, transparent, var(--tqc-subtle) 35%);
+  border-radius: 0 7px 7px 0;
+  box-sizing: border-box;
+  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.48;
+  text-align: center;
+}
+
+.tqc-command-line-endings-inner {
+  will-change: transform;
+}
+
+.tqc-command-line-ending {
+  display: block;
+  height: 1.48em;
+  font-weight: 700;
+  user-select: none;
+}
+
+.tqc-command-line-ending.tqc-no-enter {
+  opacity: 0.72;
+}
+
+.tqc-command-line-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .tqc-execution-card .tqc-mode-row {
@@ -972,6 +1024,11 @@ const css = `
 
 .tqc-card-head.tqc-collapsible + .tqc-card-content {
   margin-top: 10px;
+}
+
+.tqc-full-field {
+  display: block;
+  width: 100%;
 }
 
 .tqc-card-summary {
@@ -1213,6 +1270,12 @@ const css = `
   container: tqc-line-settings / inline-size;
   font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   font-size: 12px;
+}
+
+.tqc-code.tqc-code-scroll {
+  max-height: calc(7 * 35px);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .tqc-code-line {
@@ -2528,7 +2591,7 @@ export class QuickCommandsService {
                   ${this.renderCategoryDropdown(command.category)}
                 </label>
               </div>
-              <label style="margin-top:10px">
+              <label class="tqc-full-field" style="margin-top:10px">
                 <span class="tqc-label">说明</span>
                 <input class="tqc-input" data-field="description" value="${this.escapeAttr(command.description)}">
               </label>
@@ -2546,11 +2609,24 @@ export class QuickCommandsService {
                 <span class="tqc-label">命令内容</span>
                 <span class="tqc-card-summary" data-role="command-line-count">${lineCount} 行</span>
               </div>
-              <textarea class="tqc-textarea tqc-command-editor" data-field="command" data-role="command-editor" rows="1" style="--tqc-command-height:${Math.max(lineCount, 1) * 1.48}em" spellcheck="false">${this.escape(command.command)}</textarea>
+              <div class="tqc-command-editor-shell">
+                <textarea class="tqc-textarea tqc-command-editor" data-field="command" data-role="command-editor" rows="1" style="--tqc-command-height:${Math.max(lineCount, 1) * 1.48}em" spellcheck="false">${this.escape(command.command)}</textarea>
+                <div class="tqc-command-line-endings" aria-hidden="true"><div class="tqc-command-line-endings-inner" data-role="command-line-endings">${this.renderCommandLineEndings(command.command, command.autoEnter)}</div></div>
+              </div>
             </label>
             ${this.state.executionMode === 'line' ? this.renderLineDelayEditor(command) : ''}
           </div>
         `
+    }
+
+    private renderCommandLineEndings (commandText: string, autoEnter: boolean): string {
+        const lines = commandText.split(/\r?\n/)
+        return lines
+            .map((_line, index) => {
+                const enter = index < lines.length - 1 || autoEnter
+                return `<span class="tqc-command-line-ending${enter ? '' : ' tqc-no-enter'}">${enter ? '↵' : '×↵'}</span>`
+            })
+            .join('')
     }
 
 
@@ -2562,7 +2638,7 @@ export class QuickCommandsService {
               <span class="tqc-label">逐行执行设置</span>
               <span class="tqc-card-summary">延迟 / 执行后状态 / 输出规则</span>
             </div>
-            <div class="tqc-code" aria-label="逐行设置">
+            <div class="tqc-code${lines.length > 7 ? ' tqc-code-scroll' : ''}" aria-label="逐行设置">
               ${lines.map((line, index) => {
                   const executable = Boolean(line.trim() && !line.trim().startsWith('#'))
                   const pauseAfter = executable && command.linePauses?.[index] === true
@@ -3617,7 +3693,50 @@ export class QuickCommandsService {
             element.addEventListener('change', () => this.updateAutomationRule(element))
         })
 
+        const autoEnter = this.root.querySelector<HTMLInputElement>('[data-role="auto-enter"]')
         const commandEditor = this.root.querySelector<HTMLTextAreaElement>('[data-role="command-editor"]')
+        const commandLineEndings = this.root.querySelector<HTMLElement>('[data-role="command-line-endings"]')
+        const syncCommandLineEndingsScroll = () => {
+            if (commandEditor && commandLineEndings) {
+                commandLineEndings.style.transform = `translateY(-${commandEditor.scrollTop}px)`
+            }
+        }
+        const refreshCommandLineEndings = () => {
+            const shell = commandEditor?.closest<HTMLElement>('.tqc-command-editor-shell')
+            if (!commandEditor || !commandLineEndings || !shell) {
+                return
+            }
+            let measure = shell.querySelector<HTMLElement>('.tqc-command-line-measure')
+            if (!measure) {
+                measure = document.createElement('div')
+                measure.className = 'tqc-command-line-measure'
+                shell.appendChild(measure)
+            }
+            const style = window.getComputedStyle(commandEditor)
+            const contentWidth = commandEditor.clientWidth -
+                (Number.parseFloat(style.paddingLeft) || 0) -
+                (Number.parseFloat(style.paddingRight) || 0)
+            const lineHeight = Number.parseFloat(style.lineHeight) || 19
+            measure.style.width = `${Math.max(contentWidth, 1)}px`
+            measure.style.font = style.font
+            measure.style.letterSpacing = style.letterSpacing
+            measure.style.lineHeight = style.lineHeight
+            measure.style.tabSize = style.tabSize
+
+            const lines = commandEditor.value.split(/\r?\n/)
+            const markers: string[] = []
+            lines.forEach((line, index) => {
+                measure!.textContent = line || '\u200b'
+                const visualLineCount = Math.max(1, Math.round(measure!.scrollHeight / lineHeight))
+                for (let visualLine = 1; visualLine < visualLineCount; visualLine++) {
+                    markers.push('<span class="tqc-command-line-ending">↓</span>')
+                }
+                const enter = index < lines.length - 1 || (autoEnter?.checked ?? false)
+                markers.push(`<span class="tqc-command-line-ending${enter ? '' : ' tqc-no-enter'}">${enter ? '↵' : '×↵'}</span>`)
+            })
+            commandLineEndings.innerHTML = markers.join('')
+            syncCommandLineEndingsScroll()
+        }
         commandEditor?.addEventListener('input', () => {
             const lineCount = Math.max(commandEditor.value.split(/\r?\n/).length, 1)
             commandEditor.style.setProperty('--tqc-command-height', `${lineCount * 1.48}em`)
@@ -3625,14 +3744,27 @@ export class QuickCommandsService {
             if (lineCountElement) {
                 lineCountElement.textContent = `${lineCount} 行`
             }
+            refreshCommandLineEndings()
             this.updateSelectedCommand({ command: normalizeCommandText(commandEditor.value) }, false, false, false)
             this.refreshLineSettings(commandEditor.value)
         })
+        commandEditor?.addEventListener('scroll', syncCommandLineEndingsScroll)
         commandEditor?.addEventListener('change', () => this.updateSelectedField(commandEditor, false))
+        if (commandEditor) {
+            window.requestAnimationFrame(refreshCommandLineEndings)
+            const editorResizeObserver = new ResizeObserver(() => {
+                if (!commandEditor.isConnected) {
+                    editorResizeObserver.disconnect()
+                    return
+                }
+                refreshCommandLineEndings()
+            })
+            editorResizeObserver.observe(commandEditor)
+        }
 
-        const autoEnter = this.root.querySelector<HTMLInputElement>('[data-role="auto-enter"]')
         autoEnter?.addEventListener('change', () => {
-            this.updateSelectedCommand({ autoEnter: autoEnter.checked })
+            this.updateSelectedCommand({ autoEnter: autoEnter.checked }, false, false)
+            refreshCommandLineEndings()
         })
 
         this.root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('[data-field]').forEach(element => {
