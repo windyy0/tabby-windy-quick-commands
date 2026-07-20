@@ -60,6 +60,9 @@ interface TerminalTabLike {
     profile?: {
         name?: string
     }
+    frontend?: {
+        focus: () => void
+    }
     sendInput: (data: string) => void
     output$?: OutputStreamLike
     session?: {
@@ -2289,7 +2292,6 @@ export class QuickCommandsService {
     private movingCommandId: string | null = null
     private moveTargetCategory = ''
     private moveCategoryMenuOpen = false
-    private moveNavigateAfterMove = false
     private editingCommandId: string | null = null
     private editCommandName = ''
     private editCommandDescription = ''
@@ -2364,6 +2366,7 @@ export class QuickCommandsService {
         this.visible = true
         this.ensureRoot()
         this.render()
+        this.focusCurrentTerminal()
     }
 
     close (): void {
@@ -2389,6 +2392,7 @@ export class QuickCommandsService {
         this.categoryActionsOpen = false
         this.importPreview = null
         this.render()
+        this.focusCurrentTerminal()
     }
 
     private ensureRoot (): void {
@@ -2401,6 +2405,8 @@ export class QuickCommandsService {
         if (!this.root) {
             this.root = document.createElement('div')
             this.root.className = 'tqc-root'
+            this.root.addEventListener('keydown', event => this.handleRootKeyDown(event))
+            this.root.addEventListener('click', event => this.handleRootClick(event), true)
             document.body.appendChild(this.root)
         }
     }
@@ -3099,7 +3105,7 @@ export class QuickCommandsService {
           <div class="tqc-footer-row">
             <button class="tqc-secondary" type="button" data-action="copy" ${selected ? '' : 'disabled'}>${icons.copy} 复制</button>
             <button class="tqc-primary" type="button" data-action="execute" ${selected ? '' : 'disabled'}>
-              <span>执行 (${targetCount || 0})</span><span class="tqc-kbd">Enter</span>
+              <span>执行 (${targetCount || 0})</span><span class="tqc-kbd">Ctrl+Enter</span>
             </button>
           </div>
         `
@@ -3209,7 +3215,7 @@ export class QuickCommandsService {
                 </div>
               </label>
               <label class="tqc-checkbox tqc-move-follow">
-                <input class="tqc-checkbox-control" type="checkbox" data-role="move-follow-category" ${this.moveNavigateAfterMove ? 'checked' : ''}>
+                <input class="tqc-checkbox-control" type="checkbox" data-role="move-follow-category" ${this.state.moveNavigateAfterMove ? 'checked' : ''}>
                 <span>移动后跳转到目标分类</span>
               </label>
               <div class="tqc-confirm-actions">
@@ -3579,6 +3585,9 @@ export class QuickCommandsService {
         confirmInput?.addEventListener('input', () => {
             this.confirmInput = confirmInput.value
         })
+        if (confirmInput) {
+            window.requestAnimationFrame(() => confirmInput.focus())
+        }
 
         const editCommandName = this.root.querySelector<HTMLInputElement>('[data-role="edit-command-name"]')
         const editCommandDescription = this.root.querySelector<HTMLInputElement>('[data-role="edit-command-description"]')
@@ -3634,7 +3643,7 @@ export class QuickCommandsService {
 
         const moveFollowCategory = this.root.querySelector<HTMLInputElement>('[data-role="move-follow-category"]')
         moveFollowCategory?.addEventListener('change', () => {
-            this.moveNavigateAfterMove = moveFollowCategory.checked
+            this.updateConfig({ moveNavigateAfterMove: moveFollowCategory.checked })
         })
 
         const categoryInput = this.root.querySelector<HTMLInputElement>('[data-role="category-input"]')
@@ -4175,7 +4184,6 @@ export class QuickCommandsService {
                 this.movingCommandId = null
                 this.moveTargetCategory = ''
                 this.moveCategoryMenuOpen = false
-                this.moveNavigateAfterMove = false
                 this.render()
                 return
             case 'toggle-move-category-menu':
@@ -4644,7 +4652,6 @@ export class QuickCommandsService {
         this.movingCommandId = selected.id
         this.moveTargetCategory = ''
         this.moveCategoryMenuOpen = false
-        this.moveNavigateAfterMove = false
         this.render()
     }
 
@@ -4657,12 +4664,11 @@ export class QuickCommandsService {
         const commands = this.state.commands.map(command => (
             command.id === commandId ? { ...command, category } : command
         ))
-        const navigateAfterMove = this.moveNavigateAfterMove
+        const navigateAfterMove = this.state.moveNavigateAfterMove
         const currentCategory = this.state.selectedCategory
         this.movingCommandId = null
         this.moveTargetCategory = ''
         this.moveCategoryMenuOpen = false
-        this.moveNavigateAfterMove = false
         if (navigateAfterMove) {
             this.clearSearchState()
         }
@@ -5645,7 +5651,21 @@ export class QuickCommandsService {
             return
         }
 
-        if (this.visible && event.key === 'Enter' && !this.isEditableElement(event.target) && !this.running) {
+        if (this.visible && this.isCopyShortcut(event) && this.hasPluginTextSelection(event.target)) {
+            event.stopImmediatePropagation()
+            return
+        }
+
+        if (
+            this.visible &&
+            event.key === 'Enter' &&
+            event.ctrlKey &&
+            !event.altKey &&
+            !event.metaKey &&
+            !event.shiftKey &&
+            (!this.isEditableElement(event.target) || this.isTerminalInput(event.target)) &&
+            !this.running
+        ) {
             const selected = this.getSelectedCommand()
             if (selected) {
                 event.preventDefault()
@@ -5681,6 +5701,61 @@ export class QuickCommandsService {
             selectedCategory: command.category || this.state.selectedCategory,
         })
         void this.executeSelectedCommand()
+    }
+
+    private handleRootKeyDown (event: KeyboardEvent): void {
+        if (!this.visible || !this.isEditableElement(event.target)) {
+            return
+        }
+
+        event.stopPropagation()
+    }
+
+    private handleRootClick (event: MouseEvent): void {
+        if (!this.visible || this.isEditableElement(event.target)) {
+            return
+        }
+
+        window.requestAnimationFrame(() => {
+            if (!this.visible || this.isPluginEditableElement(document.activeElement)) {
+                return
+            }
+            this.focusCurrentTerminal()
+        })
+    }
+
+    private isCopyShortcut (event: KeyboardEvent): boolean {
+        return event.key.toLowerCase() === 'c' &&
+            event.ctrlKey &&
+            !event.altKey &&
+            !event.metaKey &&
+            !event.shiftKey
+    }
+
+    private hasPluginTextSelection (target: EventTarget | null): boolean {
+        if (!this.root) {
+            return false
+        }
+
+        if ((target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) && this.root.contains(target)) {
+            return target.selectionStart !== null &&
+                target.selectionEnd !== null &&
+                target.selectionStart !== target.selectionEnd
+        }
+
+        const selection = window.getSelection()
+        if (!selection || selection.isCollapsed || !selection.anchorNode || !selection.focusNode) {
+            return false
+        }
+        return this.root.contains(selection.anchorNode) && this.root.contains(selection.focusNode)
+    }
+
+    private isPluginEditableElement (target: EventTarget | null): boolean {
+        return Boolean(this.root && target instanceof Node && this.root.contains(target) && this.isEditableElement(target))
+    }
+
+    private focusCurrentTerminal (): void {
+        this.getCurrentTerminalTab()?.frontend?.focus()
     }
 
     private getDrawerShortcuts (): string[] {
@@ -6084,6 +6159,7 @@ export class QuickCommandsService {
             basicInfoCollapsed: root.basicInfoCollapsed ?? true,
             moreSettingsCollapsed: root.moreSettingsCollapsed ?? true,
             previewCollapsed: root.previewCollapsed ?? false,
+            moveNavigateAfterMove: root.moveNavigateAfterMove ?? false,
             recentOutputLimit: Math.max(1000, Number(root.recentOutputLimit) || 8000),
             logLimit: Math.max(20, Number(root.logLimit) || 200),
             automationLogs: this.runtimeStore.getLogs(),
@@ -6134,6 +6210,7 @@ export class QuickCommandsService {
         root.basicInfoCollapsed = next.basicInfoCollapsed
         root.moreSettingsCollapsed = next.moreSettingsCollapsed
         root.previewCollapsed = next.previewCollapsed
+        root.moveNavigateAfterMove = next.moveNavigateAfterMove
         delete root.safetyWhitelist
         delete root.safetyBlacklist
         delete root.productionNamePatterns

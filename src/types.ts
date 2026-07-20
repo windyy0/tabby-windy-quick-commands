@@ -71,6 +71,7 @@ export interface QuickCommandsConfig {
     basicInfoCollapsed: boolean
     moreSettingsCollapsed: boolean
     previewCollapsed: boolean
+    moveNavigateAfterMove: boolean
     recentOutputLimit: number
     logLimit: number
     automationLogs: AutomationLogEntry[]

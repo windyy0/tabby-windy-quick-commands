@@ -74,6 +74,7 @@ export const defaultQuickCommandsConfig = {
     basicInfoCollapsed: true,
     moreSettingsCollapsed: true,
     previewCollapsed: false,
+    moveNavigateAfterMove: false,
     recentOutputLimit: 8000,
     logLimit: 200,
 }

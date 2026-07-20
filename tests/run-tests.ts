@@ -416,7 +416,11 @@ function testPluginConfigStorage (): void {
         const configPath = path.join(directory, 'config.yaml')
         const store = new QuickCommandsPluginConfigStore(configPath)
         const first = { commands: [{ id: 'a', name: 'A', command: 'echo a' }], drawerWidth: 560 }
-        const second = { commands: [{ id: 'b', name: 'B', command: 'echo b' }], drawerWidth: 620 }
+        const second = {
+            commands: [{ id: 'b', name: 'B', command: 'echo b' }],
+            drawerWidth: 620,
+            moveNavigateAfterMove: true,
+        }
         store.set(first)
         store.set(second)
         assert(store.configPath !== null && fs.existsSync(store.configPath), 'plugin config should use an independent file')
@@ -426,6 +430,7 @@ function testPluginConfigStorage (): void {
         const payload = store.exportPayload(second)
         const imported = store.parseImport(JSON.stringify(payload))
         assert(Array.isArray(imported.commands) && imported.commands.length === 1, 'full config export should be importable')
+        assert(imported.moveNavigateAfterMove === true, 'move navigation preference should be importable')
         let rejected = false
         try {
             store.parseImport(JSON.stringify({ format: 'wrong', version: 1, config: second }))

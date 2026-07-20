@@ -94,7 +94,7 @@ export class QuickCommandsPluginConfigStore {
             'commands', 'customCategories', 'categoryOrder', 'selectedCommandId', 'selectedCategory',
             'executionMode', 'targetMode', 'failureStrategy', 'drawerWidth', 'showToolbarButton',
             'requireConfirmBeforeExecute', 'confirmBroadcast', 'exportFileName', 'basicInfoCollapsed',
-            'moreSettingsCollapsed', 'previewCollapsed', 'recentOutputLimit', 'logLimit',
+            'moreSettingsCollapsed', 'previewCollapsed', 'moveNavigateAfterMove', 'recentOutputLimit', 'logLimit',
         ]
         return Object.fromEntries(
             allowedKeys
