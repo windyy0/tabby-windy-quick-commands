@@ -2935,6 +2935,7 @@ export class QuickCommandsService {
         return `
           ${this.renderAutomationRuleSelect(rule, actionField, actionValue, [
             { value: 'none', label: '不执行' },
+            { value: 'stop', label: rule.triggerLine > 0 ? '停止后续逐行执行' : '停止该会话自动化' },
             { value: 'custom', label: '发送自定义命令' },
             { value: 'command', label: '执行已有命令' },
           ])}
@@ -5500,6 +5501,10 @@ export class QuickCommandsService {
             return 'stop'
         }
         if (outcome === 'match' || outcome === 'error') {
+            const action = outcome === 'match' ? rule.onMatchAction : rule.onErrorAction
+            if (action === 'stop') {
+                return 'stop'
+            }
             this.executeAutomationCommandAction(rule, outcome, target, parentCommandId)
             if (rule.matchFlow === 'stop') {
                 return 'stop'

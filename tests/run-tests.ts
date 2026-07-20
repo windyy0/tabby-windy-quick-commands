@@ -365,6 +365,18 @@ function testOutputAutomation (): void {
     }, createId)
     assert(stopOnMatch.automationRules[0].matchFlow === 'stop', 'line-triggered rules should preserve stop-on-match flow')
 
+    const outcomeSpecificStops = normalizeCommandConfig({
+        name: '按匹配结果停止',
+        command: 'echo one\necho two',
+        automationRules: [{
+            triggerLine: 1,
+            onMatchAction: 'stop',
+            onErrorAction: 'stop',
+        } as any],
+    }, createId)
+    assert(outcomeSpecificStops.automationRules[0].onMatchAction === 'stop', 'success actions should preserve outcome-specific stop')
+    assert(outcomeSpecificStops.automationRules[0].onErrorAction === 'stop', 'error actions should preserve outcome-specific stop')
+
     const legacyLineErrorFlow = normalizeCommandConfig({
         name: '旧逐行错误流程',
         command: 'echo one\necho two',

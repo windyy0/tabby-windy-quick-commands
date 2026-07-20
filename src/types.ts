@@ -4,7 +4,7 @@ export type FailureStrategy = 'continue' | 'stop' | 'manual'
 export type ImportMode = 'merge' | 'replace'
 export type OutputMatchMode = 'literal' | 'regex'
 export type OutputPatternLogic = 'single' | 'any' | 'all'
-export type AutomationCommandAction = 'none' | 'custom' | 'command'
+export type AutomationCommandAction = 'none' | 'stop' | 'custom' | 'command'
 export type AutomationMatchFlow = 'continue' | 'nextLine' | 'stop'
 export type AutomationTimeoutAction = 'continue' | 'stop' | 'custom' | 'command'
 

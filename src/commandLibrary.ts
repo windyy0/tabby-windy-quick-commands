@@ -92,7 +92,7 @@ export const quickCommandsSchema = {
                                 errorPattern: { type: 'string' },
                                 errorPatternLogic: { enum: ['single', 'any', 'all'] },
                                 matchFlow: { enum: ['continue', 'nextLine', 'stop'] },
-                                onMatchAction: { enum: ['none', 'custom', 'command'] },
+                                onMatchAction: { enum: ['none', 'stop', 'custom', 'command'] },
                                 onMatchCommand: { type: 'string' },
                                 onMatchAutoEnter: { type: 'boolean' },
                                 onMatchCommandId: { type: 'string' },
@@ -368,7 +368,7 @@ function validateImportedCommand (value: unknown, index: number, ids: Set<string
             if (record.matchFlow !== undefined && record.matchFlow !== 'continue' && record.matchFlow !== 'nextLine' && record.matchFlow !== 'stop') {
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器匹配后动作无效。`)
             }
-            if (record.onMatchAction !== undefined && record.onMatchAction !== 'none' && record.onMatchAction !== 'custom' && record.onMatchAction !== 'command') {
+            if (record.onMatchAction !== undefined && record.onMatchAction !== 'none' && record.onMatchAction !== 'stop' && record.onMatchAction !== 'custom' && record.onMatchAction !== 'command') {
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器成功动作无效。`)
             }
             if (record.onErrorAction !== undefined && record.onErrorAction !== 'none' && record.onErrorAction !== 'nextLine' && record.onErrorAction !== 'stop' && record.onErrorAction !== 'custom' && record.onErrorAction !== 'command') {
@@ -439,8 +439,8 @@ function normalizePatternLogic (logic: unknown): 'single' | 'any' | 'all' {
     return logic === 'any' || logic === 'all' ? logic : 'single'
 }
 
-function normalizeCommandAction (action: unknown, commandId: string, command: string): 'none' | 'custom' | 'command' {
-    if (action === 'custom' || action === 'command' || action === 'none') {
+function normalizeCommandAction (action: unknown, commandId: string, command: string): 'none' | 'stop' | 'custom' | 'command' {
+    if (action === 'stop' || action === 'custom' || action === 'command' || action === 'none') {
         return action
     }
     if (commandId) {
