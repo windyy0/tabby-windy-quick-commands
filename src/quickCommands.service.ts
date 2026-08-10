@@ -1544,15 +1544,21 @@ export class QuickCommandsService {
 
             const lines = commandEditor.value.split(/\r?\n/)
             const markers: string[] = []
+            let totalVisualLineCount = 0
             lines.forEach((line, index) => {
                 measure!.textContent = line || '\u200b'
                 const visualLineCount = Math.max(1, Math.round(measure!.scrollHeight / lineHeight))
+                totalVisualLineCount += visualLineCount
                 for (let visualLine = 1; visualLine < visualLineCount; visualLine++) {
                     markers.push('<span class="tqc-command-line-ending">↓</span>')
                 }
                 const enter = index < lines.length - 1 || (autoEnter?.checked ?? false)
                 markers.push(`<span class="tqc-command-line-ending${enter ? '' : ' tqc-no-enter'}">${enter ? '↵' : '×↵'}</span>`)
             })
+            const commandHeight = `${Math.max(totalVisualLineCount, 1) * 1.48}em`
+            if (commandEditor.style.getPropertyValue('--tqc-command-height') !== commandHeight) {
+                commandEditor.style.setProperty('--tqc-command-height', commandHeight)
+            }
             commandLineEndings.innerHTML = markers.join('')
             syncCommandLineEndingsScroll()
         }
