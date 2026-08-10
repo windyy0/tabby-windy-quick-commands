@@ -53,7 +53,9 @@ export default class QuickCommandsModule {
         )) {
             return
         }
-        delete this.config.store.windyCommandCenter
+        if (this.config.store) {
+            delete this.config.store.windyCommandCenter
+        }
         removeLegacyPluginConfig(this.configPath)
         window.setTimeout(() => removeLegacyPluginConfig(this.configPath), 1000)
     }

@@ -27,8 +27,10 @@ import {
     findOutputMatch,
     isValidOutputPattern,
     normalizeTerminalOutput,
+    resolveAutomationRuleControl,
 } from '../src/outputAutomation'
 import { getPluginLanguage, translatePluginText } from '../src/translations'
+import { RecentOutputBufferRegistry } from '../src/recentOutputBuffer'
 
 let id = 0
 const createId = (): string => `test-${++id}`
@@ -193,6 +195,38 @@ function testImportValidation (): void {
     }
     assert(invalidTriggerLineRejected, 'import parser should reject invalid automation trigger lines')
 
+    const legacyTimeoutImport = parseImportPayload(JSON.stringify({
+        format: 'tabby-windy-quick-commands',
+        version: 3,
+        customCategories: [],
+        categoryOrder: [],
+        commands: [{
+            name: '旧版超时规则',
+            command: 'echo ok',
+            automationRules: [{ timeoutMs: 0 }],
+        }],
+    }))
+    const migratedLegacyTimeout = normalizeCommandConfig(legacyTimeoutImport.commands[0], createId)
+    assert(migratedLegacyTimeout.automationRules[0].timeoutMs === 10000, 'import parser should accept and migrate legacy zero timeouts')
+
+    let negativeTimeoutRejected = false
+    try {
+        parseImportPayload(JSON.stringify({
+            format: 'tabby-windy-quick-commands',
+            version: 3,
+            customCategories: [],
+            categoryOrder: [],
+            commands: [{
+                name: '负数超时规则',
+                command: 'echo ok',
+                automationRules: [{ timeoutMs: -1 }],
+            }],
+        }))
+    } catch {
+        negativeTimeoutRejected = true
+    }
+    assert(negativeTimeoutRejected, 'import parser should still reject negative automation timeouts')
+
     const withMissingReference = normalizeCommandConfig({
         id: 'reference-source',
         name: '引用测试',
@@ -252,6 +286,41 @@ function testDangerChecks (): void {
     assert(danger.dangerous, 'rm -rf should be dangerous')
     assert(danger.requiresTypedConfirm, 'high risk commands should require typed confirmation')
 
+    assert(getDangerCheck('rm -fr /tmp/demo').dangerous, 'combined rm flags should work in any order')
+    assert(getDangerCheck('rm -r -f /tmp/demo').dangerous, 'separate recursive and force flags should be detected')
+    assert(getDangerCheck('Remove-Item C:\\temp\\demo -Recurse -Force').dangerous, 'PowerShell recursive deletion should be detected')
+    assert(getDangerCheck('dd if=/dev/zero of="/dev/sda" bs=1M').dangerous, 'quoted block-device writes should be detected')
+    assert(getDangerCheck('dd if=/dev/zero of="\\\\.\\PhysicalDrive0"').dangerous, 'quoted Windows physical-drive writes should be detected')
+    assert(getDangerCheck('git clean -f').dangerous, 'forced git clean should be detected without directory or ignored-file flags')
+    assert(getDangerCheck('git clean --force').dangerous, 'long forced git clean options should be detected')
+    assert(getDangerCheck('git -C "/tmp/demo repo" clean -f').dangerous, 'git clean should be detected after a global working-directory option')
+    assert(getDangerCheck('git --work-tree=/tmp/demo clean --force').dangerous, 'git clean should be detected after long global options')
+    assert(getDangerCheck('git clean -fdx').dangerous, 'destructive git clean should be detected')
+    assert(getDangerCheck('git clean -fX').dangerous, 'forced ignored-file cleanup should be detected')
+    assert(getDangerCheck('git clean -fd -- ./-notes').dangerous, 'git clean path names should not be mistaken for dry-run flags')
+    assert(getDangerCheck('git clean --force --directories -- ./--dry-run').dangerous, 'git clean long-option path names should not disable detection')
+    assert(getDangerCheck('git clean -fd -e -notes').dangerous, 'git clean exclude patterns should not be mistaken for dry-run flags')
+    assert(getDangerCheck('git clean -fd -e -n').dangerous, 'git clean short exclude arguments should not be mistaken for dry-run options')
+    assert(getDangerCheck('git clean -fd --exclude -n').dangerous, 'git clean long exclude arguments should not be mistaken for dry-run options')
+    assert(getDangerCheck('git reset --hard HEAD~1').dangerous, 'hard git reset should be detected')
+    assert(getDangerCheck('terraform destroy -auto-approve').dangerous, 'terraform destroy should be detected')
+    assert(getDangerCheck('DROP TABLE users').dangerous, 'destructive database object removal should be detected')
+    assert(getDangerCheck('docker volume prune').dangerous, 'docker resource pruning should be detected')
+    assert(getDangerCheck('dd if=/dev/zero of=/dev/disk/by-uuid/1234').dangerous, 'disk UUID aliases should be detected')
+    assert(getDangerCheck('dd if=/dev/zero of=/dev/disk/by-label/data').dangerous, 'disk label aliases should be detected')
+    assert(getDangerCheck('dd if=/dev/zero of=/dev/vg0/root').dangerous, 'LVM volume paths should be detected')
+    assert(getDangerCheck('dd if=/dev/zero of=/dev/root').dangerous, 'root block-device aliases should be detected')
+    assert(getDangerCheck('busybox dd if=/dev/zero of=/dev/sda').dangerous, 'multicall dd wrappers should be detected')
+
+    assert(!getDangerCheck('rm /tmp/demo.txt').dangerous, 'ordinary single-file removal should not require high-risk confirmation')
+    assert(!getDangerCheck('dd if=/tmp/demo.img of=/dev/null').dangerous, 'writes to harmless pseudo-devices should not be marked dangerous')
+    assert(!getDangerCheck('dd if=/tmp/demo.img of=/dev/stdout').dangerous, 'writes to standard streams should not be marked dangerous')
+    assert(!getDangerCheck('dd if=/tmp/demo.img of=/dev/pts/1').dangerous, 'writes to terminal pseudo-devices should not be marked as disk writes')
+    assert(!getDangerCheck('dd if=/tmp/demo.img of=/dev/sda_backup').dangerous, 'block-device names should require a complete path token match')
+    assert(!getDangerCheck('git clean -ndx').dangerous, 'git clean dry runs should not be marked dangerous')
+    assert(!getDangerCheck('git clean -nfdx').dangerous, 'combined git clean dry-run flags should not be marked dangerous')
+    assert(!getDangerCheck('git clean --dry-run --force --directories').dangerous, 'long git clean dry-run flags should not be marked dangerous')
+    assert(!getDangerCheck('echo git -C /tmp/demo clean -f').dangerous, 'git text passed to unrelated commands should not be treated as executable git')
     assert(!getDangerCheck('echo deploy').dangerous, 'ordinary commands should not be marked dangerous')
 }
 
@@ -329,6 +398,8 @@ function testOutputAutomation (): void {
     assert(normalized.automationRules[0].timeoutMs === 10000, 'legacy zero timeouts should migrate to the documented default')
     assert(normalized.automationRules[0].onMatchAction === 'none', 'legacy empty action should migrate to no action')
     assert(normalized.automationRules[0].onMatchAutoEnter, 'custom action auto-enter should default to enabled')
+    assert(resolveAutomationRuleControl(normalized.automationRules[0], 'match') === 'continue', 'ordinary matches should continue automation')
+    assert(resolveAutomationRuleControl(normalized.automationRules[0], 'stopped') === 'stop', 'manual stops should stop automation')
 
     const lineTriggered = normalizeCommandConfig({
         name: '逐行触发规则',
@@ -343,6 +414,7 @@ function testOutputAutomation (): void {
         automationRules: [{ triggerLine: 2, matchFlow: 'nextLine' } as any],
     }, createId)
     assert(lineMatchControl.automationRules[0].matchFlow === 'nextLine', 'line-triggered rules should preserve skip-to-next-line match flow')
+    assert(resolveAutomationRuleControl(lineMatchControl.automationRules[0], 'match') === 'skipLineRules', 'next-line match flow should skip remaining line rules')
 
     const wholeCommandMatchControl = normalizeCommandConfig({
         name: '整段匹配控制',
@@ -357,6 +429,7 @@ function testOutputAutomation (): void {
         automationRules: [{ triggerLine: 0, matchFlow: 'stop' } as any],
     }, createId)
     assert(stopWholeCommandOnMatch.automationRules[0].matchFlow === 'stop', 'whole-command rules should preserve stop-on-match flow')
+    assert(resolveAutomationRuleControl(stopWholeCommandOnMatch.automationRules[0], 'match') === 'stop', 'stop match flow should stop execution')
 
     const stopOnMatch = normalizeCommandConfig({
         name: '匹配后停止',
@@ -376,6 +449,15 @@ function testOutputAutomation (): void {
     }, createId)
     assert(outcomeSpecificStops.automationRules[0].onMatchAction === 'stop', 'success actions should preserve outcome-specific stop')
     assert(outcomeSpecificStops.automationRules[0].onErrorAction === 'stop', 'error actions should preserve outcome-specific stop')
+    assert(resolveAutomationRuleControl(outcomeSpecificStops.automationRules[0], 'match') === 'stop', 'success stop actions should stop execution')
+    assert(resolveAutomationRuleControl(outcomeSpecificStops.automationRules[0], 'error') === 'stop', 'error stop actions should stop execution')
+
+    const timeoutStop = normalizeCommandConfig({
+        name: '超时停止',
+        command: 'echo one',
+        automationRules: [{ timeoutAction: 'stop' } as any],
+    }, createId)
+    assert(resolveAutomationRuleControl(timeoutStop.automationRules[0], 'timeout') === 'stop', 'timeout stop actions should stop execution')
 
     const legacyLineErrorFlow = normalizeCommandConfig({
         name: '旧逐行错误流程',
@@ -397,6 +479,32 @@ function testOutputAutomation (): void {
     assert(migratedAction.automationRules[0].onMatchAction === 'command', 'legacy command references should migrate to command actions')
     assert(migratedAction.automationRules[0].onErrorAction === 'custom', 'custom action text should migrate to custom actions')
     assert(!migratedAction.automationRules[0].onErrorAutoEnter, 'custom action auto-enter should preserve disabled values')
+}
+
+function testRecentOutputBuffer (): void {
+    const registry = new RecentOutputBufferRegistry()
+    let emit: (data: string) => void = () => undefined
+    let unsubscribed = false
+    registry.attach('terminal-1', {
+        subscribe: handler => {
+            emit = handler
+            return { unsubscribe: () => { unsubscribed = true } }
+        },
+    }, 5)
+
+    emit('abc')
+    const cursor = registry.captureCursor('terminal-1')
+    assert(cursor === 3, 'output buffer should expose the current stream cursor')
+    emit('def')
+    assert(registry.getSince('terminal-1', 0) === 'bcdef', 'output buffer should retain only the configured recent suffix')
+    assert(registry.getSince('terminal-1', cursor || 0) === 'def', 'output buffer should return output emitted after a captured cursor')
+
+    const nextCursor = registry.captureCursor('terminal-1') || 0
+    emit('gh')
+    assert(registry.getSince('terminal-1', nextCursor) === 'gh', 'output cursor offsets should survive buffer rollover')
+    registry.detach()
+    assert(unsubscribed, 'detaching output buffers should unsubscribe from terminal output')
+    assert(!registry.has('terminal-1'), 'detaching output buffers should clear retained output')
 }
 
 function testRuntimeStorage (): void {
@@ -443,6 +551,75 @@ function testPluginConfigStorage (): void {
         const imported = store.parseImport(JSON.stringify(payload))
         assert(Array.isArray(imported.commands) && imported.commands.length === 1, 'full config export should be importable')
         assert(imported.moveNavigateAfterMove === true, 'move navigation preference should be importable')
+        const normalized = store.parseImport(JSON.stringify({
+            format: 'tabby-windy-quick-commands-config',
+            version: 1,
+            config: {
+                commands: [{
+                    id: 'normalized',
+                    name: '归一化',
+                    command: 'echo ok',
+                    automationRules: [{
+                        id: 'rule-1',
+                        timeoutMs: 0,
+                        onMatchCommandId: 'missing-command',
+                    }],
+                }],
+                customCategories: [' 开发 ', '开发'],
+                categoryOrder: ['开发'],
+                selectedCommandId: 'missing-command',
+                executionMode: 'broadcast',
+                targetMode: 'current',
+                drawerWidth: 9999,
+                recentOutputLimit: 999999,
+                logLimit: 1,
+            },
+        }))
+        const normalizedCommands = normalized.commands as any[]
+        assert(normalizedCommands[0].automationRules[0].onMatchCommandId === '', 'full config import should clear missing automation references')
+        assert(normalizedCommands[0].automationRules[0].timeoutMs === 10000, 'full config import should migrate legacy zero timeouts')
+        assert((normalized.customCategories as string[]).length === 1, 'full config import should normalize category metadata')
+        assert(normalized.selectedCommandId === 'normalized', 'full config import should repair missing command selection')
+        assert(normalized.selectedCategory === '全部', 'full config import should repair missing category selection')
+        assert(normalized.executionMode === 'paste', 'full config import should migrate legacy broadcast execution mode')
+        assert(normalized.targetMode === 'all', 'full config import should migrate legacy broadcast target mode')
+        assert(normalized.drawerWidth === 760, 'full config import should clamp drawer width')
+        assert(normalized.recentOutputLimit === 50000, 'full config import should clamp output buffer size')
+        assert(normalized.logLimit === 20, 'full config import should clamp log count')
+        assert(!Object.prototype.hasOwnProperty.call(normalizedCommands[0], 'usageCount'), 'full config import should strip runtime command fields')
+
+        let malformedRuleRejected = false
+        try {
+            store.parseImport(JSON.stringify({
+                format: 'tabby-windy-quick-commands-config',
+                version: 1,
+                config: {
+                    commands: [{
+                        name: '错误规则',
+                        command: 'echo ok',
+                        automationRules: [{ onMatchCommand: {} }],
+                    }],
+                },
+            }))
+        } catch {
+            malformedRuleRejected = true
+        }
+        assert(malformedRuleRejected, 'full config import should reject malformed nested automation fields')
+
+        let malformedSettingRejected = false
+        try {
+            store.parseImport(JSON.stringify({
+                format: 'tabby-windy-quick-commands-config',
+                version: 1,
+                config: {
+                    commands: [{ name: '测试', command: 'echo ok' }],
+                    showToolbarButton: 'yes',
+                },
+            }))
+        } catch {
+            malformedSettingRejected = true
+        }
+        assert(malformedSettingRejected, 'full config import should reject invalid top-level setting types')
         let rejected = false
         try {
             store.parseImport(JSON.stringify({ format: 'wrong', version: 1, config: second }))
@@ -507,6 +684,7 @@ const tests: Array<[string, () => void]> = [
     ['自动回车处理', testAutoEnterNormalization],
     ['可见命令选择', testVisibleCommandSelection],
     ['输出触发器', testOutputAutomation],
+    ['终端输出缓冲', testRecentOutputBuffer],
     ['运行数据存储', testRuntimeStorage],
     ['插件配置存储', testPluginConfigStorage],
     ['旧配置迁移', testLegacyPluginConfigMigration],

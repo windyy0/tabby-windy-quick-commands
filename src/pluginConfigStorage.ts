@@ -1,6 +1,13 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
+import {
+    normalizeCommandConfig,
+    sanitizeAutomationReferences,
+    validateImportedCommands,
+} from './commandLibrary'
+import { QuickCommand } from './types'
+
 export const pluginConfigChangedEvent = 'windy-quick-commands-config-changed'
 export const pluginConfigFormat = 'tabby-windy-quick-commands-config'
 export const pluginConfigVersion = 1
@@ -77,30 +84,49 @@ export class QuickCommandsPluginConfigStore {
         if (!Array.isArray(commands)) {
             throw new Error('配置文件缺少 commands 数组。')
         }
-        if (commands.length > 5000) {
-            throw new Error('配置文件包含的命令超过 5000 条。')
-        }
-        commands.forEach((command, index) => {
-            if (!command || typeof command !== 'object' || Array.isArray(command)) {
-                throw new Error(`第 ${index + 1} 条命令格式无效。`)
-            }
-            const item = command as Record<string, unknown>
-            if (typeof item.name !== 'string' || typeof item.command !== 'string') {
-                throw new Error(`第 ${index + 1} 条命令缺少有效的名称或命令内容。`)
-            }
-        })
+        validateImportedCommands(commands)
         const source = config as Record<string, unknown>
+        this.validateConfigFields(source)
         const allowedKeys = [
             'commands', 'customCategories', 'categoryOrder', 'selectedCommandId', 'selectedCategory',
             'executionMode', 'targetMode', 'failureStrategy', 'drawerWidth', 'showToolbarButton',
             'requireConfirmBeforeExecute', 'confirmBroadcast', 'exportFileName', 'basicInfoCollapsed',
             'moreSettingsCollapsed', 'previewCollapsed', 'moveNavigateAfterMove', 'recentOutputLimit', 'logLimit',
         ]
-        return Object.fromEntries(
+        const normalized = Object.fromEntries(
             allowedKeys
                 .filter(key => Object.prototype.hasOwnProperty.call(source, key))
                 .map(key => [key, this.clone(source[key])]),
         )
+        if (source.executionMode === 'broadcast') {
+            normalized.executionMode = 'paste'
+            normalized.targetMode = 'all'
+        }
+        const createId = this.createImportIdFactory(commands)
+        const normalizedCommands = commands.map(command => normalizeCommandConfig(
+            command as Partial<QuickCommand>,
+            createId,
+        ))
+        normalized.commands = sanitizeAutomationReferences(normalizedCommands).commands
+            .map(command => this.stripCommandRuntime(command))
+        normalized.customCategories = this.normalizeStringList(source.customCategories)
+        normalized.categoryOrder = this.normalizeStringList(source.categoryOrder)
+        normalized.drawerWidth = this.normalizeNumber(source.drawerWidth, 420, 760, 560)
+        normalized.recentOutputLimit = this.normalizeNumber(source.recentOutputLimit, 1000, 50000, 8000)
+        normalized.logLimit = this.normalizeNumber(source.logLimit, 20, 2000, 200)
+        const commandIds = new Set((normalized.commands as Array<{ id: string }>).map(command => command.id))
+        if (typeof normalized.selectedCommandId !== 'string' || !commandIds.has(normalized.selectedCommandId)) {
+            normalized.selectedCommandId = (normalized.commands as Array<{ id: string }>)[0]?.id || null
+        }
+        const categories = new Set([
+            '全部', '常用', '收藏',
+            ...(normalized.customCategories as string[]),
+            ...(normalized.commands as Array<{ category: string }>).map(command => command.category),
+        ])
+        if (typeof normalized.selectedCategory !== 'string' || !categories.has(normalized.selectedCategory)) {
+            normalized.selectedCategory = '全部'
+        }
+        return normalized
     }
 
     private readConfigFile (): Record<string, unknown> | null {
@@ -154,5 +180,107 @@ export class QuickCommandsPluginConfigStore {
 
     private clone<T> (value: T): T {
         return JSON.parse(JSON.stringify(value)) as T
+    }
+
+    private validateConfigFields (config: Record<string, unknown>): void {
+        const stringFields = ['selectedCategory', 'exportFileName']
+        stringFields.forEach(field => {
+            if (config[field] !== undefined && typeof config[field] !== 'string') {
+                throw new Error(`配置字段 ${field} 无效。`)
+            }
+        })
+        if (config.selectedCommandId !== undefined && config.selectedCommandId !== null && typeof config.selectedCommandId !== 'string') {
+            throw new Error('配置字段 selectedCommandId 无效。')
+        }
+        const booleanFields = [
+            'showToolbarButton', 'requireConfirmBeforeExecute', 'confirmBroadcast', 'basicInfoCollapsed',
+            'moreSettingsCollapsed', 'previewCollapsed', 'moveNavigateAfterMove',
+        ]
+        booleanFields.forEach(field => {
+            if (config[field] !== undefined && typeof config[field] !== 'boolean') {
+                throw new Error(`配置字段 ${field} 无效。`)
+            }
+        })
+        const numberFields = ['drawerWidth', 'recentOutputLimit', 'logLimit']
+        numberFields.forEach(field => {
+            if (config[field] !== undefined && (
+                typeof config[field] !== 'number' ||
+                !Number.isFinite(config[field])
+            )) {
+                throw new Error(`配置字段 ${field} 无效。`)
+            }
+        })
+        this.validateEnum(config, 'executionMode', ['paste', 'line', 'broadcast'])
+        this.validateEnum(config, 'targetMode', ['current', 'all'])
+        this.validateEnum(config, 'failureStrategy', ['continue', 'stop', 'manual'])
+        this.validateStringList(config.customCategories, 'customCategories')
+        this.validateStringList(config.categoryOrder, 'categoryOrder')
+    }
+
+    private validateEnum (config: Record<string, unknown>, field: string, allowed: string[]): void {
+        if (config[field] !== undefined && !allowed.includes(String(config[field]))) {
+            throw new Error(`配置字段 ${field} 无效。`)
+        }
+    }
+
+    private validateStringList (value: unknown, field: string): void {
+        if (value !== undefined && (
+            !Array.isArray(value) ||
+            value.some(item => typeof item !== 'string')
+        )) {
+            throw new Error(`配置字段 ${field} 无效。`)
+        }
+    }
+
+    private normalizeStringList (value: unknown): string[] {
+        if (!Array.isArray(value)) {
+            return []
+        }
+        return Array.from(new Set(value
+            .map(item => String(item).trim())
+            .filter(Boolean)))
+    }
+
+    private normalizeNumber (value: unknown, min: number, max: number, fallback: number): number {
+        const numeric = Number(value)
+        return Math.max(min, Math.min(max, Number.isFinite(numeric) ? numeric : fallback))
+    }
+
+    private stripCommandRuntime (command: QuickCommand): Omit<QuickCommand, 'usageCount' | 'lastUsedAt'> {
+        const { usageCount: _usageCount, lastUsedAt: _lastUsedAt, ...stored } = command
+        return stored
+    }
+
+    private createImportIdFactory (commands: unknown[]): () => string {
+        const prefix = Date.now().toString(36)
+        const usedIds = new Set<string>()
+        commands.forEach(command => {
+            if (!command || typeof command !== 'object' || Array.isArray(command)) {
+                return
+            }
+            const record = command as Record<string, unknown>
+            if (typeof record.id === 'string') {
+                usedIds.add(record.id)
+            }
+            if (Array.isArray(record.automationRules)) {
+                record.automationRules.forEach(rule => {
+                    if (rule && typeof rule === 'object' && !Array.isArray(rule)) {
+                        const id = (rule as Record<string, unknown>).id
+                        if (typeof id === 'string') {
+                            usedIds.add(id)
+                        }
+                    }
+                })
+            }
+        })
+        let sequence = 0
+        return () => {
+            let id = ''
+            do {
+                id = `cmd-import-${prefix}-${++sequence}`
+            } while (usedIds.has(id))
+            usedIds.add(id)
+            return id
+        }
     }
 }

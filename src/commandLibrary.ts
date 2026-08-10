@@ -69,8 +69,8 @@ export const quickCommandsSchema = {
                     category: { type: 'string' },
                     command: { type: 'string' },
                     autoEnter: { type: 'boolean' },
-                    lineDelay: { type: 'number' },
-                    lineDelays: { type: 'array', items: { type: 'number' } },
+                    lineDelay: { type: 'number', minimum: 0 },
+                    lineDelays: { type: 'array', items: { type: 'number', minimum: 0 } },
                     linePauses: { type: 'array', items: { type: 'boolean' } },
                     shortcut: { type: 'string' },
                     favorite: { type: 'boolean' },
@@ -88,7 +88,7 @@ export const quickCommandsSchema = {
                                 matchMode: { enum: ['literal', 'regex'] },
                                 waitFor: { type: 'string' },
                                 waitForLogic: { enum: ['single', 'any', 'all'] },
-                                timeoutMs: { type: 'number' },
+                                timeoutMs: { type: 'number', minimum: 100 },
                                 errorPattern: { type: 'string' },
                                 errorPatternLogic: { enum: ['single', 'any', 'all'] },
                                 matchFlow: { enum: ['continue', 'nextLine', 'stop'] },
@@ -136,12 +136,7 @@ export function parseImportPayload (text: string): ParsedImportPayload {
     if (!Array.isArray(source)) {
         throw new Error('导入文件缺少 commands 数组。')
     }
-    if (source.length > 5000) {
-        throw new Error('导入文件包含的命令超过 5000 条。')
-    }
-
-    const ids = new Set<string>()
-    source.forEach((value, index) => validateImportedCommand(value, index, ids))
+    validateImportedCommands(source)
     return {
         commands: source as Array<Partial<QuickCommand>>,
         customCategories: parseStringList(root.customCategories, 'customCategories'),
@@ -286,6 +281,14 @@ export function sanitizeAutomationReferences (commands: QuickCommand[]): Sanitiz
     return { commands: cleaned, clearedReferences }
 }
 
+export function validateImportedCommands (commands: unknown[]): asserts commands is Array<Partial<QuickCommand>> {
+    if (commands.length > 5000) {
+        throw new Error('导入文件包含的命令超过 5000 条。')
+    }
+    const ids = new Set<string>()
+    commands.forEach((value, index) => validateImportedCommand(value, index, ids))
+}
+
 function validateImportedCommand (value: unknown, index: number, ids: Set<string>): void {
     const position = `第 ${index + 1} 条命令`
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -310,7 +313,21 @@ function validateImportedCommand (value: unknown, index: number, ids: Set<string
             throw new Error(`${position}的字段 ${field} 无效。`)
         }
     })
-    if (command.lineDelays !== undefined && !Array.isArray(command.lineDelays)) {
+    const optionalNumberFields = ['lineDelay', 'usageCount']
+    optionalNumberFields.forEach(field => {
+        const value = command[field]
+        if (value !== undefined && (
+            typeof value !== 'number' ||
+            !Number.isFinite(value) ||
+            value < 0
+        )) {
+            throw new Error(`${position}的字段 ${field} 无效。`)
+        }
+    })
+    if (command.lineDelays !== undefined && (
+        !Array.isArray(command.lineDelays) ||
+        command.lineDelays.some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+    )) {
         throw new Error(`${position}的逐行延迟格式无效。`)
     }
     if (command.linePauses !== undefined && (
@@ -332,6 +349,7 @@ function validateImportedCommand (value: unknown, index: number, ids: Set<string
         throw new Error(`${position}的输出触发器格式无效。`)
     }
     if (Array.isArray(command.automationRules)) {
+        const ruleIds = new Set<string>()
         command.automationRules.forEach((rule, ruleIndex) => {
             if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器格式无效。`)
@@ -349,12 +367,25 @@ function validateImportedCommand (value: unknown, index: number, ids: Set<string
                     throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器字段 ${field} 无效。`)
                 }
             })
+            if (typeof record.id === 'string' && record.id) {
+                if (ruleIds.has(record.id)) {
+                    throw new Error(`${position}包含重复输出触发器 ID：${record.id}。`)
+                }
+                ruleIds.add(record.id)
+            }
             if (record.triggerLine !== undefined && (
                 typeof record.triggerLine !== 'number' ||
                 !Number.isInteger(record.triggerLine) ||
                 record.triggerLine < 0
             )) {
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器触发行无效。`)
+            }
+            if (record.timeoutMs !== undefined && (
+                typeof record.timeoutMs !== 'number' ||
+                !Number.isFinite(record.timeoutMs) ||
+                record.timeoutMs < 0
+            )) {
+                throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器超时时间无效。`)
             }
             if (record.matchMode !== undefined && record.matchMode !== 'literal' && record.matchMode !== 'regex') {
                 throw new Error(`${position}的第 ${ruleIndex + 1} 条输出触发器匹配方式无效。`)

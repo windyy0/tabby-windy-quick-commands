@@ -1,4 +1,7 @@
-import { OutputMatchMode, OutputPatternLogic } from './types'
+import { OutputMatchMode, OutputPatternLogic, QuickAutomationRule } from './types'
+
+export type AutomationRuleOutcome = 'match' | 'error' | 'timeout' | 'stopped'
+export type AutomationRuleControl = 'continue' | 'skipLineRules' | 'stop'
 
 export interface OutputMatch {
     matched: boolean
@@ -82,6 +85,23 @@ export function isValidOutputPattern (
             return false
         }
     })
+}
+
+export function resolveAutomationRuleControl (
+    rule: QuickAutomationRule,
+    outcome: AutomationRuleOutcome,
+): AutomationRuleControl {
+    if (outcome === 'stopped') {
+        return 'stop'
+    }
+    if (outcome === 'timeout') {
+        return rule.timeoutAction === 'stop' ? 'stop' : 'continue'
+    }
+    const action = outcome === 'match' ? rule.onMatchAction : rule.onErrorAction
+    if (action === 'stop' || rule.matchFlow === 'stop') {
+        return 'stop'
+    }
+    return rule.matchFlow === 'nextLine' ? 'skipLineRules' : 'continue'
 }
 
 function splitOutputPatterns (pattern: string, logic: OutputPatternLogic): string[] {

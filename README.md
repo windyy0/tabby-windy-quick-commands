@@ -43,15 +43,18 @@ windy-quick-commands
 
 ### 从源码安装
 
-仓库提供了适用于Windows本地安装脚本。准备好下方开发环境后，在仓库目录执行：
+仓库提供了适用于 Windows 的本地安装脚本。准备好下方开发环境后，在仓库目录执行：
 
 ```powershell
 npm ci
-npm run install:tabby
+npm run install:tabby:restart
 ```
 
 脚本会构建插件，将最小运行文件复制到 Tabby 的用户插件目录，并重启 Tabby。也可以只安装、不重启：
 
+```powershell
+npm run install:tabby
+```
 
 ## 使用
 
