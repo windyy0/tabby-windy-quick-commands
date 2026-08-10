@@ -24,7 +24,11 @@ import { QuickCommandsI18n } from './i18n'
         <div class="wqc-plugin-intro">
           <strong>Tabby Windy Quick Commands</strong>
           <p>在 Tabby 中集中管理和执行常用终端命令，支持分类搜索、快捷键、多会话发送、逐行执行、输出触发器以及命令库导入导出。</p>
-          <span>可能存在大量的bug还有一些没考虑的，见谅🫨可以提issue，慢慢改~</span>
+          <div class="wqc-plugin-note">可能存在大量的bug还有一些没考虑的，见谅🫨可以提issue，慢慢改~</div>
+          <nav class="wqc-plugin-links" aria-label="项目链接">
+            <a [href]="projectUrl" (click)="openExternal($event, projectUrl)">GitHub 仓库</a>
+            <a [href]="issuesUrl" (click)="openExternal($event, issuesUrl)">问题反馈</a>
+          </nav>
         </div>
 
         <section class="wqc-section wqc-config-section">
@@ -33,11 +37,11 @@ import { QuickCommandsI18n } from './i18n'
               <h4>插件配置</h4>
               <div class="wqc-muted">导出或恢复命令、分类、触发器和所有插件设置；运行日志与使用统计不包含在内。</div>
             </div>
-            <div class="wqc-config-actions">
-              <button class="btn btn-secondary" type="button" (click)="exportPluginConfig()">导出配置</button>
-              <button class="btn btn-secondary" type="button" (click)="pluginConfigFile.click()">导入配置</button>
-              <input #pluginConfigFile class="wqc-hidden-file" type="file" accept="application/json,.json" (change)="importPluginConfig($event)">
-            </div>
+          </div>
+          <div class="wqc-config-actions">
+            <button class="btn btn-secondary" type="button" (click)="exportPluginConfig()">导出配置</button>
+            <button class="btn btn-secondary" type="button" (click)="pluginConfigFile.click()">导入配置</button>
+            <input #pluginConfigFile class="wqc-hidden-file" type="file" accept="application/json,.json" (change)="importPluginConfig($event)">
           </div>
           <div class="wqc-config-message" *ngIf="configMessage">{{ configMessage }}</div>
         </section>
@@ -342,12 +346,30 @@ import { QuickCommandsI18n } from './i18n'
         line-height: 1.6;
       }
 
-      .wqc-plugin-intro span {
-        display: block;
+      .wqc-plugin-note {
         margin-top: 7px;
         color: var(--wqc-muted);
         font-size: 12px;
         line-height: 1.5;
+      }
+
+      .wqc-plugin-links {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 9px;
+        font-size: 12px;
+      }
+
+      .wqc-plugin-links a {
+        color: var(--bs-link-color, var(--wqc-accent));
+        text-decoration: none;
+      }
+
+      .wqc-plugin-links a:hover,
+      .wqc-plugin-links a:focus-visible {
+        text-decoration: underline;
       }
 
       .wqc-section {
@@ -361,10 +383,13 @@ import { QuickCommandsI18n } from './i18n'
       }
 
       .wqc-config-actions {
-        display: flex;
-        align-items: center;
+        display: grid;
+        grid-template-columns: repeat(2, 112px);
         gap: 8px;
-        flex-wrap: wrap;
+      }
+
+      .wqc-config-actions .btn {
+        width: 100%;
       }
 
       .wqc-hidden-file {
@@ -372,7 +397,7 @@ import { QuickCommandsI18n } from './i18n'
       }
 
       .wqc-config-message {
-        margin-top: -4px;
+        margin-top: 10px;
         padding: 8px 10px;
         color: var(--bs-primary);
         background: color-mix(in srgb, var(--bs-primary) 8%, transparent);
@@ -1155,6 +1180,11 @@ import { QuickCommandsI18n } from './i18n'
       }
 
       @media (max-width: 520px) {
+        .wqc-config-actions {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          width: 100%;
+        }
+
         .wqc-command-filter-options {
           grid-template-columns: 1fr;
         }
@@ -1186,6 +1216,8 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     runtimeLogs: any[] = []
     runtimeStats: CommandUsageStats = {}
     configMessage = ''
+    readonly projectUrl = 'https://github.com/windyy0/tabby-windy-quick-commands'
+    readonly issuesUrl = 'https://github.com/windyy0/tabby-windy-quick-commands/issues'
     private configMessageTimer: ReturnType<typeof setTimeout> | null = null
     private runtimeStore: QuickCommandsRuntimeStore
     private pluginConfigStore: QuickCommandsPluginConfigStore
@@ -1628,6 +1660,11 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         if (path) {
             this.platform.showItemInFolder(path)
         }
+    }
+
+    openExternal (event: Event, url: string): void {
+        event.preventDefault()
+        this.platform.openExternal(url)
     }
 
     exportPluginConfig (): void {
