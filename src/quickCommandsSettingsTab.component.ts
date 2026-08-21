@@ -576,6 +576,13 @@ import { QuickCommandsI18n } from './i18n'
         background-color: color-mix(in srgb, var(--bs-primary) 3%, var(--bs-body-bg));
       }
 
+      .wqc-settings input.form-control:focus,
+      .wqc-settings textarea.form-control:focus {
+        outline: 0;
+        border-color: var(--wqc-accent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--wqc-accent) 28%, transparent);
+      }
+
       .wqc-select-shell {
         position: relative;
         display: block;
