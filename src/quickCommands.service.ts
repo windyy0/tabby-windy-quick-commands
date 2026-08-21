@@ -12,7 +12,6 @@ import {
 import { defaultCommands, defaultQuickCommandsConfig } from './configProvider'
 import {
     applyImportPreview,
-    buildTerminalPayload,
     buildImportPreview,
     ImportPreview,
     normalizeCommandConfig,
@@ -28,37 +27,21 @@ import {
     shortcutFromKeyboardEvent,
 } from './shortcutManager'
 import { getDangerCheck } from './safety'
-import { getExecutableLineCount, parseScriptSteps, ScriptStep } from './scriptParser'
+import { getExecutableLineCount } from './scriptParser'
 import { CommandUsageStats, QuickCommandsRuntimeStore } from './runtimeStorage'
-import { findOutputMatch, isValidOutputPattern, resolveAutomationRuleControl } from './outputAutomation'
+import { isValidOutputPattern } from './outputAutomation'
 import { pluginConfigChangedEvent, QuickCommandsPluginConfigStore } from './pluginConfigStorage'
 import { QuickCommandsI18n } from './i18n'
 import { quickCommandIcons as icons } from './quickCommandsIcons'
-import { OutputStreamLike, RecentOutputBufferRegistry } from './recentOutputBuffer'
+import {
+    ExecutionRunState,
+    ExecutionTarget,
+    QuickCommandsExecutionRunner,
+} from './executionRunner'
 
 require('./quickCommands.css')
 
-interface AutomationRuleResult {
-    outcome: 'match' | 'error' | 'timeout' | 'stopped'
-    matchedText: string
-}
-
-type AutomationRuleControl = 'continue' | 'skipLineRules' | 'stop'
-
-interface TerminalTabLike {
-    title?: string
-    profile?: {
-        name?: string
-    }
-    frontend?: {
-        focus: () => void
-    }
-    sendInput: (data: string) => void
-    output$?: OutputStreamLike
-    session?: {
-        output$?: OutputStreamLike
-    } | null
-}
+type TerminalTabLike = ExecutionTarget
 
 interface ExecutionSummary {
     modeLabel: string
@@ -71,19 +54,6 @@ interface ExecutionSummary {
     requiresTypedConfirm: boolean
     requiredText: string
     requiresConfirm: boolean
-}
-
-interface RunState {
-    commandId: string
-    startedAt: string
-    currentStep: number
-    totalSteps: number
-    sourceLine: number
-    paused: boolean
-    stopped: boolean
-    waitingManual: boolean
-    waitingRuleName?: string
-    manualResolver?: () => void
 }
 
 /** @hidden */
@@ -128,14 +98,18 @@ export class QuickCommandsService {
     private automationRuleMenuKey: string | null = null
     private resizeMove?: (event: MouseEvent) => void
     private resizeEnd?: () => void
-    private runState?: RunState
-    private outputBuffers = new RecentOutputBufferRegistry()
+    private runState?: ExecutionRunState
+    private executionRunner?: QuickCommandsExecutionRunner
     private ruleHeadResizeObserver?: ResizeObserver
     private targetKeys = new WeakMap<TerminalTabLike, string>()
     private nextTargetKey = 0
     private renderedCommandId: string | null = null
     private pendingAutomationRuleScrollId: string | null = null
     private writingPluginConfig = false
+    private pluginConfigDirty = false
+    private pendingPluginConfigWrite: Record<string, unknown> | null = null
+    private pluginConfigWriteTimer: number | null = null
+    private readonly pluginConfigWriteDelay = 400
     private runtimeStore: QuickCommandsRuntimeStore
     private pluginConfigStore: QuickCommandsPluginConfigStore
     private state: QuickCommandsConfig
@@ -161,9 +135,12 @@ export class QuickCommandsService {
             if (this.writingPluginConfig) {
                 return
             }
+            this.cancelScheduledPluginConfigWrite()
+            this.pluginConfigDirty = false
             this.state = this.readConfig(true)
             this.render()
         })
+        window.addEventListener('beforeunload', () => this.persistPluginConfig())
         document.addEventListener('keydown', event => this.handleDocumentKeyDown(event), true)
         document.addEventListener('click', event => this.handleDocumentClick(event))
         this.i18n.localeChanged$.subscribe(() => this.render())
@@ -185,6 +162,7 @@ export class QuickCommandsService {
     }
 
     close (): void {
+        this.persistPluginConfig()
         this.visible = false
         this.pendingExecutionId = null
         this.pendingDeleteId = null
@@ -216,6 +194,11 @@ export class QuickCommandsService {
             this.root.className = 'tqc-root'
             this.root.addEventListener('keydown', event => this.handleRootKeyDown(event))
             this.root.addEventListener('click', event => this.handleRootClick(event), true)
+            this.root.addEventListener('click', event => this.handleDelegatedRootClick(event))
+            this.root.addEventListener('dragstart', event => this.handleDelegatedCommandDragStart(event))
+            this.root.addEventListener('dragover', event => this.handleDelegatedCommandDragOver(event))
+            this.root.addEventListener('drop', event => this.handleDelegatedCommandDrop(event))
+            this.root.addEventListener('dragend', event => this.handleDelegatedCommandDragEnd(event))
             document.body.appendChild(this.root)
         }
     }
@@ -1239,30 +1222,6 @@ export class QuickCommandsService {
             return
         }
 
-        this.root.querySelectorAll<HTMLElement>('[data-action]').forEach(element => {
-            element.addEventListener('click', event => {
-                event.preventDefault()
-                event.stopPropagation()
-                const action = element.dataset.action || ''
-                if (this.commandMenuOpen && action !== 'toggle-command-menu' && action !== 'duplicate' && action !== 'delete') {
-                    this.closeCommandMenu()
-                }
-                if (this.categoryOverflowOpen && action !== 'toggle-category-overflow') {
-                    this.closeCategoryOverflowMenu()
-                }
-                if (this.libraryMenuOpen && action !== 'toggle-library-menu') {
-                    this.closeLibraryMenu()
-                }
-                if (this.categoryActionsOpen && action !== 'toggle-category-actions') {
-                    this.closeCategoryActionsMenu()
-                }
-                if (this.automationRuleMenuKey && action !== 'rule-menu-toggle' && action !== 'rule-option-select') {
-                    this.closeAutomationRuleMenu()
-                }
-                void this.handleAction(action, element)
-            })
-        })
-
         this.root.querySelectorAll<HTMLElement>('[data-role="confirm-dialog"]').forEach(element => {
             element.addEventListener('click', event => event.stopPropagation())
         })
@@ -1340,33 +1299,6 @@ export class QuickCommandsService {
                 this.root?.querySelector<HTMLInputElement>('[data-role="automation-command-search"]')?.focus()
             })
         }
-
-        this.root.querySelectorAll<HTMLElement>('[data-command-id]').forEach(element => {
-            element.addEventListener('click', () => {
-                const id = element.dataset.commandId
-                if (id) {
-                    this.commandMenuOpen = false
-                    this.updateConfig({ selectedCommandId: id })
-                }
-            })
-            element.addEventListener('dragstart', event => {
-                this.draggedCommandId = element.dataset.commandId || null
-                element.classList.add('tqc-dragging')
-                event.dataTransfer?.setData('text/plain', this.draggedCommandId || '')
-            })
-            element.addEventListener('dragover', event => event.preventDefault())
-            element.addEventListener('drop', event => {
-                event.preventDefault()
-                const targetId = element.dataset.commandId
-                if (targetId && this.draggedCommandId) {
-                    this.reorderCommand(this.draggedCommandId, targetId)
-                }
-            })
-            element.addEventListener('dragend', () => {
-                this.draggedCommandId = null
-                element.classList.remove('tqc-dragging')
-            })
-        })
 
         this.root.querySelectorAll<HTMLElement>('[data-mode]').forEach(element => {
             element.addEventListener('click', () => {
@@ -1812,7 +1744,7 @@ export class QuickCommandsService {
             const startWidth = this.clampWidth(this.state.drawerWidth)
             this.resizeMove = moveEvent => {
                 const nextWidth = this.clampWidth(startWidth + (startX - moveEvent.clientX))
-                this.updateConfig({ drawerWidth: nextWidth }, false)
+                this.updateDrawerWidthLive(nextWidth)
             }
             this.resizeEnd = () => {
                 if (this.resizeMove) {
@@ -2143,6 +2075,7 @@ export class QuickCommandsService {
     }
 
     private openSettings (): void {
+        this.persistPluginConfig()
         this.app.openNewTabRaw({
             type: SettingsTabComponent,
             inputs: { activeTab: 'windy-quick-commands' },
@@ -2187,6 +2120,7 @@ export class QuickCommandsService {
         const cursor = search.selectionStart || search.value.length
         const previousFilter = this.filter.trim()
         const nextFilter = search.value.trim()
+        const startingSearch = !previousFilter && Boolean(nextFilter)
         if (!previousFilter && nextFilter) {
             this.searchReturnCategory = this.state.selectedCategory
             this.searchReturnCommandId = this.state.selectedCommandId
@@ -2196,8 +2130,10 @@ export class QuickCommandsService {
             this.restoreSearchContext()
         } else if (nextFilter && this.state.selectedCategory !== '全部') {
             this.updateConfig({ selectedCategory: '全部' }, false)
-        } else {
+        } else if (startingSearch || !this.refreshFilteredCommandList()) {
             this.render()
+        } else {
+            return
         }
         window.requestAnimationFrame(() => {
             const nextSearch = this.root?.querySelector<HTMLInputElement>('[data-role="search"]')
@@ -2592,6 +2528,7 @@ export class QuickCommandsService {
             commands,
             selectedCommandId: commands[0]?.id || null,
         })
+        this.persistPluginConfig()
     }
 
     private saveCommandListEdit (): void {
@@ -2703,6 +2640,7 @@ export class QuickCommandsService {
             selectedCategory: '全部',
             selectedCommandId: commands[0]?.id || null,
         })
+        this.persistPluginConfig()
     }
 
     private canDeleteSelectedCategory (): boolean {
@@ -2930,6 +2868,7 @@ export class QuickCommandsService {
             selectedCommandId: commands[0]?.id || null,
             selectedCategory: commands[0]?.category || '全部',
         })
+        this.persistPluginConfig()
         const referenceMessage = sanitized.clearedReferences
             ? `，并清理 ${sanitized.clearedReferences} 个失效触发器引用`
             : ''
@@ -2953,6 +2892,8 @@ export class QuickCommandsService {
             return
         }
 
+        this.persistPluginConfig()
+
         const summary = this.buildExecutionSummary(selected, targets)
         if (!confirmed && summary.requiresConfirm) {
             this.pendingExecutionId = selected.id
@@ -2971,40 +2912,32 @@ export class QuickCommandsService {
         this.pendingExecutionId = null
         this.confirmInput = ''
         this.message = ''
-        this.runState = {
-            commandId: selected.id,
-            startedAt: new Date().toISOString(),
-            currentStep: 0,
-            totalSteps: this.state.executionMode === 'line' ? Math.max(parseScriptSteps(selected).length, 1) : 1,
-            sourceLine: 0,
-            paused: false,
-            stopped: false,
-            waitingManual: false,
-        }
+        const runner = this.createExecutionRunner()
+        this.executionRunner = runner
+        this.runState = runner.start(selected, this.state.executionMode)
         this.updateUsage(selected.id)
         this.addLog('info', '开始执行', selected.id, undefined, {
             mode: summary.modeLabel,
             targetNames: summary.targetNames,
         })
-        this.attachOutputBuffers(targets)
         this.render()
 
         try {
-            if (this.state.executionMode === 'line') {
-                await this.executeLineByLine(selected, targets)
-            } else {
-                this.executeBlock(selected, targets)
-            }
-            const afterCommandRules = selected.automationRules.filter(rule => rule.triggerLine === 0)
-            await this.runAutomationRules(selected, targets, afterCommandRules)
-            if (this.runState?.stopped) {
+            const stopped = await runner.execute(
+                selected,
+                targets,
+                this.state.executionMode,
+                this.state.failureStrategy,
+                this.state.recentOutputLimit,
+            )
+            if (stopped) {
                 this.showMessage('执行已停止。')
                 return
             }
             this.addLog('info', '执行完成', selected.id, undefined, {
                 mode: summary.modeLabel,
                 targetNames: summary.targetNames,
-                durationMs: this.getRunDuration(),
+                durationMs: runner.getDuration(),
             })
             this.showMessage(`已发送到 ${targets.length} 个会话。`)
         } catch (error) {
@@ -3012,11 +2945,12 @@ export class QuickCommandsService {
             this.addLog('error', '执行失败，请查看 Tabby 日志。', selected.id, undefined, {
                 mode: summary.modeLabel,
                 targetNames: summary.targetNames,
-                durationMs: this.getRunDuration(),
+                durationMs: runner.getDuration(),
             })
             this.showMessage('执行失败，请查看 Tabby 日志。')
         } finally {
-            this.detachOutputBuffers()
+            runner.dispose()
+            this.executionRunner = undefined
             this.running = false
             this.runState = undefined
             this.pendingFailureMessage = ''
@@ -3024,419 +2958,67 @@ export class QuickCommandsService {
         }
     }
 
-    private executeBlock (command: QuickCommand, targets: TerminalTabLike[]): void {
-        const payload = this.normalizeCommand(command.command, command.autoEnter)
-        targets.forEach(target => target.sendInput(payload))
-    }
-
-    private async executeLineByLine (command: QuickCommand, targets: TerminalTabLike[]): Promise<void> {
-        const steps = parseScriptSteps(command)
-        if (this.runState) {
-            this.runState.totalSteps = Math.max(steps.length, 1)
-        }
-
-        for (let index = 0; index < steps.length; index++) {
-            const step = steps[index]
-            if (this.runState?.stopped) {
-                this.addLog('warn', '执行已停止。', command.id)
-                return
-            }
-            await this.waitWhilePaused()
-            if (this.runState) {
-                this.runState.currentStep = index + 1
-                this.runState.sourceLine = step.sourceLine
-            }
-            this.render()
-            await this.executeStep(command, targets, step)
-        }
-    }
-
-    private async executeStep (command: QuickCommand, targets: TerminalTabLike[], step: ScriptStep): Promise<void> {
-        if (step.type !== 'command') {
-            return
-        }
-
-        try {
-            const rules = command.automationRules.filter(rule => rule.triggerLine === step.sourceLine)
-            const outputCursors = this.captureOutputCursors(targets)
-            const payload = this.normalizeCommand(step.text, command.autoEnter)
-            targets.forEach(target => target.sendInput(payload))
-            this.addLog('info', `已发送第 ${step.sourceLine} 行。`, command.id, step.sourceLine)
-            const [, stoppedByRule] = await Promise.all([
-                this.delayWithControl(step.delay),
-                this.runAutomationRules(command, targets, rules, outputCursors),
-            ])
-            if (stoppedByRule && this.runState) {
-                this.runState.stopped = true
-                this.addLog('warn', `第 ${step.sourceLine} 行的输出规则已停止后续逐行执行。`, command.id, step.sourceLine)
-            }
-            if (step.pauseAfter && !this.runState?.stopped) {
-                this.pauseExecution()
-                this.addLog('info', `第 ${step.sourceLine} 行执行后暂停，等待继续。`, command.id, step.sourceLine)
-                await this.waitWhilePaused()
-            }
-        } catch (error) {
-            await this.handleStepFailure(command, step, error)
-        }
-    }
-
-    private async handleStepFailure (command: QuickCommand, step: ScriptStep, error: unknown): Promise<void> {
-        this.logger.warn('Line execution failed', error)
-        this.addLog('error', `第 ${step.sourceLine} 行发送失败。`, command.id, step.sourceLine)
-        if (this.state.failureStrategy === 'continue') {
-            return
-        }
-        if (this.state.failureStrategy === 'stop') {
-            throw error
-        }
-
-        this.pendingFailureMessage = `第 ${step.sourceLine} 行发送失败，需要手动确认后继续。`
-        if (this.runState) {
-            this.runState.waitingManual = true
-            this.runState.paused = true
-        }
-        this.render()
-        await new Promise<void>(resolve => {
-            if (this.runState) {
-                this.runState.manualResolver = resolve
-            } else {
-                resolve()
-            }
+    private createExecutionRunner (): QuickCommandsExecutionRunner {
+        return new QuickCommandsExecutionRunner({
+            getTargetKey: target => this.getTargetKey(target),
+            getTargetName: target => this.getTabTitle(target),
+            getCommand: commandId => this.state.commands.find(command => command.id === commandId),
+            isDangerous: command => this.getDanger(command).dangerous,
+            log: (level, message, commandId, line, context) => {
+                this.addLog(level, message, commandId, line, context)
+            },
+            warn: (message, error) => this.logger.warn(message, error),
+            stateChanged: (state, pendingFailureMessage) => {
+                this.runState = state
+                this.pendingFailureMessage = pendingFailureMessage
+                this.render()
+            },
         })
-        if (this.runState?.stopped) {
-            throw error
-        }
     }
 
     private pauseExecution (): void {
-        if (!this.runState) {
-            return
-        }
-        this.runState.paused = true
-        this.render()
+        this.executionRunner?.pause()
     }
 
     private resumeExecution (): void {
-        if (!this.runState) {
-            return
-        }
-        this.runState.paused = false
-        this.runState.waitingManual = false
-        this.pendingFailureMessage = ''
-        this.render()
+        this.executionRunner?.resume()
     }
 
     private stopExecution (): void {
-        if (!this.runState) {
-            return
-        }
-        this.runState.stopped = true
-        this.runState.paused = false
-        this.runState.waitingManual = false
-        if (this.runState.manualResolver) {
-            this.runState.manualResolver()
-        }
-        this.pendingFailureMessage = ''
-        this.render()
+        this.executionRunner?.stop()
     }
 
     private resolveManualFailure (stop: boolean): void {
-        if (!this.runState) {
-            return
-        }
-        this.runState.stopped = stop
-        this.runState.paused = false
-        this.runState.waitingManual = false
-        this.pendingFailureMessage = ''
-        if (this.runState.manualResolver) {
-            this.runState.manualResolver()
-            this.runState.manualResolver = undefined
-        }
-        this.render()
+        this.executionRunner?.resolveManualFailure(stop)
     }
 
-    private async waitWhilePaused (): Promise<void> {
-        while (this.runState?.paused && !this.runState.stopped) {
-            await this.delay(120)
-        }
+    private updateDrawerWidthLive (width: number): void {
+        const drawerWidth = this.clampWidth(width)
+        this.state = { ...this.state, drawerWidth }
+        const root = this.pluginConfigStore.load(defaultQuickCommandsConfig)
+        root.drawerWidth = drawerWidth
+        this.setPluginConfig(root, false)
+        this.root?.style.setProperty('--tqc-width', `${drawerWidth}px`)
     }
 
-    private async delayWithControl (ms: number): Promise<void> {
-        const started = Date.now()
-        while (Date.now() - started < ms) {
-            if (this.runState?.stopped) {
-                return
-            }
-            await this.waitWhilePaused()
-            await this.delay(Math.min(120, ms - (Date.now() - started)))
-        }
-    }
-
-    private async runAutomationRules (
-        command: QuickCommand,
-        targets: TerminalTabLike[],
-        candidateRules: QuickAutomationRule[],
-        initialCursors?: Map<string, number>,
-    ): Promise<boolean> {
-        const rules = candidateRules.filter(rule => rule.enabled && (rule.waitFor || rule.errorPattern))
-        if (!rules.length || this.runState?.stopped) {
+    private refreshFilteredCommandList (): boolean {
+        const list = this.root?.querySelector<HTMLElement>('.tqc-list')
+        if (!list) {
             return false
         }
-        const availableTargets = targets.filter(target => {
-            const available = this.outputBuffers.has(this.getTargetKey(target))
-            if (!available) {
-                this.addLog('warn', '当前会话不支持输出监听，已跳过输出触发器。', command.id, undefined, {
-                    targetNames: [this.getTabTitle(target)],
-                })
-            }
-            return available
-        })
-        const results = await Promise.all(availableTargets.map(target => this.runAutomationRulesForTarget(
-            command,
-            rules,
-            target,
-            initialCursors?.get(this.getTargetKey(target)),
-        )))
-        if (this.runState) {
-            this.runState.waitingRuleName = undefined
-            this.render()
+        const commands = this.getFilteredCommands()
+        const selected = resolveSelectedCommand(commands, this.state.selectedCommandId)
+        if ((selected?.id || null) !== this.renderedCommandId) {
+            return false
         }
-        return results.some(Boolean)
-    }
-
-    private async runAutomationRulesForTarget (
-        command: QuickCommand,
-        rules: QuickAutomationRule[],
-        target: TerminalTabLike,
-        initialCursor?: number,
-    ): Promise<boolean> {
-        const key = this.getTargetKey(target)
-        let cursor = initialCursor ?? this.outputBuffers.getStartOffset(key) ?? 0
-
-        for (const rule of rules) {
-            if (this.runState?.stopped) {
-                return false
-            }
-            if (!isValidOutputPattern(rule.waitFor, rule.matchMode, rule.waitForLogic) ||
-                !isValidOutputPattern(rule.errorPattern, rule.matchMode, rule.errorPatternLogic)) {
-                this.addLog('warn', `规则正则表达式无效，已跳过：${rule.name}`, command.id, undefined, {
-                    targetNames: [this.getTabTitle(target)],
-                })
-                continue
-            }
-
-            const result = await this.waitForRule(rule, target, cursor, command.id)
-            cursor = this.outputBuffers.getEndOffset(key) ?? cursor
-            if (result.outcome === 'stopped') {
-                return false
-            }
-
-            const control = this.executeAutomationRuleAction(rule, result.outcome, target, command.id)
-            if (control === 'skipLineRules') {
-                this.addLog('info', `会话已在匹配后跳过该行剩余规则：${rule.name}`, command.id, undefined, {
-                    targetNames: [this.getTabTitle(target)],
-                })
-                return false
-            }
-            if (control === 'stop') {
-                const reason = result.outcome === 'timeout' ? '超时' : '匹配'
-                this.addLog('warn', `会话自动化已在${reason}后停止：${rule.name}`, command.id, undefined, {
-                    targetNames: [this.getTabTitle(target)],
-                })
-                return true
-            }
-        }
-        return false
-    }
-
-    private async waitForRule (
-        rule: QuickAutomationRule,
-        target: TerminalTabLike,
-        cursor: number,
-        commandId: string,
-    ): Promise<AutomationRuleResult> {
-        const timeout = Math.max(100, Number(rule.timeoutMs) || 10000)
-        const started = Date.now()
-        const targetName = this.getTabTitle(target)
-        if (this.runState) {
-            this.runState.waitingRuleName = rule.name
-            this.render()
-        }
-        this.addLog('info', `等待输出触发器：${rule.name}`, commandId, undefined, {
-            targetNames: [targetName],
-        })
-        while (Date.now() - started < timeout) {
-            if (this.runState?.stopped) {
-                return { outcome: 'stopped', matchedText: '' }
-            }
-            const output = this.getOutputSince(target, cursor)
-            const errorMatch = findOutputMatch(output, rule.errorPattern, rule.matchMode, rule.errorPatternLogic)
-            if (errorMatch.matched) {
-                this.addRuleMatchLog('warn', '命中错误输出', rule, errorMatch.text, commandId, targetName)
-                return { outcome: 'error', matchedText: errorMatch.text }
-            }
-            const successMatch = findOutputMatch(output, rule.waitFor, rule.matchMode, rule.waitForLogic)
-            if (successMatch.matched) {
-                this.addRuleMatchLog('info', '命中成功输出', rule, successMatch.text, commandId, targetName)
-                return { outcome: 'match', matchedText: successMatch.text }
-            }
-            await this.delay(150)
-        }
-        this.addLog('warn', `输出触发器超时：${rule.name}（${timeout}ms）`, commandId, undefined, {
-            targetNames: [targetName],
-        })
-        return { outcome: 'timeout', matchedText: '' }
-    }
-
-    private addRuleMatchLog (
-        level: AutomationLogEntry['level'],
-        result: string,
-        rule: QuickAutomationRule,
-        matchedText: string,
-        commandId: string,
-        targetName: string,
-    ): void {
-        const snippet = matchedText.replace(/\s+/g, ' ').trim().slice(0, 120)
-        const suffix = snippet ? `：${snippet}` : ''
-        this.addLog(level, `${result}：${rule.name}${suffix}`, commandId, undefined, {
-            targetNames: [targetName],
-        })
-    }
-
-    private executeAutomationRuleAction (
-        rule: QuickAutomationRule,
-        outcome: AutomationRuleResult['outcome'],
-        target: TerminalTabLike,
-        parentCommandId: string,
-    ): AutomationRuleControl {
-        const control = resolveAutomationRuleControl(rule, outcome)
-        if (outcome === 'stopped') {
-            return control
-        }
-        const action = outcome === 'match'
-            ? rule.onMatchAction
-            : outcome === 'error'
-                ? rule.onErrorAction
-                : rule.timeoutAction
-        if (action !== 'stop') {
-            this.executeAutomationCommandAction(rule, outcome, target, parentCommandId)
-        }
-        return control
-    }
-
-    private executeAutomationCommandAction (
-        rule: QuickAutomationRule,
-        outcome: Exclude<AutomationRuleResult['outcome'], 'stopped'>,
-        target: TerminalTabLike,
-        parentCommandId: string,
-    ): void {
-        const action = outcome === 'match'
-            ? rule.onMatchAction
-            : outcome === 'error'
-                ? rule.onErrorAction
-                : rule.timeoutAction
-        if (action === 'command') {
-            const commandId = outcome === 'match'
-                ? rule.onMatchCommandId
-                : outcome === 'error'
-                    ? rule.onErrorCommandId
-                    : rule.onTimeoutCommandId
-            this.executeAutomationCommand(commandId, [target], parentCommandId)
-        } else if (action === 'custom') {
-            const command = outcome === 'match'
-                ? rule.onMatchCommand
-                : outcome === 'error'
-                    ? rule.onErrorCommand
-                    : rule.onTimeoutCommand
-            const autoEnter = outcome === 'match'
-                ? rule.onMatchAutoEnter
-                : outcome === 'error'
-                    ? rule.onErrorAutoEnter
-                    : rule.onTimeoutAutoEnter
-            this.executeAutomationCustomCommand(
-                command,
-                autoEnter,
-                target,
-                parentCommandId,
-                rule.name,
-            )
-        }
-    }
-
-    private executeAutomationCommand (commandId: string, targets: TerminalTabLike[], parentCommandId: string): void {
-        if (!commandId) {
-            return
-        }
-        const command = this.state.commands.find(item => item.id === commandId)
-        if (!command) {
-            this.addLog('warn', `自动化目标命令不存在：${commandId}`, parentCommandId)
-            return
-        }
-        const danger = this.getDanger(command.command)
-        if (danger.dangerous) {
-            this.addLog('warn', `自动化跳过高风险命令：${command.name}`, parentCommandId)
-            return
-        }
-        targets.forEach(target => target.sendInput(this.normalizeCommand(command.command, command.autoEnter)))
-        this.addLog('info', `自动化已执行：${command.name}`, parentCommandId, undefined, {
-            targetNames: targets.map(target => this.getTabTitle(target)),
-        })
-    }
-
-    private executeAutomationCustomCommand (
-        command: string,
-        autoEnter: boolean,
-        target: TerminalTabLike,
-        parentCommandId: string,
-        ruleName: string,
-    ): void {
-        const normalized = normalizeCommandText(command)
-        if (!normalized.trim()) {
-            return
-        }
-        const danger = this.getDanger(normalized)
-        if (danger.dangerous) {
-            this.addLog('warn', `自动化跳过高风险自定义命令：${ruleName}`, parentCommandId, undefined, {
-                targetNames: [this.getTabTitle(target)],
-            })
-            return
-        }
-        target.sendInput(this.normalizeCommand(normalized, autoEnter))
-        this.addLog('info', `自动化已发送自定义命令：${ruleName}`, parentCommandId, undefined, {
-            targetNames: [this.getTabTitle(target)],
-        })
-    }
-
-    private attachOutputBuffers (targets: TerminalTabLike[]): void {
-        this.detachOutputBuffers()
-        targets.forEach(target => {
-            const stream = target.output$ || target.session?.output$
-            if (!stream) {
-                return
-            }
-            const key = this.getTargetKey(target)
-            this.outputBuffers.attach(key, stream, this.state.recentOutputLimit)
-        })
-    }
-
-    private captureOutputCursors (targets: TerminalTabLike[]): Map<string, number> {
-        const cursors = new Map<string, number>()
-        targets.forEach(target => {
-            const key = this.getTargetKey(target)
-            const cursor = this.outputBuffers.captureCursor(key)
-            if (cursor !== undefined) {
-                cursors.set(key, cursor)
-            }
-        })
-        return cursors
-    }
-
-    private getOutputSince (target: TerminalTabLike, cursor: number): string {
-        return this.outputBuffers.getSince(this.getTargetKey(target), cursor)
-    }
-
-    private detachOutputBuffers (): void {
-        this.outputBuffers.detach()
+        const listScrollTop = list.scrollTop
+        list.innerHTML = commands.length
+            ? commands.map(command => this.renderCommandListItem(command, selected?.id === command.id)).join('')
+            : '<div class="tqc-empty">没有匹配的命令</div>'
+        this.i18n.localizeElement(list)
+        this.bindTooltips(list)
+        list.scrollTop = listScrollTop
+        return true
     }
 
     private handleDocumentKeyDown (event: KeyboardEvent): void {
@@ -3515,6 +3097,77 @@ export class QuickCommandsService {
             }
             this.focusCurrentTerminal()
         })
+    }
+
+    private handleDelegatedRootClick (event: MouseEvent): void {
+        const actionElement = this.getDelegatedTarget(event, '[data-action]')
+        if (actionElement) {
+            event.preventDefault()
+            event.stopPropagation()
+            const action = actionElement.dataset.action || ''
+            if (this.commandMenuOpen && action !== 'toggle-command-menu' && action !== 'duplicate' && action !== 'delete') {
+                this.closeCommandMenu()
+            }
+            if (this.categoryOverflowOpen && action !== 'toggle-category-overflow') {
+                this.closeCategoryOverflowMenu()
+            }
+            if (this.libraryMenuOpen && action !== 'toggle-library-menu') {
+                this.closeLibraryMenu()
+            }
+            if (this.categoryActionsOpen && action !== 'toggle-category-actions') {
+                this.closeCategoryActionsMenu()
+            }
+            if (this.automationRuleMenuKey && action !== 'rule-menu-toggle' && action !== 'rule-option-select') {
+                this.closeAutomationRuleMenu()
+            }
+            void this.handleAction(action, actionElement)
+            return
+        }
+
+        const commandId = this.getDelegatedTarget(event, '[data-command-id]')?.dataset.commandId
+        if (commandId) {
+            this.commandMenuOpen = false
+            this.updateConfig({ selectedCommandId: commandId })
+        }
+    }
+
+    private handleDelegatedCommandDragStart (event: DragEvent): void {
+        const element = this.getDelegatedTarget(event, '[data-command-id]')
+        if (!element) {
+            return
+        }
+        this.draggedCommandId = element.dataset.commandId || null
+        element.classList.add('tqc-dragging')
+        event.dataTransfer?.setData('text/plain', this.draggedCommandId || '')
+    }
+
+    private handleDelegatedCommandDragOver (event: DragEvent): void {
+        if (this.getDelegatedTarget(event, '[data-command-id]')) {
+            event.preventDefault()
+        }
+    }
+
+    private handleDelegatedCommandDrop (event: DragEvent): void {
+        const targetId = this.getDelegatedTarget(event, '[data-command-id]')?.dataset.commandId
+        if (!targetId || !this.draggedCommandId) {
+            return
+        }
+        event.preventDefault()
+        this.reorderCommand(this.draggedCommandId, targetId)
+    }
+
+    private handleDelegatedCommandDragEnd (event: DragEvent): void {
+        const element = this.getDelegatedTarget(event, '[data-command-id]')
+        this.draggedCommandId = null
+        element?.classList.remove('tqc-dragging')
+    }
+
+    private getDelegatedTarget (event: Event, selector: string): HTMLElement | null {
+        if (!(event.target instanceof Element)) {
+            return null
+        }
+        const target = event.target.closest(selector)
+        return target instanceof HTMLElement && this.root?.contains(target) ? target : null
     }
 
     private isCopyShortcut (event: KeyboardEvent): boolean {
@@ -3850,10 +3503,6 @@ export class QuickCommandsService {
         }
     }
 
-    private normalizeCommand (command: string, autoEnter: boolean): string {
-        return buildTerminalPayload(command, autoEnter)
-    }
-
     private findShortcutConflict (shortcut: string, currentCommandId: string) {
         return findShortcutConflict(
             shortcut,
@@ -3909,14 +3558,6 @@ export class QuickCommandsService {
         const logs = [...this.state.automationLogs, log].slice(-this.state.logLimit)
         this.runtimeStore.setLogs(logs)
         this.updateConfig({ automationLogs: logs }, false)
-    }
-
-    private getRunDuration (): number | undefined {
-        if (!this.runState?.startedAt) {
-            return undefined
-        }
-        const startedAt = new Date(this.runState.startedAt).getTime()
-        return Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : undefined
     }
 
     private readConfig (reload = false): QuickCommandsConfig {
@@ -4019,16 +3660,58 @@ export class QuickCommandsService {
     }
 
     private persistPluginConfig (): void {
-        this.setPluginConfig(this.pluginConfigStore.load(defaultQuickCommandsConfig))
+        if (!this.pluginConfigDirty) {
+            return
+        }
+        this.pendingPluginConfigWrite = this.pluginConfigStore.load(defaultQuickCommandsConfig)
+        this.flushPluginConfigWrite()
     }
 
     private setPluginConfig (config: Record<string, unknown>, persist = true): void {
+        this.pluginConfigStore.set(config, false)
+        this.pluginConfigDirty = true
+        if (!persist) {
+            if (this.pluginConfigWriteTimer) {
+                this.pendingPluginConfigWrite = config
+            }
+            return
+        }
+        this.pendingPluginConfigWrite = config
+        if (this.pluginConfigWriteTimer) {
+            window.clearTimeout(this.pluginConfigWriteTimer)
+        }
+        this.pluginConfigWriteTimer = window.setTimeout(() => {
+            this.pluginConfigWriteTimer = null
+            this.flushPluginConfigWrite()
+        }, this.pluginConfigWriteDelay)
+    }
+
+    private flushPluginConfigWrite (): void {
+        if (this.pluginConfigWriteTimer) {
+            window.clearTimeout(this.pluginConfigWriteTimer)
+            this.pluginConfigWriteTimer = null
+        }
+        if (!this.pluginConfigDirty) {
+            this.pendingPluginConfigWrite = null
+            return
+        }
+        const config = this.pendingPluginConfigWrite || this.pluginConfigStore.load(defaultQuickCommandsConfig)
         this.writingPluginConfig = true
         try {
-            this.pluginConfigStore.set(config, persist)
+            this.pluginConfigStore.set(config)
+            this.pluginConfigDirty = false
+            this.pendingPluginConfigWrite = null
         } finally {
             this.writingPluginConfig = false
         }
+    }
+
+    private cancelScheduledPluginConfigWrite (): void {
+        if (this.pluginConfigWriteTimer) {
+            window.clearTimeout(this.pluginConfigWriteTimer)
+            this.pluginConfigWriteTimer = null
+        }
+        this.pendingPluginConfigWrite = null
     }
 
     private commandIdsChanged (previous: QuickCommand[], next: QuickCommand[]): boolean {
@@ -4068,10 +3751,6 @@ export class QuickCommandsService {
 
     private createId (): string {
         return `cmd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-    }
-
-    private delay (ms: number): Promise<void> {
-        return new Promise(resolve => window.setTimeout(resolve, Math.max(0, ms)))
     }
 
     private clampWidth (width: number): number {

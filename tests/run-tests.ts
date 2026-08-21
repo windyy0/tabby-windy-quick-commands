@@ -31,6 +31,7 @@ import {
 } from '../src/outputAutomation'
 import { getPluginLanguage, translatePluginText } from '../src/translations'
 import { RecentOutputBufferRegistry } from '../src/recentOutputBuffer'
+import { ExecutionTarget, QuickCommandsExecutionRunner } from '../src/executionRunner'
 
 let id = 0
 const createId = (): string => `test-${++id}`
@@ -671,9 +672,92 @@ function testLegacyPluginConfigMigration (): void {
     }
 }
 
+async function testExecutionRunner (): Promise<void> {
+    const sent: string[] = []
+    const logs: string[] = []
+    const outputHandlers: Array<(data: string) => void> = []
+    const target: ExecutionTarget = {
+        title: '测试终端',
+        sendInput: data => {
+            sent.push(data)
+            outputHandlers.forEach(handler => handler('service ready'))
+        },
+        output$: {
+            subscribe: handler => {
+                outputHandlers.push(handler)
+                return {
+                    unsubscribe: () => {
+                        const index = outputHandlers.indexOf(handler)
+                        if (index >= 0) {
+                            outputHandlers.splice(index, 1)
+                        }
+                    },
+                }
+            },
+        },
+    }
+    const automatedCommand = normalizeCommandConfig({
+        id: 'runner-command',
+        name: '运行器测试',
+        command: 'echo ready',
+        autoEnter: true,
+        automationRules: [{
+            id: 'runner-rule',
+            name: '等待服务',
+            enabled: true,
+            triggerLine: 0,
+            waitFor: 'service ready',
+            timeoutMs: 200,
+        } as any],
+    }, createId)
+    let latestState = null as ReturnType<QuickCommandsExecutionRunner['start']> | null
+    const runner = new QuickCommandsExecutionRunner({
+        getTargetKey: () => 'target-1',
+        getTargetName: item => item.title || '终端',
+        getCommand: () => undefined,
+        isDangerous: () => false,
+        log: (_level, message) => logs.push(message),
+        warn: (_message, error) => {
+            throw error
+        },
+        stateChanged: state => {
+            latestState = state
+        },
+    })
+
+    latestState = runner.start(automatedCommand, 'paste')
+    const stopped = await runner.execute(automatedCommand, [target], 'paste', 'stop', 1000)
+    assert(!stopped, 'execution runner should complete a normal command')
+    assert(sent.length === 1 && sent[0] === 'echo ready\r', 'execution runner should build the terminal payload')
+    assert(logs.some(message => message.includes('命中成功输出')), 'execution runner should match buffered output rules')
+
+    runner.pause()
+    assert(latestState?.paused, 'execution runner should expose paused state')
+    runner.resume()
+    assert(!latestState?.paused, 'execution runner should resume paused state')
+    runner.stop()
+    assert(latestState?.stopped, 'execution runner should expose stopped state')
+    runner.dispose()
+    assert(outputHandlers.length === 0, 'execution runner should detach terminal output subscriptions')
+
+    sent.length = 0
+    const lineCommand = normalizeCommandConfig({
+        id: 'runner-lines',
+        name: '逐行运行器测试',
+        command: 'echo one\n# comment\necho two',
+        autoEnter: true,
+        lineDelay: 0,
+    }, createId)
+    latestState = runner.start(lineCommand, 'line')
+    await runner.execute(lineCommand, [target], 'line', 'stop', 1000)
+    assert(sent.length === 2, 'execution runner should skip comments and send executable lines')
+    assert(sent[0] === 'echo one\r' && sent[1] === 'echo two\r', 'line execution should preserve command order')
+    runner.dispose()
+}
+
 const colorEnabled = Boolean(process.stdout.isTTY && !process.env.NO_COLOR)
 const style = (code: string, text: string): string => colorEnabled ? `\x1b[${code}m${text}\x1b[0m` : text
-const tests: Array<[string, () => void]> = [
+const tests: Array<[string, () => void | Promise<void>]> = [
     ['中英文界面', testTranslations],
     ['命令导入预览', testImportPreview],
     ['导入数据校验', testImportValidation],
@@ -688,25 +772,32 @@ const tests: Array<[string, () => void]> = [
     ['运行数据存储', testRuntimeStorage],
     ['插件配置存储', testPluginConfigStorage],
     ['旧配置迁移', testLegacyPluginConfigMigration],
+    ['命令执行运行器', testExecutionRunner],
 ]
 
-const startedAt = Date.now()
-console.log(`\n${style('1;36', '========================================')}`)
-console.log(style('1;36', '  Tabby Windy Quick Commands - Tests'))
-console.log(style('1;36', '========================================'))
+async function runTests (): Promise<void> {
+    const startedAt = Date.now()
+    console.log(`\n${style('1;36', '========================================')}`)
+    console.log(style('1;36', '  Tabby Windy Quick Commands - Tests'))
+    console.log(style('1;36', '========================================'))
 
-for (const [name, run] of tests) {
-    const testStartedAt = Date.now()
-    try {
-        run()
-        console.log(`${style('1;32', '[PASS]')} ${name} ${style('2', `(${Date.now() - testStartedAt} ms)`)}`)
-    } catch (error) {
-        console.error(`${style('1;31', '[FAIL]')} ${name}`)
-        console.error(style('31', error instanceof Error ? error.message : String(error)))
-        throw error
+    for (const [name, run] of tests) {
+        const testStartedAt = Date.now()
+        try {
+            await run()
+            console.log(`${style('1;32', '[PASS]')} ${name} ${style('2', `(${Date.now() - testStartedAt} ms)`)}`)
+        } catch (error) {
+            console.error(`${style('1;31', '[FAIL]')} ${name}`)
+            console.error(style('31', error instanceof Error ? error.message : String(error)))
+            throw error
+        }
     }
+
+    console.log(style('1;32', '----------------------------------------'))
+    console.log(style('1;32', `  ALL TESTS PASSED  ${tests.length}/${tests.length}  (${Date.now() - startedAt} ms)`))
+    console.log(`${style('1;32', '----------------------------------------')}\n`)
 }
 
-console.log(style('1;32', '----------------------------------------'))
-console.log(style('1;32', `  ALL TESTS PASSED  ${tests.length}/${tests.length}  (${Date.now() - startedAt} ms)`))
-console.log(`${style('1;32', '----------------------------------------')}\n`)
+void runTests().catch(() => {
+    process.exitCode = 1
+})
