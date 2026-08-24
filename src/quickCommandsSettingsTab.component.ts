@@ -259,7 +259,7 @@ const historyDateFormatters = {
           <div class="wqc-section-head">
             <div>
               <div class="wqc-update-title-line">
-                <h4>更新</h4>
+                <h4>版本更新</h4>
                 <span class="wqc-update-current-version">当前版本 v{{ updateState.currentVersion }}</span>
               </div>
               <div class="wqc-muted">管理自动检查、查看历史更新和安装新版本。</div>
@@ -276,7 +276,7 @@ const historyDateFormatters = {
                 </button>
                 <div class="wqc-select-menu wqc-update-interval-menu" role="listbox" *ngIf="updateIntervalMenuOpen">
                   <button type="button" role="option" [attr.aria-selected]="updateCheckInterval === 'daily'" [class.wqc-selected]="updateCheckInterval === 'daily'" (click)="selectUpdateCheckInterval('daily')">每天</button>
-                  <button type="button" role="option" [attr.aria-selected]="updateCheckInterval === 'weekly'" [class.wqc-selected]="updateCheckInterval === 'weekly'" (click)="selectUpdateCheckInterval('weekly')">每7天</button>
+                  <button type="button" role="option" [attr.aria-selected]="updateCheckInterval === 'weekly'" [class.wqc-selected]="updateCheckInterval === 'weekly'" (click)="selectUpdateCheckInterval('weekly')">每周</button>
                   <button type="button" role="option" [attr.aria-selected]="updateCheckInterval === 'never'" [class.wqc-selected]="updateCheckInterval === 'never'" (click)="selectUpdateCheckInterval('never')">从不</button>
                 </div>
               </div>
@@ -615,22 +615,23 @@ const historyDateFormatters = {
       .wqc-update-interval-label {
         display: inline-flex;
         align-items: center;
+        box-sizing: border-box;
+        flex: 0 0 auto;
         padding: 0 10px;
-        color: var(--wqc-muted);
+        color: var(--wqc-text);
+        background: transparent;
         border-right: 1px solid color-mix(in srgb, var(--wqc-control-border) 72%, transparent);
+        font-weight: 600;
       }
 
       .wqc-update-interval-shell {
-        width: 82px;
-      }
-
-      .wqc-update-interval-shell::after {
-        right: 11px;
-        width: 6px;
-        height: 6px;
+        box-sizing: border-box;
+        width: fit-content;
+        flex: 0 0 auto;
       }
 
       .wqc-update-interval-shell .wqc-update-interval-select {
+        width: auto;
         min-height: 30px;
         padding: 4px 28px 4px 10px;
         color: var(--wqc-text);
@@ -1207,22 +1208,25 @@ const historyDateFormatters = {
       }
 
       .wqc-select-shell::after {
+        --wqc-select-chevron-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
         position: absolute;
         top: 50%;
         right: 13px;
-        width: 7px;
-        height: 7px;
-        border-right: 1.5px solid var(--bs-secondary-color);
-        border-bottom: 1.5px solid var(--bs-secondary-color);
+        width: 10px;
+        height: 6px;
+        background: var(--bs-secondary-color);
         content: '';
+        -webkit-mask: var(--wqc-select-chevron-mask) center / contain no-repeat;
+        mask: var(--wqc-select-chevron-mask) center / contain no-repeat;
         pointer-events: none;
-        transform: translateY(-70%) rotate(45deg);
+        transform: translateY(-50%);
+        transform-origin: center;
         transition: transform 120ms ease;
         z-index: 2;
       }
 
       .wqc-select-shell.wqc-open::after {
-        transform: translateY(-25%) rotate(225deg);
+        transform: translateY(-50%) rotate(180deg);
       }
 
       .wqc-select {
@@ -2251,7 +2255,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     get updateCheckIntervalLabel (): string {
         if (this.updateCheckInterval === 'weekly') {
-            return '每7天'
+            return '每周'
         }
         if (this.updateCheckInterval === 'never') {
             return '从不'

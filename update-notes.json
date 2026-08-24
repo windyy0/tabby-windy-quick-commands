@@ -1,26 +1,38 @@
 {
-  "version": "1.6.1",
+  "version": "1.6.2",
   "zh-CN": {
-    "title": "插件优化",
+    "title": "版本更新界面与发布流程优化",
     "sections": [
       {
-        "title": "优化",
+        "title": "界面优化",
         "items": [
-          "更新历史 关闭按钮 居中",
-          "发布确认优化-直接回车"
+          "设置页的“更新”调整为“版本更新”，“每7天”精简为“每周”",
+          "优化“自动检查”的文字样式，并让检查频率区域根据中英文内容自动调整宽度"
+        ]
+      },
+      {
+        "title": "发布优化",
+        "items": [
+          "限制 CI 仅在 main 分支推送、拉取请求或手动操作时运行，避免发布版本标签时重复触发"
         ]
       }
     ],
     "notice": "更新安装完成后需要重启 Tabby 才会生效。"
   },
   "en": {
-    "title": "Plugin improvements",
+    "title": "Version update interface and release workflow improvements",
     "sections": [
       {
-        "title": "Improvements",
+        "title": "Interface improvements",
         "items": [
-          "Center the text in the Close button in Update History",
-          "Streamline release confirmation to require only pressing Enter"
+          "Rename the Settings section from “Updates” to “Version updates” and simplify “Every 7 days” to “Weekly”",
+          "Refine the Automatic checks label and size the check interval control to fit its Chinese or English text"
+        ]
+      },
+      {
+        "title": "Release workflow improvements",
+        "items": [
+          "Run CI only for pushes to main, pull requests, or manual dispatches to avoid duplicate runs when release tags are created"
         ]
       }
     ],
