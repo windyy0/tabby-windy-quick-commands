@@ -1,30 +1,26 @@
 {
-  "version": "1.5.2",
+  "version": "1.6.1",
   "zh-CN": {
-    "title": "新增插件更新检查与更新历史",
+    "title": "插件优化",
     "sections": [
       {
-        "title": "新增",
+        "title": "优化",
         "items": [
-          "设置页显示当前版本，支持手动检查并直接安装新版本",
-          "发现新版本时在快速命令抽屉左上角显示更新入口",
-          "支持每天、每7天或从不自动检查更新，并可忽略指定版本提醒",
-          "新增中英文更新说明与完整更新历史，可按版本展开查看"
+          "更新历史 关闭按钮 居中",
+          "发布确认优化-直接回车"
         ]
       }
     ],
     "notice": "更新安装完成后需要重启 Tabby 才会生效。"
   },
   "en": {
-    "title": "Plugin update checks and update history",
+    "title": "Plugin improvements",
     "sections": [
       {
-        "title": "Added",
+        "title": "Improvements",
         "items": [
-          "Show the current version in settings, with manual checks and direct installation",
-          "Show an update shortcut at the top-left of the Quick Commands drawer when a new version is available",
-          "Check every day, every 7 days, or never, with an option to dismiss a specific version",
-          "Provide localized release notes and a complete version-by-version update history"
+          "Center the text in the Close button in Update History",
+          "Streamline release confirmation to require only pressing Enter"
         ]
       }
     ],

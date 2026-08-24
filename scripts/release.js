@@ -31,11 +31,8 @@ async function confirmRelease () {
     console.log(`  English: ${updateNotes.en?.title || 'Missing'}`)
     console.log('========================================\n')
     const terminal = readline.createInterface({ input: process.stdin, output: process.stdout })
-    const answer = await new Promise(resolve => terminal.question(`输入版本号 ${packageJson.version} 确认发布：`, resolve))
+    await new Promise(resolve => terminal.question(`按回车确认发布 ${packageJson.version}：`, resolve))
     terminal.close()
-    if (String(answer).trim() !== packageJson.version) {
-        throw new Error('版本号不匹配，已取消发布。')
-    }
 }
 
 async function main () {

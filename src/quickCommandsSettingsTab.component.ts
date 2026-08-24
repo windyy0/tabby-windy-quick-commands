@@ -346,7 +346,7 @@ const historyDateFormatters = {
 
             <footer class="wqc-update-history-footer">
               <button class="btn btn-secondary" type="button" [disabled]="updateHistoryState.status === 'loading'" (click)="reloadUpdateHistory()">重新加载</button>
-              <button class="btn btn-primary" type="button" (click)="closeUpdateHistory()">关闭</button>
+              <button class="btn btn-primary wqc-update-history-confirm-close" type="button" (click)="closeUpdateHistory()">关闭</button>
             </footer>
           </section>
         </div>
@@ -973,6 +973,13 @@ const historyDateFormatters = {
 
       .wqc-update-history-footer .btn {
         min-width: 82px;
+      }
+
+      .wqc-update-history-confirm-close {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
       }
 
       .wqc-section {
