@@ -141,6 +141,8 @@ Tabby 开发相关资料：
 | `npm run install:tabby`         | 构建并安装到本机 Tabby          |
 | `npm run install:tabby:restart` | 构建、安装并重启 Tabby          |
 | `npm run publish:check`         | 完整执行发布前检查并预览 npm 包 |
+| `npm run release:validate`      | 校验版本号、更新说明与 npm 最新版本 |
+| `npm run release`               | 完整检查、二次确认并发布到 npm  |
 | `npm pack`                      | 生成本地 npm 安装包             |
 | `npm run clean:pack`            | 清理本地 `.tgz` 安装包        |
 
@@ -148,26 +150,60 @@ Tabby 开发相关资料：
 
 ## 发布到 npm
 
-> 在 NPM 上发布插件，包名前缀为"tabby-"并使用 tabby-plugin 关键词，就会出现在tabby客户端的插件管理器中。
+> 包名以 `tabby-` 开头并包含 `tabby-plugin` 关键词，发布后即可被 Tabby 插件管理器发现。
 
-发布流程：
-
-```
-1. npm login # 登录
-2. npm whoami # 查看当前账号
-3. 更改版本号，三选一
-  npm version patch --no-git-tag-version # 1.0.0 -> 1.0.1，修bug、小改动
-  npm version minor --no-git-tag-version # 1.0.0 -> 1.1.0，新增功能、小版本
-  npm version major --no-git-tag-version # 1.0.0 -> 2.0.0，不兼容改动、大版本
-4. npm run publish:check  # 发布前检查
-5. npm publish # 发布
-```
-
-当前包名可用性可用下面的命令再次确认。若返回 `E404`，表示 npm 上尚无这个包名；包名可能随时被其他人注册，因此应在正式发布前复查。
+### 发布步骤
 
 ```powershell
-npm view tabby-windy-quick-commands
+# 1. 首次发布或登录过期时执行
+npm login
+
+# 2. 三选一：同步 package.json 和 package-lock.json 的版本
+npm version patch --no-git-tag-version # 修复、小改动
+npm version minor --no-git-tag-version # 新功能、小版本
+npm version major --no-git-tag-version # 不兼容改动、大版本
+
+# 3. 编辑 update-notes.json，同步 version 并填写中英文说明
+
+# 4. 检查并发布
+npm run release
 ```
+
+该命令会检查登录状态、版本与更新说明，运行类型检查、测试和打包预览；输入本次版本号确认后才会发布，不会操作 Git。
+
+只检查可运行 `npm run publish:check`。直接运行 `npm publish` 时也会自动校验版本和更新说明。
+
+### 更新说明
+
+```json
+{
+  "version": "1.6.0",
+  "zh-CN": {
+    "title": "本次更新标题",
+    "sections": [
+      {
+        "title": "新增",
+        "items": ["新增功能一", "新增功能二"]
+      }
+    ],
+    "notice": "更新完成后需要重启 Tabby。"
+  },
+  "en": {
+    "title": "Update title",
+    "sections": [
+      {
+        "title": "Added",
+        "items": ["New feature one", "New feature two"]
+      }
+    ],
+    "notice": "Restart Tabby after installation."
+  }
+}
+```
+
+`version` 必须与 `package.json`、`package-lock.json` 一致；中英文的 `title`、`sections` 和至少一条 `items` 必填，`notice` 可省略。其他界面语言回退到英文。
+
+每次只维护本次发布内容，无需累积历史。插件以 npm 的 `latest` 版本检查更新，通过 jsDelivr 读取对应版本的说明，并自动汇总为更新历史；旧版本没有说明文件时会显示默认提示。
 
 ## License
 

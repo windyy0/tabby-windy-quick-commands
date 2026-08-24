@@ -77,4 +77,6 @@ export const defaultQuickCommandsConfig = {
     moveNavigateAfterMove: false,
     recentOutputLimit: 8000,
     logLimit: 200,
+    updateCheckInterval: 'daily',
+    ignoredUpdateVersion: '',
 }

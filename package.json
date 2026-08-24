@@ -16,7 +16,7 @@
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
   "scripts": {
-    "test": "tsc -p tsconfig.test.json && node dist-tests/tests/run-tests.js",
+    "test": "tsc -p tsconfig.test.json && node dist-tests/tests/run-tests.js && node scripts/test-release-validation.js",
     "clean": "node -e \"for (const dir of ['dist', 'dist-tests']) require('fs').rmSync(dir, { recursive: true, force: true })\"",
     "build": "npm run clean && webpack --mode production --stats errors-warnings --no-color",
     "build:debug": "npm run clean && webpack --mode development --progress --color",
@@ -27,13 +27,16 @@
     "install:tabby:restart": "pwsh -ExecutionPolicy Bypass -File scripts/install-tabby-plugin.ps1 -Restart",
     "clean:pack": "node -e \"const fs=require('fs'); for (const file of fs.readdirSync('.')) if (file.endsWith('.tgz')) fs.rmSync(file, { force: true })\"",
     "publish:check": "node scripts/publish-check.js",
+    "release:validate": "node scripts/validate-release.js",
+    "release": "node scripts/release.js",
     "prepack": "npm run build",
-    "prepublishOnly": "npm run typecheck && npm test"
+    "prepublishOnly": "npm run release:validate && npm run typecheck && npm test"
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "update-notes.json"
   ],
   "author": "windyy0",
   "license": "MIT",

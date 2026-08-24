@@ -32,6 +32,12 @@ import {
 import { getPluginLanguage, translatePluginText } from '../src/translations'
 import { RecentOutputBufferRegistry } from '../src/recentOutputBuffer'
 import { ExecutionTarget, QuickCommandsExecutionRunner } from '../src/executionRunner'
+import {
+    comparePluginVersions,
+    formatPluginUpdateNotes,
+    getNextPluginUpdateCheckDelay,
+    isNewerPluginVersion,
+} from '../src/pluginUpdate'
 
 let id = 0
 const createId = (): string => `test-${++id}`
@@ -106,6 +112,67 @@ function testTranslations (): void {
     assert(translatePluginText('命令 1的第 2 条输出触发器错误动作无效。', 'en-US') === 'Command 1 output trigger 2 has an invalid error action.', 'output trigger validation errors should be translated')
     assert(translatePluginText('将“部署”移动到指定分类。', 'en-US') === 'Move "部署" to the selected category.', 'move dialog should translate dynamic command names')
     assert(translatePluginText('将选中的 3 条命令移动到', 'en-US') === 'Move the selected 3 commands to', 'batch move prompt should be translated')
+    assert(translatePluginText('检查更新', 'en-US') === 'Check for updates', 'update controls should be translated')
+    assert(translatePluginText('点击跳转到底部更新设置', 'en-US') === 'Click to jump to update settings at the bottom', 'update status jump tooltip should be translated')
+    assert(translatePluginText('返回顶部', 'en-US') === 'Back to top', 'back-to-top update action should be translated')
+    assert(translatePluginText('检查中…', 'en-US') === 'Checking…', 'update checking status should be translated')
+    assert(translatePluginText('发现新版本 v1.5.2', 'en-US') === 'New version available v1.5.2', 'available update status should include the version in English')
+    assert(translatePluginText('此版本未提供更新说明。', 'en-US') === 'No release notes were provided for this version.', 'missing historical notes should be translated')
+    assert(translatePluginText('检查失败：请求失败（HTTP 503）。', 'en-US') === 'Update check failed: Request failed (HTTP 503).', 'update request errors should be translated')
+}
+
+function testPluginVersionComparison (): void {
+    assert(isNewerPluginVersion('1.6.0', '1.5.2'), 'minor updates should be detected')
+    assert(!isNewerPluginVersion('1.5.2', '1.5.2'), 'equal versions should not be updates')
+    assert(comparePluginVersions('2.0.0', '1.99.99') > 0, 'major versions should use numeric comparison')
+    assert(comparePluginVersions('1.6.0-beta.2', '1.6.0-beta.1') > 0, 'prerelease identifiers should be compared')
+    assert(comparePluginVersions('1.6.0', '1.6.0-beta.2') > 0, 'stable versions should sort after prereleases')
+    const hour = 60 * 60 * 1000
+    const now = new Date('2026-08-25T00:00:00Z').getTime()
+    assert(getNextPluginUpdateCheckDelay('never', null, 0, now) === null, 'disabled checks should not schedule a timer')
+    assert(getNextPluginUpdateCheckDelay('daily', null, 0, now) === 0, 'a first automatic check should run immediately')
+    assert(
+        getNextPluginUpdateCheckDelay('daily', '2026-08-20T00:00:00Z', now - hour, now) === 23 * hour,
+        'a recent failed attempt should prevent rapid retries when the successful cache is stale',
+    )
+}
+
+function testPluginUpdateNotes (): void {
+    const formatted = formatPluginUpdateNotes({
+        'zh-CN': {
+            title: '版本更新',
+            sections: [
+                { title: '新增', items: ['功能一', '功能二'] },
+                { title: '空分组', items: [] },
+            ],
+            notice: '需要重启。',
+        },
+        en: {
+            title: 'Version update',
+            sections: [{ title: 'Added', items: ['Feature one'] }],
+            notice: 'Restart required.',
+        },
+    }, 'zh-CN')
+    assert(formatted.includes('版本更新'), 'update notes should include the title')
+    assert(formatted.includes('新增\n• 功能一\n• 功能二'), 'update notes should format section items')
+    assert(!formatted.includes('空分组'), 'update notes should omit empty sections')
+    assert(formatted.includes('注意事项：需要重启。'), 'update notes should include the notice')
+    const english = formatPluginUpdateNotes({
+        'zh-CN': { title: '中文版', sections: [{ title: '新增', items: ['功能'] }] },
+        en: { title: 'English notes', sections: [{ title: 'Added', items: ['Feature'] }], notice: 'Restart required.' },
+    }, 'en')
+    assert(english.includes('English notes'), 'English UI should select English update notes')
+    assert(!english.includes('中文版'), 'English UI should not include Chinese update notes')
+    assert(english.includes('Note: Restart required.'), 'English update notes should use an English notice label')
+    const fallback = formatPluginUpdateNotes({
+        'zh-CN': { title: '仅中文', sections: [{ title: '新增', items: ['功能'] }] },
+    }, 'en')
+    assert(fallback.includes('仅中文'), 'missing locales should fall back to the available update notes')
+    assert(formatPluginUpdateNotes({
+        title: '旧格式',
+        sections: [{ title: '修复', items: ['问题'] }],
+    }).includes('旧格式'), 'legacy single-language update notes should remain supported')
+    assert(formatPluginUpdateNotes(null) === '', 'invalid update notes should be ignored')
 }
 
 function testImportValidation (): void {
@@ -541,6 +608,8 @@ function testPluginConfigStorage (): void {
             commands: [{ id: 'b', name: 'B', command: 'echo b' }],
             drawerWidth: 620,
             moveNavigateAfterMove: true,
+            updateCheckInterval: 'weekly',
+            ignoredUpdateVersion: '1.6.0',
         }
         store.set(first)
         store.set(second)
@@ -552,6 +621,8 @@ function testPluginConfigStorage (): void {
         const imported = store.parseImport(JSON.stringify(payload))
         assert(Array.isArray(imported.commands) && imported.commands.length === 1, 'full config export should be importable')
         assert(imported.moveNavigateAfterMove === true, 'move navigation preference should be importable')
+        assert(imported.updateCheckInterval === 'weekly', 'update check interval should be importable')
+        assert(imported.ignoredUpdateVersion === '1.6.0', 'ignored update version should be importable')
         const normalized = store.parseImport(JSON.stringify({
             format: 'tabby-windy-quick-commands-config',
             version: 1,
@@ -759,6 +830,8 @@ const colorEnabled = Boolean(process.stdout.isTTY && !process.env.NO_COLOR)
 const style = (code: string, text: string): string => colorEnabled ? `\x1b[${code}m${text}\x1b[0m` : text
 const tests: Array<[string, () => void | Promise<void>]> = [
     ['中英文界面', testTranslations],
+    ['插件版本比较', testPluginVersionComparison],
+    ['插件更新说明', testPluginUpdateNotes],
     ['命令导入预览', testImportPreview],
     ['导入数据校验', testImportValidation],
     ['快捷键处理', testShortcuts],

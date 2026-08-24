@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core'
 import { LocaleService } from 'tabby-core'
-import { getPluginLanguage, translatePluginText } from './translations'
+import { getPluginLanguage, PluginLanguage, translatePluginText } from './translations'
 
 const translatableAttributes = ['aria-label', 'placeholder', 'title', 'data-tooltip']
 
@@ -15,12 +15,16 @@ export class QuickCommandsI18n {
         return this.locale.localeChanged$
     }
 
+    get language (): PluginLanguage {
+        return getPluginLanguage(this.locale.getLocale())
+    }
+
     text (source: string): string {
         return translatePluginText(source, this.locale.getLocale())
     }
 
     isChinese (): boolean {
-        return getPluginLanguage(this.locale.getLocale()) === 'zh-CN'
+        return this.language === 'zh-CN'
     }
 
     localizeElement (root: HTMLElement): void {

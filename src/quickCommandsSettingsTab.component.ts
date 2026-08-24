@@ -1,9 +1,17 @@
 import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, HostListener, NgZone, OnDestroy } from '@angular/core'
+import { Subscription } from 'rxjs'
 import { PlatformService } from 'tabby-core'
 import { CommandUsageStats, QuickCommandsRuntimeStore } from './runtimeStorage'
 import { defaultQuickCommandsConfig } from './configProvider'
 import { QuickCommandsPluginConfigStore } from './pluginConfigStorage'
 import { QuickCommandsI18n } from './i18n'
+import { PluginUpdateHistoryState, PluginUpdateState, QuickCommandsPluginUpdateService } from './pluginUpdate.service'
+import { UpdateCheckInterval } from './pluginUpdate'
+
+const historyDateFormatters = {
+    'zh-CN': new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }),
+    en: new Intl.DateTimeFormat('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }),
+}
 
 @Component({
     selector: 'quick-commands-settings-tab',
@@ -22,13 +30,26 @@ import { QuickCommandsI18n } from './i18n'
         </header>
 
         <div class="wqc-plugin-intro">
-          <strong>Tabby Windy Quick Commands</strong>
+          <div class="wqc-plugin-title-row">
+            <strong class="wqc-plugin-title">Tabby Windy Quick Commands</strong>
+            <span class="wqc-plugin-version">v{{ updateState.currentVersion }}</span>
+          </div>
           <p>在 Tabby 中集中管理和执行常用终端命令，支持分类搜索、快捷键、多会话发送、逐行执行、输出触发器以及命令库导入导出。</p>
           <div class="wqc-plugin-note">可能存在大量的bug还有一些没考虑的，见谅🫨可以提issue，慢慢改~</div>
-          <nav class="wqc-plugin-links" aria-label="项目链接">
-            <a [href]="projectUrl" (click)="openExternal($event, projectUrl)">GitHub 仓库</a>
-            <a [href]="issuesUrl" (click)="openExternal($event, issuesUrl)">问题反馈</a>
-          </nav>
+
+          <div class="wqc-plugin-footer">
+            <nav class="wqc-plugin-links" aria-label="项目链接">
+              <a [href]="projectUrl" (click)="openExternal($event, projectUrl)">GitHub 仓库</a>
+              <a [href]="issuesUrl" (click)="openExternal($event, issuesUrl)">问题反馈</a>
+            </nav>
+            <div class="wqc-update-card-check">
+              <span class="wqc-status-tooltip" *ngIf="updateStatusLabel">
+                <button class="wqc-update-feedback wqc-update-feedback-link" type="button" [class.wqc-update-error]="updateState.status === 'error'" aria-describedby="wqc-update-status-tooltip" (click)="scrollToUpdateSettings()">{{ updateStatusLabel }}</button>
+                <span class="wqc-help-tooltip wqc-status-tooltip-content" id="wqc-update-status-tooltip" role="tooltip">点击跳转到底部更新设置</span>
+              </span>
+              <button class="btn btn-secondary wqc-check-update" type="button" [disabled]="updateState.status === 'checking' || updateState.status === 'installing'" (click)="checkForUpdates()">检查更新</button>
+            </div>
+          </div>
         </div>
 
         <section class="wqc-section wqc-config-section">
@@ -233,6 +254,102 @@ import { QuickCommandsI18n } from './i18n'
             <button class="btn btn-secondary" type="button" [disabled]="logPageNumber >= logPageCount" (click)="nextLogPage()">下一页</button>
           </div>
         </section>
+
+        <section class="wqc-section wqc-update-section" id="wqc-plugin-update">
+          <div class="wqc-section-head">
+            <div>
+              <div class="wqc-update-title-line">
+                <h4>更新</h4>
+                <span class="wqc-update-current-version">当前版本 v{{ updateState.currentVersion }}</span>
+              </div>
+              <div class="wqc-muted">管理自动检查、查看历史更新和安装新版本。</div>
+            </div>
+            <button class="btn btn-secondary" type="button" (click)="openUpdateHistory()">更新历史</button>
+          </div>
+
+          <div class="wqc-update-preferences">
+            <div class="wqc-update-interval">
+              <span class="wqc-update-interval-label">自动检查</span>
+              <div class="wqc-select-shell wqc-update-interval-shell" [class.wqc-open]="updateIntervalMenuOpen" (click)="$event.stopPropagation()">
+                <button class="wqc-select wqc-update-interval-select" type="button" aria-haspopup="listbox" [attr.aria-expanded]="updateIntervalMenuOpen" (click)="toggleUpdateIntervalMenu()">
+                  <span>{{ updateCheckIntervalLabel }}</span>
+                </button>
+                <div class="wqc-select-menu wqc-update-interval-menu" role="listbox" *ngIf="updateIntervalMenuOpen">
+                  <button type="button" role="option" [attr.aria-selected]="updateCheckInterval === 'daily'" [class.wqc-selected]="updateCheckInterval === 'daily'" (click)="selectUpdateCheckInterval('daily')">每天</button>
+                  <button type="button" role="option" [attr.aria-selected]="updateCheckInterval === 'weekly'" [class.wqc-selected]="updateCheckInterval === 'weekly'" (click)="selectUpdateCheckInterval('weekly')">每7天</button>
+                  <button type="button" role="option" [attr.aria-selected]="updateCheckInterval === 'never'" [class.wqc-selected]="updateCheckInterval === 'never'" (click)="selectUpdateCheckInterval('never')">从不</button>
+                </div>
+              </div>
+            </div>
+            <button class="btn btn-secondary wqc-back-to-top" type="button" (click)="scrollToSettingsTop()">返回顶部 <span aria-hidden="true">↑</span></button>
+          </div>
+
+          <div class="wqc-update-panel" *ngIf="updateState.available">
+            <button class="wqc-update-summary" type="button" [attr.aria-expanded]="updateDetailsExpanded" (click)="toggleUpdateDetails()">
+              <span class="wqc-update-summary-title">
+                <span class="wqc-update-dot" aria-hidden="true"></span>
+                发现新版本 v{{ updateState.latestVersion }}
+                <small *ngIf="updateState.ignored">已停止提醒</small>
+              </span>
+              <span class="wqc-update-expand">{{ updateDetailsExpanded ? '收起' : '展开' }}</span>
+            </button>
+            <div class="wqc-update-details" *ngIf="updateDetailsExpanded">
+              <pre class="wqc-update-notes" data-i18n-skip *ngIf="updateState.releaseNotes">{{ updateState.releaseNotes }}</pre>
+              <div class="wqc-update-empty" *ngIf="!updateState.releaseNotes">本次更新未提供更新说明。</div>
+              <div class="wqc-update-actions">
+                <button class="btn btn-primary" type="button" [disabled]="updateState.status === 'installing' || updateState.status === 'restart'" (click)="installUpdate()">
+                  {{ updateState.status === 'installing' ? '正在更新…' : updateState.status === 'restart' ? '等待重启' : '立即更新' }}
+                </button>
+                <button class="btn btn-secondary" type="button" [disabled]="updateState.ignored" (click)="ignoreCurrentUpdate()">{{ updateState.ignored ? '已停止提醒' : '本版本不再提醒' }}</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="wqc-update-history-backdrop" *ngIf="updateHistoryOpen" (click)="closeUpdateHistory()">
+          <section class="wqc-update-history-dialog" role="dialog" aria-modal="true" aria-labelledby="wqc-update-history-title" (click)="$event.stopPropagation()">
+            <header class="wqc-update-history-header">
+              <div>
+                <h4 id="wqc-update-history-title">更新历史</h4>
+                <p>记录来自 npm 已发布版本</p>
+              </div>
+              <button class="wqc-update-history-close" type="button" aria-label="关闭" (click)="closeUpdateHistory()">×</button>
+            </header>
+
+            <div class="wqc-update-history-body">
+              <div class="wqc-update-history-message" *ngIf="updateHistoryState.status === 'loading'">
+                <span class="wqc-update-history-spinner" aria-hidden="true"></span>
+                正在加载版本记录…
+              </div>
+              <div class="wqc-update-history-message wqc-update-history-error" *ngIf="updateHistoryState.status === 'error'">
+                加载失败：{{ updateHistoryState.error || '请稍后重试' }}
+              </div>
+              <div class="wqc-update-history-message" *ngIf="updateHistoryState.status === 'ready' && !updateHistoryState.entries.length">
+                npm 暂无已发布版本记录。
+              </div>
+
+              <div class="wqc-update-history-list" *ngIf="updateHistoryState.status === 'ready' && updateHistoryState.entries.length">
+                <article class="wqc-update-history-item" *ngFor="let entry of updateHistoryState.entries">
+                  <button class="wqc-update-history-summary" type="button" [attr.aria-expanded]="isHistoryVersionExpanded(entry.version)" (click)="toggleHistoryVersion(entry.version)">
+                    <span class="wqc-update-history-version">v{{ entry.version }}</span>
+                    <span class="wqc-update-history-current" *ngIf="entry.version === updateState.currentVersion">当前版本</span>
+                    <time *ngIf="entry.publishedAt">{{ formatHistoryDate(entry.publishedAt) }}</time>
+                    <span class="wqc-update-history-expand">{{ isHistoryVersionExpanded(entry.version) ? '收起' : '展开' }}</span>
+                  </button>
+                  <div class="wqc-update-history-content" *ngIf="isHistoryVersionExpanded(entry.version)">
+                    <pre data-i18n-skip *ngIf="entry.hasReleaseNotes">{{ entry.releaseNotes }}</pre>
+                    <div class="wqc-update-history-missing" *ngIf="!entry.hasReleaseNotes">此版本未提供更新说明。</div>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <footer class="wqc-update-history-footer">
+              <button class="btn btn-secondary" type="button" [disabled]="updateHistoryState.status === 'loading'" (click)="reloadUpdateHistory()">重新加载</button>
+              <button class="btn btn-primary" type="button" (click)="closeUpdateHistory()">关闭</button>
+            </footer>
+          </section>
+        </div>
       </div>
     `,
     styles: [`
@@ -333,11 +450,32 @@ import { QuickCommandsI18n } from './i18n'
         box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
       }
 
-      .wqc-plugin-intro strong {
-        display: block;
+      .wqc-plugin-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
         margin-bottom: 6px;
+      }
+
+      .wqc-plugin-intro .wqc-plugin-title {
+        display: block;
+        margin: 0;
         color: var(--wqc-accent);
         font-size: 14px;
+      }
+
+      .wqc-plugin-version,
+      .wqc-update-current-version {
+        flex: none;
+        padding: 2px 7px;
+        color: var(--wqc-muted);
+        background: color-mix(in srgb, var(--bs-body-color) 5%, transparent);
+        border: 1px solid color-mix(in srgb, var(--wqc-surface-border) 76%, transparent);
+        border-radius: 999px;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
       }
 
       .wqc-plugin-intro p {
@@ -353,12 +491,20 @@ import { QuickCommandsI18n } from './i18n'
         line-height: 1.5;
       }
 
+      .wqc-plugin-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: 9px;
+      }
+
       .wqc-plugin-links {
         display: flex;
         align-items: center;
         gap: 12px;
         flex-wrap: wrap;
-        margin-top: 9px;
+        margin: 0;
         font-size: 12px;
       }
 
@@ -370,6 +516,463 @@ import { QuickCommandsI18n } from './i18n'
       .wqc-plugin-links a:hover,
       .wqc-plugin-links a:focus-visible {
         text-decoration: underline;
+      }
+
+      .wqc-update-actions,
+      .wqc-update-card-check,
+      .wqc-update-preferences {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .wqc-update-card-check {
+        justify-content: flex-end;
+        min-width: 0;
+      }
+
+      .wqc-update-preferences {
+        width: 100%;
+        min-height: 36px;
+        flex-wrap: wrap;
+      }
+
+      .wqc-status-tooltip {
+        position: relative;
+        display: inline-flex;
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .wqc-status-tooltip:hover .wqc-status-tooltip-content,
+      .wqc-status-tooltip:focus-within .wqc-status-tooltip-content {
+        visibility: visible;
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .wqc-update-feedback {
+        color: var(--wqc-muted);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .wqc-update-feedback-link {
+        min-height: 28px;
+        padding: 4px 7px;
+        overflow: hidden;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        text-overflow: ellipsis;
+        transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+      }
+
+      .wqc-update-feedback-link:hover,
+      .wqc-update-feedback-link:focus-visible {
+        outline: 0;
+        color: var(--wqc-accent);
+        background: color-mix(in srgb, var(--wqc-accent) 8%, transparent);
+        border-color: color-mix(in srgb, var(--wqc-accent) 24%, transparent);
+      }
+
+      .wqc-update-feedback.wqc-update-error {
+        max-width: 280px;
+        overflow: hidden;
+        color: var(--bs-danger, #c2410c);
+        text-overflow: ellipsis;
+      }
+
+      .wqc-update-interval {
+        display: flex;
+        align-items: stretch;
+        gap: 0;
+        min-height: 32px;
+        overflow: visible;
+        color: var(--wqc-text);
+        background: color-mix(in srgb, var(--bs-body-color) 3%, var(--bs-body-bg));
+        border: 1px solid var(--wqc-control-border);
+        border-radius: 9px;
+        font-size: 11px;
+        white-space: nowrap;
+        transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+      }
+
+      .wqc-update-interval:hover {
+        background: color-mix(in srgb, var(--wqc-accent) 4%, var(--bs-body-bg));
+        border-color: color-mix(in srgb, var(--wqc-accent) 36%, var(--wqc-control-border));
+      }
+
+      .wqc-update-interval:focus-within {
+        border-color: var(--wqc-accent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--wqc-accent) 22%, transparent);
+      }
+
+      .wqc-update-interval-label {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 10px;
+        color: var(--wqc-muted);
+        border-right: 1px solid color-mix(in srgb, var(--wqc-control-border) 72%, transparent);
+      }
+
+      .wqc-update-interval-shell {
+        width: 82px;
+      }
+
+      .wqc-update-interval-shell::after {
+        right: 11px;
+        width: 6px;
+        height: 6px;
+      }
+
+      .wqc-update-interval-shell .wqc-update-interval-select {
+        min-height: 30px;
+        padding: 4px 28px 4px 10px;
+        color: var(--wqc-text);
+        background: transparent;
+        border: 0;
+        border-radius: 0 8px 8px 0;
+        box-shadow: none;
+        font: inherit;
+        font-size: 11px;
+      }
+
+      .wqc-update-interval-shell .wqc-update-interval-select:hover,
+      .wqc-update-interval-shell .wqc-update-interval-select:focus {
+        outline: 0;
+        background: color-mix(in srgb, var(--wqc-accent) 6%, transparent);
+        box-shadow: none;
+        transform: none;
+      }
+
+      .wqc-update-interval-shell .wqc-update-interval-menu {
+        top: calc(100% + 5px);
+        gap: 2px;
+        padding: 4px;
+        border-color: color-mix(in srgb, var(--wqc-accent) 28%, var(--wqc-control-border));
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+      }
+
+      .wqc-update-interval-shell .wqc-update-interval-menu button {
+        min-height: 29px;
+        padding: 5px 8px;
+        font-size: 11px;
+      }
+
+      .wqc-check-update {
+        min-height: 30px;
+        padding: 4px 10px;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .wqc-update-title-line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .wqc-update-section > .wqc-section-head > .btn,
+      .wqc-back-to-top {
+        min-height: 32px;
+        font-size: 11px;
+      }
+
+      .wqc-back-to-top {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        margin-left: auto;
+        white-space: nowrap;
+      }
+
+      .wqc-back-to-top span {
+        display: inline-flex;
+        align-items: center;
+        line-height: 1;
+        transform: translateY(-1px);
+      }
+
+      .wqc-update-panel {
+        margin-top: 11px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--bs-primary) 5%, var(--bs-body-bg));
+        border: 1px solid color-mix(in srgb, var(--bs-primary) 24%, var(--wqc-surface-border));
+        border-radius: 8px;
+      }
+
+      .wqc-update-summary,
+      .wqc-update-history-summary {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        color: var(--wqc-text);
+        text-align: left;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .wqc-update-summary {
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 38px;
+        padding: 8px 11px;
+        font-size: 12px;
+      }
+
+      .wqc-update-summary:hover,
+      .wqc-update-summary:focus-visible,
+      .wqc-update-history-summary:hover,
+      .wqc-update-history-summary:focus-visible {
+        background: color-mix(in srgb, var(--bs-primary) 7%, transparent);
+      }
+
+      .wqc-update-summary-title {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+        font-weight: 650;
+      }
+
+      .wqc-update-summary-title small {
+        color: var(--wqc-muted);
+        font-size: 10px;
+        font-weight: 400;
+      }
+
+      .wqc-update-dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        background: var(--bs-primary);
+        border-radius: 50%;
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--bs-primary) 14%, transparent);
+      }
+
+      .wqc-update-expand {
+        flex: none;
+        color: var(--wqc-accent);
+        font-size: 11px;
+      }
+
+      .wqc-update-details {
+        padding: 11px;
+        border-top: 1px solid color-mix(in srgb, var(--bs-primary) 18%, var(--wqc-surface-border));
+      }
+
+      .wqc-update-notes {
+        max-height: 240px;
+        margin: 0 0 11px;
+        padding: 0 2px;
+        overflow: auto;
+        color: var(--wqc-text);
+        white-space: pre-wrap;
+        font: inherit;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .wqc-update-empty {
+        margin-bottom: 11px;
+        color: var(--wqc-muted);
+        font-size: 12px;
+      }
+
+      .wqc-update-actions {
+        flex-wrap: wrap;
+      }
+
+      .wqc-update-actions .btn {
+        min-height: 32px;
+        font-size: 11px;
+      }
+
+      .wqc-update-history-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1090;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: rgba(15, 23, 42, 0.48);
+        backdrop-filter: blur(5px);
+      }
+
+      .wqc-update-history-dialog {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        width: min(680px, 100%);
+        max-height: min(760px, calc(100vh - 48px));
+        overflow: hidden;
+        color: var(--wqc-text);
+        background: var(--bs-body-bg);
+        border: 1px solid var(--wqc-surface-border);
+        border-radius: 12px;
+        box-shadow: 0 24px 70px rgba(15, 23, 42, 0.3);
+      }
+
+      .wqc-update-history-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--wqc-surface-border);
+      }
+
+      .wqc-update-history-header h4 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      .wqc-update-history-header p {
+        margin: 4px 0 0;
+        color: var(--wqc-muted);
+        font-size: 11px;
+      }
+
+      .wqc-update-history-close {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        flex: none;
+        padding: 0;
+        color: var(--wqc-muted);
+        background: transparent;
+        border: 0;
+        border-radius: 7px;
+        cursor: pointer;
+        font-size: 22px;
+        line-height: 1;
+      }
+
+      .wqc-update-history-close:hover,
+      .wqc-update-history-close:focus-visible {
+        color: var(--wqc-text);
+        background: color-mix(in srgb, var(--bs-body-color) 7%, transparent);
+      }
+
+      .wqc-update-history-body {
+        min-height: 180px;
+        padding: 14px 18px;
+        overflow: auto;
+      }
+
+      .wqc-update-history-message {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        min-height: 150px;
+        color: var(--wqc-muted);
+        text-align: center;
+        font-size: 12px;
+      }
+
+      .wqc-update-history-error {
+        color: var(--bs-danger, #c2410c);
+      }
+
+      .wqc-update-history-spinner {
+        width: 15px;
+        height: 15px;
+        border: 2px solid color-mix(in srgb, var(--bs-primary) 25%, transparent);
+        border-top-color: var(--bs-primary);
+        border-radius: 50%;
+        animation: wqc-update-history-spin 750ms linear infinite;
+      }
+
+      @keyframes wqc-update-history-spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .wqc-update-history-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .wqc-update-history-item {
+        overflow: hidden;
+        background: color-mix(in srgb, var(--bs-body-color) 3%, var(--bs-body-bg));
+        border: 1px solid var(--wqc-surface-border);
+        border-radius: 8px;
+      }
+
+      .wqc-update-history-summary {
+        gap: 8px;
+        min-height: 42px;
+        padding: 8px 11px;
+      }
+
+      .wqc-update-history-version {
+        font-size: 13px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .wqc-update-history-current {
+        padding: 2px 6px;
+        color: var(--bs-primary);
+        background: color-mix(in srgb, var(--bs-primary) 11%, transparent);
+        border-radius: 999px;
+        font-size: 9px;
+      }
+
+      .wqc-update-history-summary time {
+        margin-left: auto;
+        color: var(--wqc-muted);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .wqc-update-history-expand {
+        min-width: 24px;
+        color: var(--wqc-accent);
+        text-align: right;
+        font-size: 10px;
+      }
+
+      .wqc-update-history-content {
+        padding: 11px 12px;
+        border-top: 1px solid var(--wqc-surface-border);
+      }
+
+      .wqc-update-history-content pre {
+        margin: 0;
+        color: var(--wqc-text);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font: inherit;
+        font-size: 12px;
+        line-height: 1.65;
+      }
+
+      .wqc-update-history-missing {
+        color: var(--wqc-muted);
+        font-size: 12px;
+      }
+
+      .wqc-update-history-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 12px 18px;
+        border-top: 1px solid var(--wqc-surface-border);
+      }
+
+      .wqc-update-history-footer .btn {
+        min-width: 82px;
       }
 
       .wqc-section {
@@ -497,6 +1100,14 @@ import { QuickCommandsI18n } from './i18n'
         border-right: 1px solid var(--bs-border-color);
         border-bottom: 1px solid var(--bs-border-color);
         transform: translateY(-4px) rotate(45deg);
+      }
+
+      .wqc-help-tooltip.wqc-status-tooltip-content {
+        right: 0;
+        width: max-content;
+        max-width: min(240px, calc(100vw - 48px));
+        padding: 8px 10px;
+        line-height: 1.5;
       }
 
       .wqc-help:hover .wqc-help-tooltip,
@@ -1124,6 +1735,10 @@ import { QuickCommandsI18n } from './i18n'
           transition: none;
         }
 
+        .wqc-update-history-spinner {
+          animation: none;
+        }
+
         .wqc-select:hover,
         .wqc-select-menu button:hover,
         .wqc-actions .btn:hover {
@@ -1138,6 +1753,10 @@ import { QuickCommandsI18n } from './i18n'
 
         .wqc-grid {
           grid-template-columns: 1fr;
+        }
+
+        .wqc-plugin-footer {
+          align-items: flex-start;
         }
 
         .wqc-stat-row {
@@ -1187,6 +1806,62 @@ import { QuickCommandsI18n } from './i18n'
       }
 
       @media (max-width: 520px) {
+        .wqc-update-history-backdrop {
+          padding: 10px;
+        }
+
+        .wqc-update-history-dialog {
+          max-height: calc(100vh - 20px);
+        }
+
+        .wqc-update-history-header,
+        .wqc-update-history-body,
+        .wqc-update-history-footer {
+          padding-right: 12px;
+          padding-left: 12px;
+        }
+
+        .wqc-update-history-summary {
+          flex-wrap: wrap;
+        }
+
+        .wqc-update-history-summary time {
+          order: 3;
+          width: 100%;
+          margin-left: 0;
+        }
+
+        .wqc-update-history-expand {
+          margin-left: auto;
+        }
+
+        .wqc-update-section .wqc-section-head {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .wqc-update-section .wqc-section-head > .btn {
+          align-self: flex-start;
+        }
+
+        .wqc-plugin-footer {
+          flex-direction: column;
+        }
+
+        .wqc-update-card-check {
+          justify-content: space-between;
+          width: 100%;
+        }
+
+        .wqc-update-card-check .wqc-update-feedback {
+          max-width: 100%;
+        }
+
+        .wqc-update-actions {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
         .wqc-config-actions {
           grid-template-columns: repeat(2, minmax(0, 1fr));
           width: 100%;
@@ -1205,6 +1880,7 @@ import { QuickCommandsI18n } from './i18n'
 export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestroy {
     readonly defaultExportFileName = 'tabby-windy-quick-commands-{date}.json'
     failureMenuOpen = false
+    updateIntervalMenuOpen = false
     commandCategoryMenuOpen = false
     commandUsageMenuOpen = false
     logLevel: 'all' | 'info' | 'warn' | 'error' = 'all'
@@ -1225,12 +1901,19 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     configMessage = ''
     readonly projectUrl = 'https://github.com/windyy0/tabby-windy-quick-commands'
     readonly issuesUrl = 'https://github.com/windyy0/tabby-windy-quick-commands/issues'
+    updateState: PluginUpdateState
+    updateCheckInterval: UpdateCheckInterval
+    updateDetailsExpanded = false
+    updateHistoryOpen = false
+    updateHistoryState: PluginUpdateHistoryState = { status: 'idle', entries: [], error: '' }
+    expandedHistoryVersions = new Set<string>()
+    private historyExpansionInitialized = false
     private configMessageTimer: ReturnType<typeof setTimeout> | null = null
     private runtimeStore: QuickCommandsRuntimeStore
     private pluginConfigStore: QuickCommandsPluginConfigStore
     private pluginConfig: Record<string, any>
     private stopLocalizing: (() => void) | null = null
-    private localeSubscription: { unsubscribe: () => void } | null = null
+    private readonly subscriptions = new Subscription()
 
     constructor (
         private platform: PlatformService,
@@ -1238,18 +1921,37 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         private element: ElementRef<HTMLElement>,
         private i18n: QuickCommandsI18n,
         private zone: NgZone,
+        private pluginUpdate: QuickCommandsPluginUpdateService,
     ) {
         this.runtimeStore = new QuickCommandsRuntimeStore(this.platform.getConfigPath())
         this.pluginConfigStore = new QuickCommandsPluginConfigStore(this.platform.getConfigPath())
         this.pluginConfig = this.pluginConfigStore.load(defaultQuickCommandsConfig)
+        this.updateState = this.pluginUpdate.snapshot
+        this.updateCheckInterval = this.pluginUpdate.checkInterval
+        this.subscriptions.add(this.pluginUpdate.state$.subscribe(state => {
+            this.updateState = state
+            this.changeDetector.markForCheck()
+        }))
+        this.updateHistoryState = this.pluginUpdate.historyState$.value
+        this.subscriptions.add(this.pluginUpdate.historyState$.subscribe(state => {
+            this.updateHistoryState = state
+            if (state.status === 'ready' && state.entries.length && !this.historyExpansionInitialized) {
+                this.expandedHistoryVersions.add(state.entries[0].version)
+                this.historyExpansionInitialized = true
+            }
+            this.changeDetector.markForCheck()
+        }))
         this.refreshRuntimeData()
     }
 
     ngAfterViewInit (): void {
         this.startLocalizing()
-        this.localeSubscription = this.i18n.localeChanged$.subscribe(() => {
+        this.subscriptions.add(this.i18n.localeChanged$.subscribe(() => {
             this.startLocalizing()
-        })
+        }))
+        if (this.pluginUpdate.consumeSettingsFocusRequest()) {
+            window.setTimeout(() => this.scrollToUpdateSettings())
+        }
     }
 
     ngOnDestroy (): void {
@@ -1258,7 +1960,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         }
 
         this.stopLocalizing?.()
-        this.localeSubscription?.unsubscribe()
+        this.subscriptions.unsubscribe()
     }
 
     private startLocalizing (): void {
@@ -1428,6 +2130,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     @HostListener('document:click')
     closeFailureMenu (): void {
         this.failureMenuOpen = false
+        this.updateIntervalMenuOpen = false
         this.commandCategoryMenuOpen = false
         this.commandUsageMenuOpen = false
         this.batchMoveCategoryMenuOpen = false
@@ -1436,11 +2139,13 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     @HostListener('document:keydown.escape')
     closeFailureMenuOnEscape (): void {
         this.failureMenuOpen = false
+        this.updateIntervalMenuOpen = false
         this.commandCategoryMenuOpen = false
         this.commandUsageMenuOpen = false
         this.batchDeleteConfirmOpen = false
         this.batchMoveOpen = false
         this.batchMoveCategoryMenuOpen = false
+        this.updateHistoryOpen = false
     }
 
     @HostListener('window:windy-quick-commands-runtime-changed')
@@ -1453,10 +2158,122 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     @HostListener('window:windy-quick-commands-config-changed')
     refreshPluginConfig (): void {
         this.pluginConfig = this.pluginConfigStore.load(defaultQuickCommandsConfig, true)
+        this.updateCheckInterval = this.pluginUpdate.checkInterval
+    }
+
+    get updateStatusLabel (): string {
+        if (this.updateState.status === 'checking') {
+            return '检查中…'
+        }
+        if (this.updateState.status === 'available') {
+            return this.updateState.latestVersion ? `发现新版本 v${this.updateState.latestVersion}` : '发现新版本'
+        }
+        if (this.updateState.status === 'current') {
+            return '已是最新版本'
+        }
+        if (this.updateState.status === 'installing') {
+            return '正在更新…'
+        }
+        if (this.updateState.status === 'restart') {
+            return '更新完成，请重启 Tabby'
+        }
+        if (this.updateState.status === 'error') {
+            return `检查失败：${this.updateState.error || '请稍后重试'}`
+        }
+        return ''
+    }
+
+    toggleUpdateDetails (): void {
+        this.updateDetailsExpanded = !this.updateDetailsExpanded
+    }
+
+    checkForUpdates (): void {
+        void this.pluginUpdate.checkNow()
+    }
+
+    scrollToUpdateSettings (): void {
+        this.scrollTo('#wqc-plugin-update')
+    }
+
+    scrollToSettingsTop (): void {
+        this.scrollTo('.wqc-settings')
+    }
+
+    installUpdate (): void {
+        void this.pluginUpdate.installLatest()
+    }
+
+    ignoreCurrentUpdate (): void {
+        this.pluginUpdate.ignoreLatest()
+    }
+
+    openUpdateHistory (): void {
+        this.updateHistoryOpen = true
+        void this.pluginUpdate.loadHistory()
+    }
+
+    closeUpdateHistory (): void {
+        this.updateHistoryOpen = false
+    }
+
+    reloadUpdateHistory (): void {
+        this.expandedHistoryVersions.clear()
+        this.historyExpansionInitialized = false
+        void this.pluginUpdate.loadHistory(true)
+    }
+
+    toggleHistoryVersion (version: string): void {
+        if (this.expandedHistoryVersions.has(version)) {
+            this.expandedHistoryVersions.delete(version)
+        } else {
+            this.expandedHistoryVersions.add(version)
+        }
+    }
+
+    isHistoryVersionExpanded (version: string): boolean {
+        return this.expandedHistoryVersions.has(version)
+    }
+
+    formatHistoryDate (value: string): string {
+        const date = new Date(value)
+        if (!Number.isFinite(date.getTime())) {
+            return ''
+        }
+        return historyDateFormatters[this.i18n.language].format(date)
+    }
+
+    get updateCheckIntervalLabel (): string {
+        if (this.updateCheckInterval === 'weekly') {
+            return '每7天'
+        }
+        if (this.updateCheckInterval === 'never') {
+            return '从不'
+        }
+        return '每天'
+    }
+
+    toggleUpdateIntervalMenu (): void {
+        this.updateIntervalMenuOpen = !this.updateIntervalMenuOpen
+        this.failureMenuOpen = false
+        this.commandCategoryMenuOpen = false
+        this.commandUsageMenuOpen = false
+        this.batchMoveCategoryMenuOpen = false
+    }
+
+    selectUpdateCheckInterval (interval: UpdateCheckInterval): void {
+        this.updateCheckInterval = interval
+        this.updateIntervalMenuOpen = false
+        this.pluginUpdate.setCheckInterval(this.updateCheckInterval)
+    }
+
+    private scrollTo (selector: string): void {
+        this.element.nativeElement.querySelector<HTMLElement>(selector)
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
 
     toggleFailureMenu (): void {
         this.failureMenuOpen = !this.failureMenuOpen
+        this.updateIntervalMenuOpen = false
         this.commandCategoryMenuOpen = false
         this.commandUsageMenuOpen = false
     }
@@ -1484,12 +2301,14 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     toggleCommandCategoryMenu (): void {
         this.commandCategoryMenuOpen = !this.commandCategoryMenuOpen
+        this.updateIntervalMenuOpen = false
         this.commandUsageMenuOpen = false
         this.failureMenuOpen = false
     }
 
     toggleCommandUsageMenu (): void {
         this.commandUsageMenuOpen = !this.commandUsageMenuOpen
+        this.updateIntervalMenuOpen = false
         this.commandCategoryMenuOpen = false
         this.failureMenuOpen = false
     }
@@ -1581,6 +2400,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     toggleBatchMoveCategoryMenu (): void {
         this.batchMoveCategoryMenuOpen = !this.batchMoveCategoryMenuOpen
+        this.updateIntervalMenuOpen = false
     }
 
     selectBatchMoveCategory (category: string): void {

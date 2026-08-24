@@ -29,6 +29,7 @@
     "src/scriptParser.ts",
     "src/outputAutomation.ts",
     "src/translations.ts",
+    "src/pluginUpdate.ts",
     "tests/**/*.ts"
   ],
   "exclude": [

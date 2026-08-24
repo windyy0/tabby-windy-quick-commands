@@ -92,6 +92,7 @@ export class QuickCommandsPluginConfigStore {
             'executionMode', 'targetMode', 'failureStrategy', 'drawerWidth', 'showToolbarButton',
             'requireConfirmBeforeExecute', 'confirmBroadcast', 'exportFileName', 'basicInfoCollapsed',
             'moreSettingsCollapsed', 'previewCollapsed', 'moveNavigateAfterMove', 'recentOutputLimit', 'logLimit',
+            'updateCheckInterval', 'ignoredUpdateVersion',
         ]
         const normalized = Object.fromEntries(
             allowedKeys
@@ -183,7 +184,7 @@ export class QuickCommandsPluginConfigStore {
     }
 
     private validateConfigFields (config: Record<string, unknown>): void {
-        const stringFields = ['selectedCategory', 'exportFileName']
+        const stringFields = ['selectedCategory', 'exportFileName', 'ignoredUpdateVersion']
         stringFields.forEach(field => {
             if (config[field] !== undefined && typeof config[field] !== 'string') {
                 throw new Error(`配置字段 ${field} 无效。`)
@@ -213,6 +214,7 @@ export class QuickCommandsPluginConfigStore {
         this.validateEnum(config, 'executionMode', ['paste', 'line', 'broadcast'])
         this.validateEnum(config, 'targetMode', ['current', 'all'])
         this.validateEnum(config, 'failureStrategy', ['continue', 'stop', 'manual'])
+        this.validateEnum(config, 'updateCheckInterval', ['daily', 'weekly', 'never'])
         this.validateStringList(config.customCategories, 'customCategories')
         this.validateStringList(config.categoryOrder, 'categoryOrder')
     }

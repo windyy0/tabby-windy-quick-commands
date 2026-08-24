@@ -33,6 +33,7 @@ import { isValidOutputPattern } from './outputAutomation'
 import { pluginConfigChangedEvent, QuickCommandsPluginConfigStore } from './pluginConfigStorage'
 import { QuickCommandsI18n } from './i18n'
 import { quickCommandIcons as icons } from './quickCommandsIcons'
+import { QuickCommandsPluginUpdateService } from './pluginUpdate.service'
 import {
     ExecutionRunState,
     ExecutionTarget,
@@ -121,6 +122,7 @@ export class QuickCommandsService {
         platform: PlatformService,
         log: LogService,
         private i18n: QuickCommandsI18n,
+        private pluginUpdate: QuickCommandsPluginUpdateService,
     ) {
         this.logger = log.create('quick-commands')
         this.runtimeStore = new QuickCommandsRuntimeStore(platform.getConfigPath())
@@ -144,6 +146,7 @@ export class QuickCommandsService {
         document.addEventListener('keydown', event => this.handleDocumentKeyDown(event), true)
         document.addEventListener('click', event => this.handleDocumentClick(event))
         this.i18n.localeChanged$.subscribe(() => this.render())
+        this.pluginUpdate.state$.subscribe(() => this.render())
     }
 
     toggle (): void {
@@ -228,7 +231,12 @@ export class QuickCommandsService {
             <div class="tqc-resize-handle" data-role="resize-handle" title="调整宽度"></div>
             <header class="tqc-header">
               <div class="tqc-top-row">
-                <button class="tqc-icon-button" type="button" data-action="collapse" title="收起">${icons.collapse}</button>
+                <button class="tqc-icon-button" type="button" data-action="collapse" aria-label="${this.escapeAttr(this.i18n.text('收起'))}">${icons.collapse}</button>
+                ${this.shouldShowUpdateReminder() ? `
+                  <button class="tqc-update-button" type="button" data-action="update-settings" aria-label="${this.escapeAttr(this.i18n.text('查看插件更新'))}">
+                    <span class="tqc-update-dot" aria-hidden="true"></span><span>${this.escape(this.i18n.text('有更新'))}</span>
+                  </button>
+                ` : ''}
               </div>
               <div class="tqc-titlebar">
                 <div class="tqc-title">${icons.bolt}<span>快速命令</span></div>
@@ -1776,6 +1784,9 @@ export class QuickCommandsService {
             case 'settings':
                 this.openSettings()
                 return
+            case 'update-settings':
+                this.openUpdateSettings()
+                return
             case 'import':
                 this.root?.querySelector<HTMLInputElement>('[data-role="import-file"]')?.click()
                 return
@@ -2976,6 +2987,17 @@ export class QuickCommandsService {
         })
     }
 
+    private openUpdateSettings (): void {
+        this.pluginUpdate.requestSettingsFocus()
+        this.close()
+        this.openSettings()
+    }
+
+    private shouldShowUpdateReminder (): boolean {
+        const update = this.pluginUpdate.snapshot
+        return update.available && !update.ignored && update.status !== 'restart'
+    }
+
     private pauseExecution (): void {
         this.executionRunner?.pause()
     }
@@ -3597,6 +3619,10 @@ export class QuickCommandsService {
             moveNavigateAfterMove: root.moveNavigateAfterMove ?? false,
             recentOutputLimit: Math.max(1000, Number(root.recentOutputLimit) || 8000),
             logLimit: Math.max(20, Number(root.logLimit) || 200),
+            updateCheckInterval: root.updateCheckInterval === 'weekly' || root.updateCheckInterval === 'never'
+                ? root.updateCheckInterval
+                : 'daily',
+            ignoredUpdateVersion: typeof root.ignoredUpdateVersion === 'string' ? root.ignoredUpdateVersion : '',
             automationLogs: this.runtimeStore.getLogs(),
         }
     }
@@ -3652,6 +3678,8 @@ export class QuickCommandsService {
         delete root.highRiskConfirmText
         root.recentOutputLimit = next.recentOutputLimit
         root.logLimit = next.logLimit
+        root.updateCheckInterval = next.updateCheckInterval
+        root.ignoredUpdateVersion = next.ignoredUpdateVersion
         this.setPluginConfig(root, save)
         this.state = this.readConfig()
         if (shouldRender) {

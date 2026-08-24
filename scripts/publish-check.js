@@ -1,21 +1,41 @@
-const { spawnSync } = require('node:child_process')
+const path = require('node:path')
+const { spawnNpm } = require('./npm-command')
+const { validateRelease } = require('./release-validation')
+
+const projectRoot = path.resolve(__dirname, '..')
+
+function fail (message) {
+    console.error(`\n\x1b[1;31m发布检查失败：${message}\x1b[0m`)
+    process.exit(1)
+}
+
+try {
+    const release = validateRelease({ projectRoot })
+    console.log(`\n待发布：${release.packageName}@${release.version}`)
+    console.log(`中文标题：${release.chineseTitle}`)
+    console.log(`英文标题：${release.englishTitle}`)
+} catch (error) {
+    fail(error instanceof Error ? error.message : error)
+}
 
 const steps = [
-    'npm run typecheck',
-    'npm test',
-    'npm pack --dry-run',
+    { label: 'npm run typecheck', args: ['run', 'typecheck'] },
+    { label: 'npm test', args: ['test'] },
+    { label: 'npm pack --dry-run', args: ['pack', '--dry-run'] },
 ]
 
 const border = '========================================'
 
 for (const step of steps) {
-    const result = spawnSync(step, {
-        shell: true,
+    const result = spawnNpm(step.args, {
+        cwd: projectRoot,
         stdio: 'inherit',
+        windowsHide: true,
     })
 
-    if (result.status !== 0) {
-        console.error(`\n\x1b[1;31m${border}\n  发布检查失败：${step}\n  请处理以上错误后重试。\n${border}\x1b[0m`)
+    if (result.error || result.status !== 0) {
+        const reason = result.error ? `（${result.error.message}）` : ''
+        console.error(`\n\x1b[1;31m${border}\n  发布检查失败：${step.label}${reason}\n  请处理以上错误后重试。\n${border}\x1b[0m`)
         process.exit(result.status ?? 1)
     }
 }

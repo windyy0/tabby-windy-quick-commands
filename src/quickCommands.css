@@ -68,13 +68,51 @@
   top: 12px;
   left: 16px;
   z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   pointer-events: auto;
   -webkit-app-region: no-drag;
 }
 
-.tqc-top-row .tqc-icon-button {
+.tqc-top-row .tqc-icon-button,
+.tqc-top-row .tqc-update-button {
   pointer-events: auto;
   -webkit-app-region: no-drag;
+}
+
+.tqc-update-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--tqc-accent);
+  background: color-mix(in srgb, var(--tqc-accent) 12%, var(--tqc-panel-solid));
+  border: 1px solid color-mix(in srgb, var(--tqc-accent) 38%, var(--tqc-border));
+  border-radius: 7px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.tqc-update-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  background: currentColor;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.tqc-update-button:hover,
+.tqc-update-button:focus-visible {
+  background: color-mix(in srgb, var(--tqc-accent) 18%, var(--tqc-panel-solid));
+  border-color: var(--tqc-accent);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+  transform: translateY(-1px);
 }
 
 .tqc-footer {

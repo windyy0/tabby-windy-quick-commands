@@ -1,3 +1,5 @@
+import { UpdateCheckInterval } from './pluginUpdate'
+
 export type ExecutionMode = 'paste' | 'line'
 export type TargetMode = 'current' | 'all'
 export type FailureStrategy = 'continue' | 'stop' | 'manual'
@@ -74,6 +76,8 @@ export interface QuickCommandsConfig {
     moveNavigateAfterMove: boolean
     recentOutputLimit: number
     logLimit: number
+    updateCheckInterval: UpdateCheckInterval
+    ignoredUpdateVersion: string
     automationLogs: AutomationLogEntry[]
 }
 
