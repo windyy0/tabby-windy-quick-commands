@@ -1,31 +1,77 @@
 {
-  "version": "1.6.4",
+  "version": "1.7.0",
   "zh-CN": {
-    "title": "英文本地化与按钮对齐修复",
+    "title": "统一导入导出与弹窗体验升级",
     "sections": [
       {
-        "title": "问题修复",
+        "title": "⚠️ 重要提醒",
         "items": [
-          "修复英文界面下“全部”、“常用”和“收藏”系统分类未翻译的问题",
-          "修复输出规则匹配文本输入框的英文占位提示未翻译的问题",
-          "修复更新历史弹窗中“重新加载”按钮文字未居中的问题"
+          "导入导出文件已统一为新的固定 v1 格式，旧版命令库和配置备份无法直接导入"
+        ]
+      },
+      {
+        "title": "导入、导出与配置",
+        "items": [
+          "统一抽屉命令库与设置页配置的导入导出协议，两种文件均使用固定的 v1 格式并可相互识别",
+          "设置页导入时会根据文件内容提示仅导入命令或导入完整配置，抽屉也可从配置文件中提取命令",
+          "设置页新增“恢复默认配置”，只重置插件设置并保留命令、分类、输出触发器、运行日志和使用统计",
+          "设置页按钮简化为“导入”和“导出”，并优化按钮尺寸及导入提示排版"
+        ]
+      },
+      {
+        "title": "界面优化",
+        "items": [
+          "统一抽屉操作弹窗与设置页配置弹窗的主题样式，增加标题和操作区分隔线并重新平衡间距",
+          "重新设计命令库导入预览，以紧凑的 2×2 统计、导入规则和结构化冲突详情展示导入结果",
+          "优化移动命令、删除命令和删除分类提示，重点标记命令名称与受影响的命令数量"
+        ]
+      },
+      {
+        "title": "英文支持与文档",
+        "items": [
+          "新增完整英文 README，并在中英文文档间提供语言切换入口",
+          "英文界面新增命令时默认名称改为“New command”，切换语言时不会覆盖用户已输入的名称",
+          "补充导入导出、恢复默认配置、导入预览和弹窗提示的英文翻译"
         ]
       }
     ],
-    "notice": "更新安装完成后需要重启 Tabby 才会生效。"
+    "notice": "本版本采用新的固定 v1 导出格式，不兼容旧版命令库或配置备份；更新安装完成后需要重启 Tabby。"
   },
   "en": {
-    "title": "English localization and button alignment fixes",
+    "title": "Unified import/export and improved dialogs",
     "sections": [
       {
-        "title": "Bug fixes",
+        "title": "⚠️ Important",
         "items": [
-          "Translate the built-in All, Frequent, and Favorite categories in the English interface",
-          "Translate placeholders for output-rule match text fields in the English interface",
-          "Center the Reload button label in the update history dialog"
+          "Import and export files now use the new fixed v1 format; older command-library and configuration backups cannot be imported directly"
+        ]
+      },
+      {
+        "title": "Import, export, and settings",
+        "items": [
+          "Unify drawer command-library and Settings configuration files under a fixed v1 protocol that both import locations can recognize",
+          "Let Settings choose between importing commands and the full configuration, while drawer imports can extract commands from configuration files",
+          "Add Restore defaults to Settings, resetting plugin preferences while preserving commands, categories, output triggers, runtime logs, and usage statistics",
+          "Simplify the Settings actions to Import and Export, with content-sized buttons and clearer two-line import prompts"
+        ]
+      },
+      {
+        "title": "Interface improvements",
+        "items": [
+          "Apply theme-aware styling to drawer action dialogs and Settings configuration dialogs, with clearer header and action separators and balanced spacing",
+          "Redesign the command-library import preview with compact 2-by-2 statistics, import rules, and structured conflict details",
+          "Improve move, delete-command, and delete-category confirmations by emphasizing command names and affected command counts"
+        ]
+      },
+      {
+        "title": "English support and documentation",
+        "items": [
+          "Add a complete English README with language links between the Chinese and English documentation",
+          "Use “New command” as the default name in the English interface without overwriting names already entered when the language changes",
+          "Complete English translations for import/export, Restore defaults, import previews, and dialog prompts"
         ]
       }
     ],
-    "notice": "Restart Tabby after installation to apply the update."
+    "notice": "This release uses the new fixed v1 export format and cannot import older command-library or configuration backups. Restart Tabby after installation."
   }
 }
