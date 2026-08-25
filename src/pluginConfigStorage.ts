@@ -3,20 +3,49 @@ import * as path from 'path'
 
 import {
     normalizeCommandConfig,
+    ParsedImportPayload,
+    parseImportPayload,
+    quickCommandsFileFormat,
+    quickCommandsFileVersion,
     sanitizeAutomationReferences,
-    validateImportedCommands,
 } from './commandLibrary'
 import { QuickCommand } from './types'
 
 export const pluginConfigChangedEvent = 'windy-quick-commands-config-changed'
-export const pluginConfigFormat = 'tabby-windy-quick-commands-config'
-export const pluginConfigVersion = 1
+export const pluginConfigFormat = quickCommandsFileFormat
+export const pluginConfigVersion = quickCommandsFileVersion
 
 export interface PluginConfigExportPayload {
     format: typeof pluginConfigFormat
     version: typeof pluginConfigVersion
+    kind: 'config'
     exportedAt: string
     config: Record<string, unknown>
+}
+
+export interface PluginConfigImportFile extends Omit<ParsedImportPayload, 'config'> {
+    config?: Record<string, unknown>
+}
+
+export function buildDefaultSettingsConfig (
+    current: Record<string, unknown>,
+    defaults: Record<string, unknown>,
+): Record<string, unknown> {
+    const commands = Array.isArray(current.commands) ? current.commands : []
+    return {
+        ...JSON.parse(JSON.stringify(defaults)),
+        commands: JSON.parse(JSON.stringify(commands)),
+        customCategories: Array.isArray(current.customCategories)
+            ? JSON.parse(JSON.stringify(current.customCategories))
+            : [],
+        categoryOrder: Array.isArray(current.categoryOrder)
+            ? JSON.parse(JSON.stringify(current.categoryOrder))
+            : [],
+        selectedCommandId: commands[0] && typeof commands[0] === 'object'
+            ? String((commands[0] as Record<string, unknown>).id || '') || null
+            : null,
+        selectedCategory: '全部',
+    }
 }
 
 export class QuickCommandsPluginConfigStore {
@@ -57,35 +86,33 @@ export class QuickCommandsPluginConfigStore {
         return {
             format: pluginConfigFormat,
             version: pluginConfigVersion,
+            kind: 'config',
             exportedAt: new Date().toISOString(),
             config: this.clone(config),
         }
     }
 
+    parseImportFile (text: string): PluginConfigImportFile {
+        const parsed = parseImportPayload(text)
+        if (parsed.kind === 'commands') {
+            return parsed
+        }
+        return {
+            ...parsed,
+            config: this.normalizeImportedConfig(parsed.config as Record<string, unknown>),
+        }
+    }
+
     parseImport (text: string): Record<string, unknown> {
-        let parsed: unknown
-        try {
-            parsed = JSON.parse(text)
-        } catch {
-            throw new Error('JSON 格式无效。')
+        const parsed = this.parseImportFile(text)
+        if (parsed.kind !== 'config' || !parsed.config) {
+            throw new Error('文件只包含命令，不包含插件配置。')
         }
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            throw new Error('配置文件格式无效。')
-        }
-        const payload = parsed as Record<string, unknown>
-        if (payload.format !== pluginConfigFormat || payload.version !== pluginConfigVersion) {
-            throw new Error('只支持当前版本的快速命令插件配置文件。')
-        }
-        const config = payload.config
-        if (!config || typeof config !== 'object' || Array.isArray(config)) {
-            throw new Error('配置文件缺少 config 对象。')
-        }
-        const commands = (config as Record<string, unknown>).commands
-        if (!Array.isArray(commands)) {
-            throw new Error('配置文件缺少 commands 数组。')
-        }
-        validateImportedCommands(commands)
-        const source = config as Record<string, unknown>
+        return parsed.config
+    }
+
+    private normalizeImportedConfig (source: Record<string, unknown>): Record<string, unknown> {
+        const commands = source.commands as unknown[]
         this.validateConfigFields(source)
         const allowedKeys = [
             'commands', 'customCategories', 'categoryOrder', 'selectedCommandId', 'selectedCategory',

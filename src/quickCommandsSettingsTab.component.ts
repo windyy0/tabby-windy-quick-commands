@@ -1,9 +1,20 @@
 import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, HostListener, NgZone, OnDestroy } from '@angular/core'
 import { Subscription } from 'rxjs'
 import { PlatformService } from 'tabby-core'
+import {
+    applyImportPreview,
+    buildImportPreview,
+    normalizeCommandConfig,
+    sanitizeAutomationReferences,
+} from './commandLibrary'
 import { CommandUsageStats, QuickCommandsRuntimeStore } from './runtimeStorage'
 import { defaultQuickCommandsConfig } from './configProvider'
-import { QuickCommandsPluginConfigStore } from './pluginConfigStorage'
+import {
+    buildDefaultSettingsConfig,
+    PluginConfigImportFile,
+    QuickCommandsPluginConfigStore,
+} from './pluginConfigStorage'
+import { QuickCommand } from './types'
 import { QuickCommandsI18n } from './i18n'
 import { PluginUpdateHistoryState, PluginUpdateState, QuickCommandsPluginUpdateService } from './pluginUpdate.service'
 import { UpdateCheckInterval } from './pluginUpdate'
@@ -60,8 +71,9 @@ const historyDateFormatters = {
             </div>
           </div>
           <div class="wqc-config-actions">
-            <button class="btn btn-secondary" type="button" (click)="exportPluginConfig()">导出配置</button>
-            <button class="btn btn-secondary" type="button" (click)="pluginConfigFile.click()">导入配置</button>
+            <button class="btn btn-secondary" type="button" (click)="exportPluginConfig()">导出</button>
+            <button class="btn btn-secondary" type="button" (click)="pluginConfigFile.click()">导入</button>
+            <button class="btn wqc-danger-button wqc-reset-config" type="button" (click)="openResetDefaultsConfirm()">恢复默认配置</button>
             <input #pluginConfigFile class="wqc-hidden-file" type="file" accept="application/json,.json" (change)="importPluginConfig($event)">
           </div>
           <div class="wqc-config-message" *ngIf="configMessage">{{ configMessage }}</div>
@@ -305,6 +317,30 @@ const historyDateFormatters = {
             </div>
           </div>
         </section>
+
+        <div class="wqc-config-dialog-backdrop" *ngIf="pendingConfigImport" (click)="cancelPendingConfigImport()">
+          <section class="wqc-config-dialog" role="dialog" aria-modal="true" aria-labelledby="wqc-config-import-title" (click)="$event.stopPropagation()">
+            <h4 id="wqc-config-import-title">{{ pendingConfigImport.kind === 'commands' ? '导入命令' : '选择导入内容' }}</h4>
+            <p *ngIf="pendingConfigImport.kind === 'commands'">该文件只包含命令。是否将命令合并到当前命令库？</p>
+            <p *ngIf="pendingConfigImport.kind === 'config'">该文件包含命令和插件配置，请选择要导入的内容。导入完整配置会替换当前命令和设置。</p>
+            <div class="wqc-config-dialog-actions">
+              <button class="btn btn-secondary" type="button" (click)="cancelPendingConfigImport()">取消</button>
+              <button class="btn btn-secondary" type="button" [disabled]="!pendingConfigImport.commands.length" (click)="importPendingCommands()">导入命令</button>
+              <button class="btn btn-primary" type="button" *ngIf="pendingConfigImport.kind === 'config'" (click)="importPendingFullConfig()">导入完整配置</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="wqc-config-dialog-backdrop" *ngIf="resetDefaultsConfirmOpen" (click)="closeResetDefaultsConfirm()">
+          <section class="wqc-config-dialog" role="dialog" aria-modal="true" aria-labelledby="wqc-reset-defaults-title" (click)="$event.stopPropagation()">
+            <h4 id="wqc-reset-defaults-title">恢复默认配置</h4>
+            <p>确定恢复所有插件设置的默认值？现有命令、分类和输出触发器将保留，运行日志和使用统计也不会清除。</p>
+            <div class="wqc-config-dialog-actions">
+              <button class="btn btn-secondary" type="button" (click)="closeResetDefaultsConfirm()">取消</button>
+              <button class="btn wqc-danger-button" type="button" (click)="restoreDefaultSettings()">确认恢复</button>
+            </div>
+          </section>
+        </div>
 
         <div class="wqc-update-history-backdrop" *ngIf="updateHistoryOpen" (click)="closeUpdateHistory()">
           <section class="wqc-update-history-dialog" role="dialog" aria-modal="true" aria-labelledby="wqc-update-history-title" (click)="$event.stopPropagation()">
@@ -998,13 +1034,20 @@ const historyDateFormatters = {
       }
 
       .wqc-config-actions {
-        display: grid;
-        grid-template-columns: repeat(2, 112px);
+        display: flex;
+        align-items: center;
         gap: 8px;
+        width: 100%;
       }
 
       .wqc-config-actions .btn {
-        width: 100%;
+        width: auto;
+        min-width: 0;
+        white-space: nowrap;
+      }
+
+      .wqc-reset-config {
+        margin-left: auto;
       }
 
       .wqc-hidden-file {
@@ -1395,6 +1438,45 @@ const historyDateFormatters = {
       .wqc-command-filter-options > .btn {
         justify-self: start;
         min-width: 88px;
+      }
+
+      .wqc-config-dialog-backdrop {
+        position: fixed;
+        z-index: 1070;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+        background: rgba(15, 23, 42, 0.46);
+        backdrop-filter: blur(2px);
+      }
+
+      .wqc-config-dialog {
+        width: min(520px, 100%);
+        padding: 18px;
+        color: var(--wqc-text);
+        background: var(--bs-body-bg);
+        border: 1px solid var(--wqc-surface-border);
+        border-radius: 10px;
+        box-shadow: 0 22px 60px rgba(15, 23, 42, 0.24);
+      }
+
+      .wqc-config-dialog h4 {
+        margin: 0;
+      }
+
+      .wqc-config-dialog p {
+        margin: 10px 0 0;
+        color: var(--wqc-muted);
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      .wqc-config-dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 18px;
       }
 
       .wqc-selection-count {
@@ -1878,8 +1960,22 @@ const historyDateFormatters = {
         }
 
         .wqc-config-actions {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          align-items: stretch;
+          flex-wrap: wrap;
           width: 100%;
+        }
+
+        .wqc-config-actions .btn {
+          flex: 0 0 auto;
+        }
+
+        .wqc-reset-config {
+          margin-left: auto;
+        }
+
+        .wqc-config-dialog-actions {
+          align-items: stretch;
+          flex-direction: column-reverse;
         }
 
         .wqc-command-filter-options {
@@ -1910,6 +2006,8 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     batchMoveOpen = false
     batchMoveCategoryMenuOpen = false
     batchMoveCategory = ''
+    pendingConfigImport: PluginConfigImportFile | null = null
+    resetDefaultsConfirmOpen = false
     selectedCommandIds = new Set<string>()
     runtimeLogs: any[] = []
     runtimeStats: CommandUsageStats = {}
@@ -2160,6 +2258,8 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.batchDeleteConfirmOpen = false
         this.batchMoveOpen = false
         this.batchMoveCategoryMenuOpen = false
+        this.pendingConfigImport = null
+        this.resetDefaultsConfirmOpen = false
         this.updateHistoryOpen = false
     }
 
@@ -2532,15 +2632,88 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
             if (file.size > 5 * 1024 * 1024) {
                 throw new Error('配置文件不能超过 5MB。')
             }
-            const imported = this.pluginConfigStore.parseImport(await file.text())
-            this.pluginConfig = imported
-            this.pluginConfigStore.set(imported)
-            this.selectedCommandIds = new Set<string>()
-            this.commandPage = 1
-            this.showConfigMessage('插件配置已导入。按钮显示设置将在重启 Tabby 后生效。')
+            const parsed = this.pluginConfigStore.parseImportFile(await file.text())
+            if (parsed.kind === 'commands' && !parsed.commands.length) {
+                throw new Error('导入文件里没有命令。')
+            }
+            this.pendingConfigImport = parsed
         } catch (error) {
             this.showConfigMessage(`导入失败：${error instanceof Error ? error.message : '配置文件无效。'}`)
         }
+    }
+
+    cancelPendingConfigImport (): void {
+        this.pendingConfigImport = null
+    }
+
+    importPendingCommands (): void {
+        const pending = this.pendingConfigImport
+        if (!pending) {
+            return
+        }
+        const createId = this.createImportIdFactory()
+        const existing = (Array.isArray(this.root.commands) ? this.root.commands : [])
+            .map((command: Partial<QuickCommand>) => normalizeCommandConfig(command, createId))
+        const imported = pending.commands.map(command => normalizeCommandConfig(command, createId))
+        const preview = buildImportPreview(existing, imported, {
+            customCategories: pending.customCategories,
+            categoryOrder: pending.categoryOrder,
+            version: pending.version,
+        })
+        const sanitized = sanitizeAutomationReferences(applyImportPreview(existing, preview, 'merge'))
+        const commands = sanitized.commands.map(command => this.stripCommandRuntime(command))
+        const categories = new Set([
+            '全部', '常用', '收藏',
+            ...(Array.isArray(this.root.customCategories) ? this.root.customCategories : []),
+            ...pending.customCategories,
+            ...commands.map(command => command.category),
+        ])
+        const selectedCategory = categories.has(this.root.selectedCategory) ? this.root.selectedCategory : '全部'
+        const selectedCommandId = commands.some(command => command.id === this.root.selectedCommandId)
+            ? this.root.selectedCommandId
+            : commands[0]?.id || null
+        const next = {
+            ...this.root,
+            commands,
+            customCategories: Array.from(new Set([
+                ...(Array.isArray(this.root.customCategories) ? this.root.customCategories : []),
+                ...pending.customCategories,
+            ])),
+            categoryOrder: Array.from(new Set([
+                ...(Array.isArray(this.root.categoryOrder) ? this.root.categoryOrder : []),
+                ...pending.categoryOrder,
+            ])),
+            selectedCommandId,
+            selectedCategory,
+        }
+        this.pendingConfigImport = null
+        this.applyImportedConfig(next)
+        this.showConfigMessage('命令已合并导入。')
+    }
+
+    importPendingFullConfig (): void {
+        const imported = this.pendingConfigImport?.config
+        if (!imported) {
+            return
+        }
+        this.pendingConfigImport = null
+        this.applyImportedConfig(imported)
+        this.showConfigMessage('插件配置已导入。按钮显示设置将在重启 Tabby 后生效。')
+    }
+
+    openResetDefaultsConfirm (): void {
+        this.resetDefaultsConfirmOpen = true
+    }
+
+    closeResetDefaultsConfirm (): void {
+        this.resetDefaultsConfirmOpen = false
+    }
+
+    restoreDefaultSettings (): void {
+        const restored = buildDefaultSettingsConfig(this.root, defaultQuickCommandsConfig)
+        this.resetDefaultsConfirmOpen = false
+        this.applyImportedConfig(restored)
+        this.showConfigMessage('已恢复默认配置，现有命令、分类和输出触发器已保留。按钮显示设置将在重启 Tabby 后生效。')
     }
 
     setBoolean (field: string, event: Event): void {
@@ -2644,6 +2817,30 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     private resetCommandFilterPage (): void {
         this.commandPage = 1
         this.batchDeleteConfirmOpen = false
+    }
+
+    private applyImportedConfig (config: Record<string, unknown>): void {
+        this.pluginConfig = config
+        this.pluginConfigStore.set(config)
+        this.selectedCommandIds = new Set<string>()
+        this.commandPage = 1
+        this.commandQuery = ''
+        this.commandCategory = 'all'
+        this.commandUsage = 'all'
+        this.closeBatchMove()
+        this.batchDeleteConfirmOpen = false
+        this.updateCheckInterval = this.pluginUpdate.checkInterval
+    }
+
+    private createImportIdFactory (): () => string {
+        const prefix = Date.now().toString(36)
+        let counter = 0
+        return () => `import-${prefix}-${(++counter).toString(36)}`
+    }
+
+    private stripCommandRuntime (command: QuickCommand): Omit<QuickCommand, 'usageCount' | 'lastUsedAt'> {
+        const { usageCount: _usageCount, lastUsedAt: _lastUsedAt, ...stored } = command
+        return stored
     }
 
     private save (): void {

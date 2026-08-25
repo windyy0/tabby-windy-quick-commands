@@ -17,6 +17,8 @@ import {
     normalizeCommandConfig,
     normalizeCommandText,
     parseImportPayload,
+    quickCommandsFileFormat,
+    quickCommandsFileVersion,
     resolveSelectedCommand,
     sanitizeAutomationReferences,
 } from './commandLibrary'
@@ -1090,7 +1092,7 @@ export class QuickCommandsService {
               <div class="tqc-confirm-desc">确认删除该输出触发器规则？此操作不可撤销。</div>
               <div class="tqc-confirm-actions">
                 <button class="tqc-secondary" type="button" data-action="rule-delete-cancel">取消</button>
-                <button class="tqc-primary" type="button" data-action="rule-delete-confirm">删除</button>
+                <button class="tqc-primary tqc-danger-action" type="button" data-action="rule-delete-confirm">删除</button>
               </div>
             </div>
           </div>
@@ -1105,7 +1107,7 @@ export class QuickCommandsService {
               <div class="tqc-confirm-desc">确认删除“${this.escape(command?.name || '未命名命令')}”？</div>
               <div class="tqc-confirm-actions">
                 <button class="tqc-secondary" type="button" data-action="delete-cancel">取消</button>
-                <button class="tqc-primary" type="button" data-action="delete-confirm">删除</button>
+                <button class="tqc-primary tqc-danger-action" type="button" data-action="delete-confirm">删除</button>
               </div>
             </div>
           </div>
@@ -1164,7 +1166,7 @@ export class QuickCommandsService {
               </div>
               <div class="tqc-confirm-actions">
                 <button class="tqc-secondary" type="button" data-action="category-delete-cancel">取消</button>
-                <button class="tqc-primary" type="button" data-action="category-delete-confirm">${count ? '删除分类和命令' : '删除分类'}</button>
+                <button class="tqc-primary tqc-danger-action" type="button" data-action="category-delete-confirm">${count ? '删除分类和命令' : '删除分类'}</button>
               </div>
             </div>
           </div>
@@ -2775,8 +2777,9 @@ export class QuickCommandsService {
 
     private async exportCommands (): Promise<void> {
         const payload = {
-            format: 'tabby-windy-quick-commands',
-            version: 3,
+            format: quickCommandsFileFormat,
+            version: quickCommandsFileVersion,
+            kind: 'commands',
             exportedAt: new Date().toISOString(),
             customCategories: this.state.customCategories,
             categoryOrder: this.state.categoryOrder,

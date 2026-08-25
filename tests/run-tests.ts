@@ -21,7 +21,7 @@ import { getDangerCheck } from '../src/safety'
 import { getExecutableLineCount, parseScriptSteps } from '../src/scriptParser'
 import { QuickCommandsRuntimeStore } from '../src/runtimeStorage'
 import { shouldShowToolbarButton } from '../src/toolbarVisibility'
-import { QuickCommandsPluginConfigStore } from '../src/pluginConfigStorage'
+import { buildDefaultSettingsConfig, QuickCommandsPluginConfigStore } from '../src/pluginConfigStorage'
 import { migrateLegacyPluginConfig, readLegacyPluginConfig, removeLegacyPluginConfig } from '../src/legacyConfigMigration'
 import {
     findOutputMatch,
@@ -112,6 +112,10 @@ function testTranslations (): void {
     assert(translatePluginText('匹配后流程', 'en-US') === 'After-match flow', 'post-match flow label should be translated')
     assert(translatePluginText('全部行匹配', 'en-US') === 'Match all patterns', 'output pattern logic should be translated')
     assert(translatePluginText('输入要发送到终端的命令', 'en-US') === 'Enter the command to send to the terminal', 'custom automation command placeholder should be translated')
+    assert(translatePluginText('恢复默认配置', 'en-US') === 'Restore defaults', 'restore-defaults action should be translated')
+    assert(translatePluginText('导入完整配置', 'en-US') === 'Import full configuration', 'full configuration import action should be translated')
+    assert(translatePluginText('导入', 'en-US') === 'Import', 'settings import action should be translated')
+    assert(translatePluginText('导出', 'en-US') === 'Export', 'settings export action should be translated')
     assert(translatePluginText('确认删除该输出触发器规则？此操作不可撤销。', 'en-US') === 'Delete this output trigger rule? This action cannot be undone.', 'output trigger deletion should be translated')
     assert(translatePluginText('命令 1的第 2 条输出触发器错误动作无效。', 'en-US') === 'Command 1 output trigger 2 has an invalid error action.', 'output trigger validation errors should be translated')
     assert(translatePluginText('将“部署”移动到指定分类。', 'en-US') === 'Move "部署" to the selected category.', 'move dialog should translate dynamic command names')
@@ -207,12 +211,13 @@ function testPluginUpdateNotes (): void {
 function testImportValidation (): void {
     const parsed = parseImportPayload(JSON.stringify({
         format: 'tabby-windy-quick-commands',
-        version: 3,
+        version: 1,
+        kind: 'commands',
         customCategories: ['空分类', '空分类'],
         categoryOrder: ['开发', '空分类'],
         commands: [{ id: 'one', name: '测试', command: 'echo ok' }],
     }))
-    assert(parsed.version === 3, 'import parser should preserve supported versions')
+    assert(parsed.version === 1 && parsed.kind === 'commands', 'import parser should preserve the supported file type and version')
     assert(parsed.customCategories.length === 1, 'import parser should normalize category metadata')
 
     let legacyRejected = false
@@ -225,11 +230,27 @@ function testImportValidation (): void {
     }
     assert(legacyRejected, 'import parser should reject legacy array payloads')
 
-    let duplicateRejected = false
+    let oldVersionRejected = false
     try {
         parseImportPayload(JSON.stringify({
             format: 'tabby-windy-quick-commands',
             version: 3,
+            kind: 'commands',
+            customCategories: [],
+            categoryOrder: [],
+            commands: [],
+        }))
+    } catch {
+        oldVersionRejected = true
+    }
+    assert(oldVersionRejected, 'import parser should reject the old v3 command-library format')
+
+    let duplicateRejected = false
+    try {
+        parseImportPayload(JSON.stringify({
+            format: 'tabby-windy-quick-commands',
+            version: 1,
+            kind: 'commands',
             customCategories: [],
             categoryOrder: [],
             commands: [
@@ -247,6 +268,7 @@ function testImportValidation (): void {
         parseImportPayload(JSON.stringify({
             format: 'tabby-windy-quick-commands',
             version: 99,
+            kind: 'commands',
             customCategories: [],
             categoryOrder: [],
             commands: [],
@@ -260,7 +282,8 @@ function testImportValidation (): void {
     try {
         parseImportPayload(JSON.stringify({
             format: 'tabby-windy-quick-commands',
-            version: 3,
+            version: 1,
+            kind: 'commands',
             customCategories: [],
             categoryOrder: [],
             commands: [{
@@ -278,7 +301,8 @@ function testImportValidation (): void {
     try {
         parseImportPayload(JSON.stringify({
             format: 'tabby-windy-quick-commands',
-            version: 3,
+            version: 1,
+            kind: 'commands',
             customCategories: [],
             categoryOrder: [],
             commands: [{
@@ -294,7 +318,8 @@ function testImportValidation (): void {
 
     const legacyTimeoutImport = parseImportPayload(JSON.stringify({
         format: 'tabby-windy-quick-commands',
-        version: 3,
+        version: 1,
+        kind: 'commands',
         customCategories: [],
         categoryOrder: [],
         commands: [{
@@ -310,7 +335,8 @@ function testImportValidation (): void {
     try {
         parseImportPayload(JSON.stringify({
             format: 'tabby-windy-quick-commands',
-            version: 3,
+            version: 1,
+            kind: 'commands',
             customCategories: [],
             categoryOrder: [],
             commands: [{
@@ -635,6 +661,8 @@ function testPluginConfigStorage (): void {
         const first = { commands: [{ id: 'a', name: 'A', command: 'echo a' }], drawerWidth: 560 }
         const second = {
             commands: [{ id: 'b', name: 'B', command: 'echo b' }],
+            customCategories: [],
+            categoryOrder: [],
             drawerWidth: 620,
             moveNavigateAfterMove: true,
             updateCheckInterval: 'weekly',
@@ -647,14 +675,27 @@ function testPluginConfigStorage (): void {
         const reloaded = new QuickCommandsPluginConfigStore(configPath).load({})
         assert(reloaded.drawerWidth === 620, 'plugin config should reload the latest saved value')
         const payload = store.exportPayload(second)
+        assert(payload.format === 'tabby-windy-quick-commands' && payload.version === 1 && payload.kind === 'config', 'configuration export should use the unified v1 file protocol')
         const imported = store.parseImport(JSON.stringify(payload))
+        const drawerImported = parseImportPayload(JSON.stringify(payload))
+        assert(drawerImported.kind === 'config' && drawerImported.commands.length === 1, 'drawer import should extract commands from full configuration files')
         assert(Array.isArray(imported.commands) && imported.commands.length === 1, 'full config export should be importable')
         assert(imported.moveNavigateAfterMove === true, 'move navigation preference should be importable')
         assert(imported.updateCheckInterval === 'weekly', 'update check interval should be importable')
         assert(imported.ignoredUpdateVersion === '1.6.0', 'ignored update version should be importable')
-        const normalized = store.parseImport(JSON.stringify({
-            format: 'tabby-windy-quick-commands-config',
+        const commandsFile = store.parseImportFile(JSON.stringify({
+            format: 'tabby-windy-quick-commands',
             version: 1,
+            kind: 'commands',
+            commands: [{ id: 'commands-only', name: '仅命令', command: 'echo commands' }],
+            customCategories: ['导入分类'],
+            categoryOrder: ['导入分类'],
+        }))
+        assert(commandsFile.kind === 'commands' && commandsFile.commands.length === 1, 'settings import should accept command-library files')
+        const normalized = store.parseImport(JSON.stringify({
+            format: 'tabby-windy-quick-commands',
+            version: 1,
+            kind: 'config',
             config: {
                 commands: [{
                     id: 'normalized',
@@ -692,14 +733,17 @@ function testPluginConfigStorage (): void {
         let malformedRuleRejected = false
         try {
             store.parseImport(JSON.stringify({
-                format: 'tabby-windy-quick-commands-config',
+                format: 'tabby-windy-quick-commands',
                 version: 1,
+                kind: 'config',
                 config: {
                     commands: [{
                         name: '错误规则',
                         command: 'echo ok',
                         automationRules: [{ onMatchCommand: {} }],
                     }],
+                    customCategories: [],
+                    categoryOrder: [],
                 },
             }))
         } catch {
@@ -710,10 +754,13 @@ function testPluginConfigStorage (): void {
         let malformedSettingRejected = false
         try {
             store.parseImport(JSON.stringify({
-                format: 'tabby-windy-quick-commands-config',
+                format: 'tabby-windy-quick-commands',
                 version: 1,
+                kind: 'config',
                 config: {
                     commands: [{ name: '测试', command: 'echo ok' }],
+                    customCategories: [],
+                    categoryOrder: [],
                     showToolbarButton: 'yes',
                 },
             }))
@@ -723,11 +770,31 @@ function testPluginConfigStorage (): void {
         assert(malformedSettingRejected, 'full config import should reject invalid top-level setting types')
         let rejected = false
         try {
-            store.parseImport(JSON.stringify({ format: 'wrong', version: 1, config: second }))
+            store.parseImport(JSON.stringify({ format: 'wrong', version: 1, kind: 'config', config: second }))
         } catch {
             rejected = true
         }
         assert(rejected, 'plugin config import should reject unrelated JSON files')
+
+        const restored = buildDefaultSettingsConfig({
+            commands: [{ id: 'kept', name: '保留', command: 'echo kept', automationRules: [{ id: 'kept-rule' }] }],
+            customCategories: ['保留分类'],
+            categoryOrder: ['保留分类'],
+            drawerWidth: 720,
+            updateCheckInterval: 'never',
+        }, {
+            commands: [{ id: 'default', name: '默认', command: 'echo default' }],
+            customCategories: [],
+            categoryOrder: [],
+            selectedCommandId: 'default',
+            selectedCategory: '开发',
+            drawerWidth: 560,
+            updateCheckInterval: 'daily',
+        })
+        assert((restored.commands as any[])[0].id === 'kept', 'restoring defaults should preserve user commands and rules')
+        assert((restored.customCategories as string[])[0] === '保留分类', 'restoring defaults should preserve custom categories')
+        assert(restored.drawerWidth === 560 && restored.updateCheckInterval === 'daily', 'restoring defaults should reset plugin settings')
+        assert(restored.selectedCommandId === 'kept' && restored.selectedCategory === '全部', 'restoring defaults should repair selection for preserved commands')
     } finally {
         fs.rmSync(directory, { recursive: true, force: true })
     }

@@ -1,6 +1,10 @@
 import { QuickAutomationRule, QuickCommand } from './types'
 import { normalizeShortcut } from './shortcutManager'
 
+export const quickCommandsFileFormat = 'tabby-windy-quick-commands'
+export const quickCommandsFileVersion = 1
+export type QuickCommandsFileKind = 'commands' | 'config'
+
 export interface ImportConflict {
     command: QuickCommand
     reason: string
@@ -18,10 +22,12 @@ export interface ImportPreview {
 }
 
 export interface ParsedImportPayload {
+    kind: QuickCommandsFileKind
     commands: Array<Partial<QuickCommand>>
     customCategories: string[]
     categoryOrder: string[]
     version: number
+    config?: Record<string, unknown>
 }
 
 export interface SanitizedAutomationReferences {
@@ -48,13 +54,15 @@ export function resolveSelectedCommand (commands: QuickCommand[], selectedComman
 
 export const quickCommandsSchema = {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
-    title: 'Tabby Windy Quick Commands Library',
+    title: 'Tabby Windy Quick Commands Export',
     type: 'object',
-    required: ['version', 'commands'],
+    required: ['format', 'version', 'kind'],
     properties: {
-        version: { type: 'number' },
+        format: { const: quickCommandsFileFormat },
+        version: { const: quickCommandsFileVersion },
+        kind: { enum: ['commands', 'config'] },
         exportedAt: { type: 'string' },
-        format: { type: 'string' },
+        config: { type: 'object' },
         customCategories: { type: 'array', items: { type: 'string' } },
         categoryOrder: { type: 'array', items: { type: 'string' } },
         commands: {
@@ -122,26 +130,36 @@ export function parseImportPayload (text: string): ParsedImportPayload {
     }
 
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('只支持 v3 命令库对象，不支持旧版数组格式。')
+        throw new Error('导入文件必须是 Tabby Windy Quick Commands 对象。')
     }
     const root = parsed as Record<string, unknown>
-    if (root.format !== 'tabby-windy-quick-commands') {
-        throw new Error('文件不是 Tabby Windy Quick Commands 命令库。')
+    if (root.format !== quickCommandsFileFormat) {
+        throw new Error('文件不是 Tabby Windy Quick Commands 导出文件。')
     }
     const version = Number(root.version)
-    if (version !== 3) {
-        throw new Error(`只支持 v3 命令库，当前文件版本为 ${Number.isFinite(version) ? version : '未知'}。`)
+    if (version !== quickCommandsFileVersion) {
+        throw new Error(`只支持 v${quickCommandsFileVersion} 导出文件，当前文件版本为 ${Number.isFinite(version) ? version : '未知'}。`)
     }
-    const source = root.commands
+    const kind = root.kind
+    if (kind !== 'commands' && kind !== 'config') {
+        throw new Error('导入文件缺少有效的 kind 字段。')
+    }
+    const content = kind === 'config' ? root.config : root
+    if (!content || typeof content !== 'object' || Array.isArray(content)) {
+        throw new Error('配置导出文件缺少 config 对象。')
+    }
+    const source = (content as Record<string, unknown>).commands
     if (!Array.isArray(source)) {
         throw new Error('导入文件缺少 commands 数组。')
     }
     validateImportedCommands(source)
     return {
+        kind,
         commands: source as Array<Partial<QuickCommand>>,
-        customCategories: parseStringList(root.customCategories, 'customCategories'),
-        categoryOrder: parseStringList(root.categoryOrder, 'categoryOrder'),
+        customCategories: parseStringList((content as Record<string, unknown>).customCategories, 'customCategories'),
+        categoryOrder: parseStringList((content as Record<string, unknown>).categoryOrder, 'categoryOrder'),
         version,
+        config: kind === 'config' ? content as Record<string, unknown> : undefined,
     }
 }
 
@@ -178,7 +196,7 @@ export function buildImportPreview (
     metadata: Pick<ParsedImportPayload, 'customCategories' | 'categoryOrder' | 'version'> = {
         customCategories: [],
         categoryOrder: [],
-        version: 3,
+        version: quickCommandsFileVersion,
     },
 ): ImportPreview {
     const existingById = new Map(existing.map(command => [command.id, command]))

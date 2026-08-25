@@ -1636,11 +1636,12 @@
   inset: 0 0 0 auto;
   width: min(var(--tqc-width, 520px), 100vw);
   pointer-events: auto;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(15, 23, 42, 0.46);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
+  backdrop-filter: blur(2px);
 }
 
 .tqc-tooltip {
@@ -1700,23 +1701,33 @@
 }
 
 .tqc-confirm {
-  --tqc-confirm-bg: #eef2f7;
-  --tqc-confirm-text: #172033;
-  --tqc-confirm-muted: #475569;
-  --tqc-confirm-border: rgba(71, 85, 105, 0.42);
-  --tqc-confirm-input: #f8fafc;
-  --tqc-confirm-primary: #1677ff;
+  --tqc-confirm-bg: var(--bs-body-bg, #ffffff);
+  --tqc-confirm-text: var(--bs-body-color, #1f2937);
+  --tqc-confirm-muted: var(--bs-secondary-color, color-mix(in srgb, var(--tqc-confirm-text) 72%, transparent));
+  --tqc-confirm-border: color-mix(in srgb, var(--tqc-confirm-bg) 72%, var(--tqc-confirm-text) 28%);
+  --tqc-confirm-input: color-mix(in srgb, var(--tqc-confirm-bg) 92%, var(--tqc-confirm-text) 8%);
+  --tqc-confirm-primary: color-mix(in srgb, var(--bs-primary, #1677ff) 72%, var(--tqc-confirm-text) 28%);
   --tqc-confirm-primary-text: #ffffff;
+  --tqc-confirm-danger: var(--bs-danger, #c2410c);
+  --tqc-accent: var(--tqc-confirm-primary);
+  --tqc-danger: var(--tqc-confirm-danger);
+  --tqc-panel-solid: var(--tqc-confirm-bg);
+  --tqc-text: var(--tqc-confirm-text);
+  --tqc-muted: var(--tqc-confirm-muted);
+  --tqc-border: var(--tqc-confirm-border);
+  --tqc-control-border: var(--tqc-confirm-border);
+  --tqc-subtle: var(--tqc-confirm-input);
+  --tqc-accent-soft: color-mix(in srgb, var(--tqc-confirm-primary) 14%, transparent);
   width: min(460px, calc(100% - 32px));
   max-height: calc(100vh - 32px);
   overflow: auto;
   border: 1px solid var(--tqc-confirm-border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--tqc-confirm-bg);
   background-color: var(--tqc-confirm-bg);
   color: var(--tqc-confirm-text);
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.34);
-  padding: 14px;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.24);
+  padding: 18px;
 }
 
 .tqc-confirm .tqc-input,
@@ -1740,6 +1751,18 @@
   background: color-mix(in srgb, var(--tqc-confirm-primary) 84%, #000000);
   border-color: color-mix(in srgb, var(--tqc-confirm-primary) 76%, #000000);
   color: var(--tqc-confirm-primary-text);
+}
+
+.tqc-confirm .tqc-danger-action {
+  background: var(--tqc-confirm-danger);
+  border-color: var(--tqc-confirm-danger);
+  color: #ffffff;
+}
+
+.tqc-confirm .tqc-danger-action:not(:disabled):hover {
+  background: color-mix(in srgb, var(--tqc-confirm-danger) 84%, #000000);
+  border-color: color-mix(in srgb, var(--tqc-confirm-danger) 76%, #000000);
+  color: #ffffff;
 }
 
 .tqc-confirm .tqc-secondary {
@@ -1769,13 +1792,15 @@
 
 .tqc-confirm-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 18px;
 }
 
 .tqc-confirm-actions .tqc-secondary,
 .tqc-confirm-actions .tqc-primary {
-  flex: 1;
+  flex: 0 0 auto;
 }
 
 .tqc-move-select {
@@ -2153,13 +2178,12 @@ body.dark .tqc-confirm,
 .theme-dark .tqc-confirm,
 .platform-theme-dark .tqc-confirm,
 [data-bs-theme="dark"] .tqc-confirm {
-  --tqc-confirm-bg: #1f2937;
-  --tqc-confirm-text: #f8fafc;
-  --tqc-confirm-muted: #cbd5e1;
-  --tqc-confirm-border: rgba(226, 232, 240, 0.34);
-  --tqc-confirm-input: #111827;
-  --tqc-confirm-primary: #3b82f6;
-  --tqc-confirm-primary-text: #ffffff;
+  --tqc-confirm-bg: var(--bs-body-bg, #111827);
+  --tqc-confirm-text: color-mix(in srgb, var(--bs-body-color, #e5e7eb) 72%, #ffffff 28%);
+  --tqc-confirm-muted: color-mix(in srgb, var(--tqc-confirm-text) 72%, transparent);
+  --tqc-confirm-border: color-mix(in srgb, var(--tqc-confirm-bg) 70%, var(--tqc-confirm-text) 30%);
+  --tqc-confirm-input: color-mix(in srgb, var(--tqc-confirm-bg) 88%, var(--tqc-confirm-text) 12%);
+  --tqc-confirm-primary: color-mix(in srgb, var(--bs-primary, #3b82f6) 72%, #ffffff 28%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -2172,12 +2196,11 @@ body.dark .tqc-confirm,
   }
 
   .tqc-confirm {
-    --tqc-confirm-bg: #1f2937;
-    --tqc-confirm-text: #f8fafc;
-    --tqc-confirm-muted: #cbd5e1;
-    --tqc-confirm-border: rgba(226, 232, 240, 0.34);
-    --tqc-confirm-input: #111827;
-    --tqc-confirm-primary: #3b82f6;
-    --tqc-confirm-primary-text: #ffffff;
+    --tqc-confirm-bg: var(--bs-body-bg, #111827);
+    --tqc-confirm-text: color-mix(in srgb, var(--bs-body-color, #e5e7eb) 72%, #ffffff 28%);
+    --tqc-confirm-muted: color-mix(in srgb, var(--tqc-confirm-text) 72%, transparent);
+    --tqc-confirm-border: color-mix(in srgb, var(--tqc-confirm-bg) 70%, var(--tqc-confirm-text) 30%);
+    --tqc-confirm-input: color-mix(in srgb, var(--tqc-confirm-bg) 88%, var(--tqc-confirm-text) 12%);
+    --tqc-confirm-primary: color-mix(in srgb, var(--bs-primary, #3b82f6) 72%, #ffffff 28%);
   }
 }

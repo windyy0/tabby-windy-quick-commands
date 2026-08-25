@@ -13,6 +13,10 @@ const englishPhrases: Record<string, string> = {
     '等待成功或错误输出的最长时间，单位为毫秒；到时后执行右侧的超时动作，最少 100 毫秒。': 'Maximum time to wait for success or error output, in milliseconds. The timeout action is used when it expires; minimum 100 ms.',
     '等待成功或错误输出的最长时间，单位为毫秒；到时后执行右侧的超时动作，最少 100ms。': 'Maximum time to wait for success or error output, in milliseconds. The timeout action is used when it expires; minimum 100 ms.',
     '导出或恢复命令、分类、触发器和所有插件设置；运行日志与使用统计不包含在内。': 'Export or restore commands, categories, triggers, and all plugin settings. Runtime logs and usage statistics are excluded.',
+    '确定恢复所有插件设置的默认值？现有命令、分类和输出触发器将保留，运行日志和使用统计也不会清除。': 'Restore all plugin settings to their defaults? Existing commands, categories, and output triggers will be kept. Runtime logs and usage statistics will not be cleared.',
+    '该文件包含命令和插件配置，请选择要导入的内容。导入完整配置会替换当前命令和设置。': 'This file contains commands and plugin settings. Choose what to import. Importing the full configuration replaces the current commands and settings.',
+    '该文件只包含命令。是否将命令合并到当前命令库？': 'This file contains commands only. Merge them into the current command library?',
+    '已恢复默认配置，现有命令、分类和输出触发器已保留。按钮显示设置将在重启 Tabby 后生效。': 'Default settings restored. Existing commands, categories, and output triggers were kept. Toolbar button visibility takes effect after restarting Tabby.',
     '合并会跳过全部冲突；替换会忽略与现有库的冲突，但跳过文件内部冲突。': 'Merge skips every conflict. Replace ignores conflicts with the existing library but skips conflicts inside the imported file.',
     '点击输入框后按组合键。在终端中按下即可执行；高风险命令仍需确认。': 'Click the field and press a key combination. Use it in a terminal to run the command; high-risk commands still require confirmation.',
     '命令包含删除、重启、清理或数据库高风险关键字，执行前会二次确认。': 'The command contains high-risk delete, restart, cleanup, or database keywords and requires an extra confirmation.',
@@ -91,6 +95,7 @@ const englishPhrases: Record<string, string> = {
     '命令库已导出为 JSON 文件。': 'Command library exported as a JSON file.',
     '命令库已合并导入': 'Command library merged',
     '命令库已替换导入': 'Command library replaced',
+    '命令已合并导入。': 'Commands merged successfully.',
     '执行失败，请查看 Tabby 日志。': 'Execution failed. Check the Tabby logs.',
     '配置文件不能超过 5MB。': 'The configuration file cannot exceed 5 MB.',
     '导入文件不能超过 5MB。': 'The import file cannot exceed 5 MB.',
@@ -166,8 +171,10 @@ const englishPhrases: Record<string, string> = {
     '包含删除数据库': 'Contains a database drop',
     '包含清空表数据': 'Contains table truncation',
     'JSON 格式无效。': 'Invalid JSON.',
-    '只支持 v3 命令库对象，不支持旧版数组格式。': 'Only v3 command library objects are supported; legacy array format is not supported.',
-    '文件不是 Tabby Windy Quick Commands 命令库。': 'The file is not a Tabby Windy Quick Commands library.',
+    '导入文件必须是 Tabby Windy Quick Commands 对象。': 'The import file must be a Tabby Windy Quick Commands object.',
+    '文件不是 Tabby Windy Quick Commands 导出文件。': 'The file is not a Tabby Windy Quick Commands export.',
+    '导入文件缺少有效的 kind 字段。': 'The import file is missing a valid kind field.',
+    '配置导出文件缺少 config 对象。': 'The configuration export is missing the config object.',
     '导入文件缺少 commands 数组。': 'The import file is missing the commands array.',
     '导入文件包含的命令超过 5000 条。': 'The import file contains more than 5000 commands.',
     '配置文件包含的命令超过 5000 条。': 'The configuration contains more than 5000 commands.',
@@ -286,6 +293,12 @@ const englishPhrases: Record<string, string> = {
     '插件配置': 'Plugin configuration',
     '导出配置': 'Export configuration',
     '导入配置': 'Import configuration',
+    '导出': 'Export',
+    '导入': 'Import',
+    '选择导入内容': 'Choose what to import',
+    '导入完整配置': 'Import full configuration',
+    '恢复默认配置': 'Restore defaults',
+    '确认恢复': 'Restore defaults',
     '继续执行': 'Continue',
     '停止执行': 'Stop',
     '手动确认': 'Ask what to do',
@@ -414,7 +427,7 @@ export function translatePluginText (text: string, locale: string | null | undef
         .replace(/命令不存在（(.+?)）/g, 'Command does not exist ($1)')
         .replace(/输入\s+(.+?)\s+确认/g, 'Enter $1 to confirm')
         .replace(/(.+?)\s+等\s+(\d+)\s+个会话/g, '$1 and $2 sessions total')
-        .replace(/只支持 v3 命令库，当前文件版本为 (.+?)。/g, 'Only v3 command libraries are supported; this file is version $1.')
+        .replace(/只支持 v1 导出文件，当前文件版本为 (.+?)。/g, 'Only v1 export files are supported; this file is version $1.')
         .replace(/第\s*(\d+)\s*条命令缺少有效的名称或命令内容。/g, 'Command $1 is missing a valid name or command text.')
         .replace(/第\s*(\d+)\s*条命令格式无效。/g, 'Command $1 has an invalid format.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器字段 (.+?) 无效。/g, '$1 output trigger $2 has an invalid $3 field.')
