@@ -1727,7 +1727,7 @@
   background-color: var(--tqc-confirm-bg);
   color: var(--tqc-confirm-text);
   box-shadow: 0 22px 60px rgba(15, 23, 42, 0.24);
-  padding: 18px;
+  padding: 18px 18px 12px;
 }
 
 .tqc-confirm .tqc-input,
@@ -1779,7 +1779,9 @@
 .tqc-confirm-title {
   font-size: 15px;
   font-weight: 700;
-  margin-bottom: 5px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--tqc-confirm-border) 70%, transparent);
   color: var(--tqc-confirm-text);
 }
 
@@ -1795,12 +1797,178 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 18px;
+  margin-top: 20px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--tqc-confirm-border) 70%, transparent);
 }
 
 .tqc-confirm-actions .tqc-secondary,
 .tqc-confirm-actions .tqc-primary {
   flex: 0 0 auto;
+}
+
+.tqc-import-version {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  padding: 8px 10px;
+  color: var(--tqc-confirm-muted);
+  background: var(--tqc-confirm-input);
+  border: 1px solid var(--tqc-confirm-border);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.tqc-import-version strong {
+  color: var(--tqc-confirm-primary);
+  font-size: 14px;
+}
+
+.tqc-import-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tqc-import-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 10px;
+  background: var(--tqc-confirm-input);
+  border: 1px solid var(--tqc-confirm-border);
+  border-radius: 8px;
+}
+
+.tqc-import-stat span {
+  color: var(--tqc-confirm-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.tqc-import-stat strong {
+  flex: none;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.tqc-import-stat-warning {
+  background: color-mix(in srgb, var(--tqc-confirm-danger) 7%, var(--tqc-confirm-bg));
+  border-color: color-mix(in srgb, var(--tqc-confirm-danger) 34%, var(--tqc-confirm-border));
+}
+
+.tqc-import-stat-warning strong {
+  color: var(--tqc-confirm-danger);
+}
+
+.tqc-import-rules {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  color: var(--tqc-confirm-muted);
+  background: color-mix(in srgb, var(--tqc-confirm-primary) 7%, var(--tqc-confirm-bg));
+  border: 1px solid color-mix(in srgb, var(--tqc-confirm-primary) 28%, var(--tqc-confirm-border));
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.tqc-import-rules .tqc-import-section-title {
+  color: var(--tqc-confirm-text);
+  font-size: 12px;
+}
+
+.tqc-import-conflicts {
+  margin-top: 10px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--tqc-confirm-danger) 4%, var(--tqc-confirm-bg));
+  border: 1px solid color-mix(in srgb, var(--tqc-confirm-danger) 30%, var(--tqc-confirm-border));
+  border-radius: 8px;
+}
+
+.tqc-import-conflicts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  background: color-mix(in srgb, var(--tqc-confirm-danger) 7%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--tqc-confirm-danger) 24%, var(--tqc-confirm-border));
+  font-size: 12px;
+}
+
+.tqc-import-conflicts-head strong {
+  color: var(--tqc-confirm-danger);
+}
+
+.tqc-import-conflicts-head span {
+  min-width: 24px;
+  padding: 2px 7px;
+  color: var(--tqc-confirm-danger);
+  background: color-mix(in srgb, var(--tqc-confirm-danger) 10%, var(--tqc-confirm-bg));
+  border-radius: 999px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.tqc-import-conflict-list {
+  display: grid;
+  padding: 0 11px;
+}
+
+.tqc-import-conflict-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  padding: 9px 0;
+}
+
+.tqc-import-conflict-row + .tqc-import-conflict-row {
+  border-top: 1px solid color-mix(in srgb, var(--tqc-confirm-border) 62%, transparent);
+}
+
+.tqc-import-conflict-source {
+  padding: 2px 6px;
+  color: var(--tqc-confirm-danger);
+  background: color-mix(in srgb, var(--tqc-confirm-danger) 10%, var(--tqc-confirm-bg));
+  border-radius: 5px;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.tqc-import-conflict-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.tqc-import-conflict-copy strong,
+.tqc-import-conflict-copy span {
+  overflow-wrap: anywhere;
+}
+
+.tqc-import-conflict-copy span {
+  color: var(--tqc-confirm-muted);
+}
+
+.tqc-import-conflict-more {
+  padding: 8px 11px;
+  color: var(--tqc-confirm-muted);
+  border-top: 1px solid color-mix(in srgb, var(--tqc-confirm-border) 62%, transparent);
+  font-size: 11px;
+  text-align: center;
 }
 
 .tqc-move-select {

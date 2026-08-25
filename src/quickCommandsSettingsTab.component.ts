@@ -321,8 +321,14 @@ const historyDateFormatters = {
         <div class="wqc-config-dialog-backdrop" *ngIf="pendingConfigImport" (click)="cancelPendingConfigImport()">
           <section class="wqc-config-dialog" role="dialog" aria-modal="true" aria-labelledby="wqc-config-import-title" (click)="$event.stopPropagation()">
             <h4 id="wqc-config-import-title">{{ pendingConfigImport.kind === 'commands' ? '导入命令' : '选择导入内容' }}</h4>
-            <p *ngIf="pendingConfigImport.kind === 'commands'">该文件只包含命令。是否将命令合并到当前命令库？</p>
-            <p *ngIf="pendingConfigImport.kind === 'config'">该文件包含命令和插件配置，请选择要导入的内容。导入完整配置会替换当前命令和设置。</p>
+            <p *ngIf="pendingConfigImport.kind === 'commands'">
+              <span class="wqc-config-dialog-line">该文件只包含命令。</span>
+              <span class="wqc-config-dialog-line">是否将命令合并到当前命令库？</span>
+            </p>
+            <p *ngIf="pendingConfigImport.kind === 'config'">
+              <span class="wqc-config-dialog-line">该文件包含命令和插件配置，请选择要导入的内容。</span>
+              <span class="wqc-config-dialog-line">导入完整配置会替换当前命令和设置。</span>
+            </p>
             <div class="wqc-config-dialog-actions">
               <button class="btn btn-secondary" type="button" (click)="cancelPendingConfigImport()">取消</button>
               <button class="btn btn-secondary" type="button" [disabled]="!pendingConfigImport.commands.length" (click)="importPendingCommands()">导入命令</button>
@@ -1453,7 +1459,7 @@ const historyDateFormatters = {
 
       .wqc-config-dialog {
         width: min(520px, 100%);
-        padding: 18px;
+        padding: 18px 18px 12px;
         color: var(--wqc-text);
         background: var(--bs-body-bg);
         border: 1px solid var(--wqc-surface-border);
@@ -1463,6 +1469,8 @@ const historyDateFormatters = {
 
       .wqc-config-dialog h4 {
         margin: 0;
+        padding-bottom: 10px;
+        border-bottom: 1px solid color-mix(in srgb, var(--wqc-surface-border) 70%, transparent);
       }
 
       .wqc-config-dialog p {
@@ -1472,11 +1480,17 @@ const historyDateFormatters = {
         line-height: 1.65;
       }
 
+      .wqc-config-dialog-line {
+        display: block;
+      }
+
       .wqc-config-dialog-actions {
         display: flex;
         justify-content: flex-end;
         gap: 8px;
-        margin-top: 18px;
+        margin-top: 20px;
+        padding-top: 8px;
+        border-top: 1px solid color-mix(in srgb, var(--wqc-surface-border) 70%, transparent);
       }
 
       .wqc-selection-count {

@@ -74,7 +74,8 @@ export class QuickCommandsService {
     private pendingDeleteId: string | null = null
     private pendingRuleDeleteId: string | null = null
     private addingCommand = false
-    private newCommandName = '新命令'
+    private newCommandName = ''
+    private newCommandNameEdited = false
     private newCommandDescription = ''
     private movingCommandId: string | null = null
     private moveTargetCategory = ''
@@ -148,7 +149,12 @@ export class QuickCommandsService {
         window.addEventListener('beforeunload', () => this.persistPluginConfig())
         document.addEventListener('keydown', event => this.handleDocumentKeyDown(event), true)
         document.addEventListener('click', event => this.handleDocumentClick(event))
-        this.i18n.localeChanged$.subscribe(() => this.render())
+        this.i18n.localeChanged$.subscribe(() => {
+            if (this.addingCommand && !this.newCommandNameEdited) {
+                this.newCommandName = this.getDefaultNewCommandName()
+            }
+            this.render()
+        })
         this.pluginUpdate.state$.subscribe(() => this.render())
     }
 
@@ -174,8 +180,7 @@ export class QuickCommandsService {
         this.pendingDeleteId = null
         this.pendingRuleDeleteId = null
         this.addingCommand = false
-        this.newCommandName = '新命令'
-        this.newCommandDescription = ''
+        this.resetNewCommandDraft()
         this.movingCommandId = null
         this.moveTargetCategory = ''
         this.moveCategoryMenuOpen = false
@@ -1006,7 +1011,7 @@ export class QuickCommandsService {
           <div class="tqc-confirm-backdrop" data-action="move-command-cancel">
             <div class="tqc-confirm tqc-move-confirm${this.moveCategoryMenuOpen ? ' tqc-selecting' : ''}" role="dialog" aria-modal="true" aria-label="移动命令" data-role="confirm-dialog">
               <div class="tqc-confirm-title">移动命令</div>
-              <div class="tqc-confirm-desc">将“${this.escape(command?.name || '未命名命令')}”移动到指定分类。</div>
+              <div class="tqc-confirm-desc">移动命令 <strong${command?.name ? ' data-i18n-skip' : ''}>[${this.escape(command?.name || '未命名命令')}]</strong> 到指定分类。</div>
               <label>
                 <span class="tqc-label">目标分类</span>
                 <div class="tqc-move-select${this.moveCategoryMenuOpen ? ' tqc-open' : ''}">
@@ -1062,18 +1067,46 @@ export class QuickCommandsService {
         }
         const fileConflicts = preview.conflicts.filter(conflict => conflict.scope === 'file').length
         const existingConflicts = preview.conflicts.length - fileConflicts
+        const visibleConflicts = preview.conflicts.slice(0, 5)
+        const hiddenConflictCount = preview.conflicts.length - visibleConflicts.length
         return `
           <div class="tqc-confirm-backdrop" data-action="import-cancel">
-            <div class="tqc-confirm" role="dialog" aria-modal="true" aria-label="导入预览" data-role="confirm-dialog">
+            <div class="tqc-confirm tqc-import-preview" role="dialog" aria-modal="true" aria-label="导入预览" data-role="confirm-dialog">
               <div class="tqc-confirm-title">导入预览</div>
-              <div class="tqc-confirm-desc">命令库版本 v${preview.sourceVersion}。合并会跳过全部冲突；替换会忽略与现有库的冲突，但跳过文件内部冲突。</div>
-              <div class="tqc-summary">
-                <div class="tqc-summary-row"><span>新增</span><strong>${preview.added.length}</strong></div>
-                <div class="tqc-summary-row"><span>覆盖</span><strong>${preview.overwritten.length}</strong></div>
-                <div class="tqc-summary-row"><span>现有库冲突</span><strong>${existingConflicts}</strong></div>
-                <div class="tqc-summary-row"><span>文件内部冲突</span><strong>${fileConflicts}</strong></div>
+              <div class="tqc-import-version">
+                <span>命令库版本</span>
+                <strong>v${preview.sourceVersion}</strong>
               </div>
-              ${preview.conflicts.length ? `<div class="tqc-card tqc-risk" style="margin-top:10px"><span class="tqc-label">冲突</span>${preview.conflicts.slice(0, 5).map(conflict => `<div class="tqc-log">[${conflict.scope === 'file' ? '文件' : '现有库'}] ${this.escape(conflict.command.name)}：${this.escape(conflict.reason)}</div>`).join('')}</div>` : ''}
+              <div class="tqc-import-stats">
+                <div class="tqc-import-stat"><span>新增</span><strong>${preview.added.length}</strong></div>
+                <div class="tqc-import-stat"><span>覆盖</span><strong>${preview.overwritten.length}</strong></div>
+                <div class="tqc-import-stat${existingConflicts ? ' tqc-import-stat-warning' : ''}"><span>现有库冲突</span><strong>${existingConflicts}</strong></div>
+                <div class="tqc-import-stat${fileConflicts ? ' tqc-import-stat-warning' : ''}"><span>文件内部冲突</span><strong>${fileConflicts}</strong></div>
+              </div>
+              <div class="tqc-import-rules">
+                <strong class="tqc-import-section-title">导入规则</strong>
+                <span>合并会跳过全部冲突；替换会忽略与现有库的冲突，但跳过文件内部冲突。</span>
+              </div>
+              ${preview.conflicts.length ? `
+                <div class="tqc-import-conflicts">
+                  <div class="tqc-import-conflicts-head">
+                    <strong>冲突详情</strong>
+                    <span>${preview.conflicts.length}</span>
+                  </div>
+                  <div class="tqc-import-conflict-list">
+                    ${visibleConflicts.map(conflict => `
+                      <div class="tqc-import-conflict-row">
+                        <span class="tqc-import-conflict-source">${conflict.scope === 'file' ? '文件' : '现有库'}</span>
+                        <div class="tqc-import-conflict-copy">
+                          <strong data-i18n-skip>${this.escape(conflict.command.name)}</strong>
+                          <span>${this.escape(conflict.reason)}</span>
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+                  ${hiddenConflictCount ? `<div class="tqc-import-conflict-more">另有 ${hiddenConflictCount} 条冲突未显示。</div>` : ''}
+                </div>
+              ` : ''}
               <div class="tqc-confirm-actions">
                 <button class="tqc-secondary" type="button" data-action="import-cancel">取消</button>
                 <button class="tqc-secondary" type="button" data-action="import-replace">替换导入</button>
@@ -1104,7 +1137,7 @@ export class QuickCommandsService {
           <div class="tqc-confirm-backdrop" data-action="delete-cancel">
             <div class="tqc-confirm" role="dialog" aria-modal="true" aria-label="删除命令" data-role="confirm-dialog">
               <div class="tqc-confirm-title">删除命令</div>
-              <div class="tqc-confirm-desc">确认删除“${this.escape(command?.name || '未命名命令')}”？</div>
+              <div class="tqc-confirm-desc">删除命令 <strong${command?.name ? ' data-i18n-skip' : ''}>[${this.escape(command?.name || '未命名命令')}]</strong>？</div>
               <div class="tqc-confirm-actions">
                 <button class="tqc-secondary" type="button" data-action="delete-cancel">取消</button>
                 <button class="tqc-primary tqc-danger-action" type="button" data-action="delete-confirm">删除</button>
@@ -1158,10 +1191,10 @@ export class QuickCommandsService {
         return `
           <div class="tqc-confirm-backdrop" data-action="category-delete-cancel">
             <div class="tqc-confirm" role="dialog" aria-modal="true" aria-label="删除分类" data-role="confirm-dialog">
-              <div class="tqc-confirm-title">删除分类：${this.escape(category)}</div>
+              <div class="tqc-confirm-title">删除分类：<span data-i18n-skip>${this.escape(category)}</span></div>
               <div class="tqc-confirm-desc">
                 ${count
-                    ? `该分类中有 ${count} 条命令。确认后将同时删除这些命令，此操作无法撤销。`
+                    ? `该分类包含 <strong>[${count} <span>条命令</span>]</strong>。确认后将同时删除这些命令，此操作无法撤销。`
                     : '该分类中没有命令，确认删除该分类？'}
               </div>
               <div class="tqc-confirm-actions">
@@ -1368,6 +1401,7 @@ export class QuickCommandsService {
         const newCommandDescription = this.root.querySelector<HTMLInputElement>('[data-role="new-command-description"]')
         newCommandName?.addEventListener('input', () => {
             this.newCommandName = newCommandName.value
+            this.newCommandNameEdited = true
         })
         newCommandDescription?.addEventListener('input', () => {
             this.newCommandDescription = newCommandDescription.value
@@ -2317,16 +2351,24 @@ export class QuickCommandsService {
 
     private openAddCommand (): void {
         this.addingCommand = true
-        this.newCommandName = '新命令'
-        this.newCommandDescription = ''
+        this.resetNewCommandDraft()
         this.render()
     }
 
     private closeAddCommand (): void {
         this.addingCommand = false
-        this.newCommandName = '新命令'
-        this.newCommandDescription = ''
+        this.resetNewCommandDraft()
         this.render()
+    }
+
+    private getDefaultNewCommandName (): string {
+        return this.i18n.text('新命令')
+    }
+
+    private resetNewCommandDraft (): void {
+        this.newCommandName = this.getDefaultNewCommandName()
+        this.newCommandNameEdited = false
+        this.newCommandDescription = ''
     }
 
     private createCommand (): void {
@@ -2349,8 +2391,7 @@ export class QuickCommandsService {
             lineDelay: 500,
         }, () => this.createId())
         this.addingCommand = false
-        this.newCommandName = '新命令'
-        this.newCommandDescription = ''
+        this.resetNewCommandDraft()
         this.clearSearchState()
         this.updateConfig({
             commands: [...this.state.commands, command],

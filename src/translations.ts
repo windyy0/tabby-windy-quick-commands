@@ -16,8 +16,15 @@ const englishPhrases: Record<string, string> = {
     '确定恢复所有插件设置的默认值？现有命令、分类和输出触发器将保留，运行日志和使用统计也不会清除。': 'Restore all plugin settings to their defaults? Existing commands, categories, and output triggers will be kept. Runtime logs and usage statistics will not be cleared.',
     '该文件包含命令和插件配置，请选择要导入的内容。导入完整配置会替换当前命令和设置。': 'This file contains commands and plugin settings. Choose what to import. Importing the full configuration replaces the current commands and settings.',
     '该文件只包含命令。是否将命令合并到当前命令库？': 'This file contains commands only. Merge them into the current command library?',
+    '该文件包含命令和插件配置，请选择要导入的内容。': 'This file contains commands and plugin settings. Choose what to import.',
+    '导入完整配置会替换当前命令和设置。': 'Importing the full configuration replaces the current commands and settings.',
+    '该文件只包含命令。': 'This file contains commands only.',
+    '是否将命令合并到当前命令库？': 'Merge them into the current command library?',
     '已恢复默认配置，现有命令、分类和输出触发器已保留。按钮显示设置将在重启 Tabby 后生效。': 'Default settings restored. Existing commands, categories, and output triggers were kept. Toolbar button visibility takes effect after restarting Tabby.',
     '合并会跳过全部冲突；替换会忽略与现有库的冲突，但跳过文件内部冲突。': 'Merge skips every conflict. Replace ignores conflicts with the existing library but skips conflicts inside the imported file.',
+    '到指定分类。': 'to the selected category.',
+    '该分类包含': 'This category contains',
+    '。确认后将同时删除这些命令，此操作无法撤销。': '. Confirming will also delete these commands. This action cannot be undone.',
     '点击输入框后按组合键。在终端中按下即可执行；高风险命令仍需确认。': 'Click the field and press a key combination. Use it in a terminal to run the command; high-risk commands still require confirmation.',
     '命令包含删除、重启、清理或数据库高风险关键字，执行前会二次确认。': 'The command contains high-risk delete, restart, cleanup, or database keywords and requires an extra confirmation.',
     '项目链接': 'Project links',
@@ -145,6 +152,9 @@ const englishPhrases: Record<string, string> = {
     '自动化已执行': 'Automation ran',
     '规则正则表达式无效，已跳过': 'Rule has an invalid regular expression and was skipped',
     '命令库版本': 'Command library version',
+    '条命令': 'commands',
+    '导入规则': 'Import rules',
+    '冲突详情': 'Conflict details',
     '导入文件里没有命令。': 'The import file contains no commands.',
     '命令内容为空。': 'Command text is empty.',
     '配置文件无效。': 'The configuration file is invalid.',
@@ -403,6 +413,7 @@ export function translatePluginText (text: string, locale: string | null | undef
         .replace(/(\d+)\s*条命令，\s*(\d+)\s*条运行日志/g, '$1 commands, $2 runtime logs')
         .replace(/确认永久删除选中的\s*(\d+)\s*条命令？运行日志将保留。/g, 'Permanently delete the selected $1 commands? Runtime logs will be kept.')
         .replace(/将选中的\s*(\d+)\s*条命令移动到/g, 'Move the selected $1 commands to')
+        .replace(/另有\s*(\d+)\s*条冲突未显示。?/g, '$1 more conflicts are not shown.')
         .replace(/默认保留\s*(\d+)\s*条，最多\s*(\d+)\s*条；每页\s*(\d+)\s*条，最新日志在前。/g, 'Keeps $1 entries by default and up to $2; $3 per page, newest first.')
         .replace(/所有会话（\s*(\d+)\s*）/g, 'All sessions ($1)')
         .replace(/该分类中有\s*(\d+)\s*条命令。确认后将同时删除这些命令，此操作无法撤销。/g, 'This category contains $1 commands. Confirming deletes them as well and cannot be undone.')
