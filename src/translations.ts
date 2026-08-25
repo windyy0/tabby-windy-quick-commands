@@ -360,7 +360,7 @@ const englishPhrases: Record<string, string> = {
     '模式': 'Mode',
     '目标': 'Target',
     '内容': 'Content',
-    '常用': 'Common',
+    '常用': 'Frequent',
     '默认': 'Default',
     '日志': 'Logs',
     '全选': 'Select all',

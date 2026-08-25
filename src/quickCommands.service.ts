@@ -262,7 +262,7 @@ export class QuickCommandsService {
                 <div class="tqc-category-scroll">
                   ${categories.map(category => `
                     <button class="tqc-chip${this.state.selectedCategory === category ? ' tqc-active' : ''}" type="button" data-i18n-skip data-category="${this.escapeAttr(category)}" ${this.canDragCategory(category) ? 'draggable="true"' : ''}>
-                      ${this.escape(category)}
+                      ${this.escape(this.getCategoryLabel(category))}
                     </button>
                   `).join('')}
                 </div>
@@ -285,7 +285,7 @@ export class QuickCommandsService {
                     <div class="tqc-category-overflow-options">
                       ${categories.map(category => `
                         <button class="tqc-category-overflow-option${this.state.selectedCategory === category ? ' tqc-active' : ''}" type="button" role="menuitem" data-i18n-skip data-category="${this.escapeAttr(category)}" data-category-overflow-option ${this.canDragCategory(category) ? 'draggable="true"' : ''}>
-                          ${this.escape(category)}
+                          ${this.escape(this.getCategoryLabel(category))}
                         </button>
                       `).join('')}
                     </div>
@@ -331,7 +331,7 @@ export class QuickCommandsService {
 
     private renderCommandListItem (command: QuickCommand, selected: boolean): string {
         const badges = [
-            this.state.selectedCategory === '全部' ? `<span class="tqc-pill" data-i18n-skip>${this.escape(command.category)}</span>` : '',
+            this.state.selectedCategory === '全部' ? `<span class="tqc-pill" data-i18n-skip>${this.escape(this.getCategoryLabel(command.category))}</span>` : '',
             command.shortcut ? `<span class="tqc-kbd">${this.escape(command.shortcut)}</span>` : '',
             command.pinned ? '<span class="tqc-pill">置顶</span>' : '',
             command.favorite ? '<span class="tqc-pill">收藏</span>' : '',
@@ -859,7 +859,7 @@ export class QuickCommandsService {
         return `
           <div class="tqc-category-select">
             <button class="tqc-select" type="button" data-action="category-menu-toggle">
-              <span${currentCategory ? ' data-i18n-skip' : ''}>${this.escape(currentCategory || '未分类')}</span>
+              <span${currentCategory ? ' data-i18n-skip' : ''}>${this.escape(currentCategory ? this.getCategoryLabel(currentCategory) : '未分类')}</span>
               ${icons.chevron}
             </button>
             ${this.categoryMenuOpen ? `
@@ -3467,6 +3467,10 @@ export class QuickCommandsService {
 
     private isSystemCategory (category: string): boolean {
         return category === '全部' || category === '常用' || category === '收藏'
+    }
+
+    private getCategoryLabel (category: string): string {
+        return this.isSystemCategory(category) ? this.i18n.text(category) : category
     }
 
     private canDragCategory (category: string): boolean {

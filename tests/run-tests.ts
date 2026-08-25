@@ -105,6 +105,9 @@ function testTranslations (): void {
     assert(translatePluginText('执行后继续', 'en-US') === 'Continue', 'line setting continue label should fit its button')
     assert(translatePluginText('执行后暂停', 'en-US') === 'Pause', 'line setting pause label should fit its button')
     assert(translatePluginText('全部折叠', 'en-US') === 'Collapse all', 'bulk collapse action should be translated')
+    assert(translatePluginText('全部', 'en-US') === 'All', 'all category should be translated')
+    assert(translatePluginText('常用', 'en-US') === 'Frequent', 'frequent category should be translated')
+    assert(translatePluginText('收藏', 'en-US') === 'Favorite', 'favorite category should be translated')
     assert(translatePluginText('第 2 行执行后：npm test', 'en-US') === 'After source line 2: npm test', 'line trigger labels should be translated')
     assert(translatePluginText('匹配后流程', 'en-US') === 'After-match flow', 'post-match flow label should be translated')
     assert(translatePluginText('全部行匹配', 'en-US') === 'Match all patterns', 'output pattern logic should be translated')
@@ -128,7 +131,8 @@ function testUserContentLocalizationBoundary (): void {
     const i18nSource = fs.readFileSync(path.join(process.cwd(), 'src', 'i18n.ts'), 'utf8')
     assert(drawerSource.includes('class="tqc-command-name" data-i18n-skip'), 'drawer command names should opt out of UI translation')
     assert(settingsSource.includes('<strong data-i18n-skip>{{ command.name }}</strong>'), 'settings command names should opt out of UI translation')
-    assert(i18nSource.includes('if (this.isLocalizationSkipped(element))'), 'translation should skip attributes on user-content elements')
+    assert(i18nSource.includes('if (this.isAttributeLocalizationSkipped(element))'), 'translation should skip attributes explicitly marked as user content')
+    assert(i18nSource.includes("closest('[data-i18n-skip]')"), 'textarea placeholders should remain translatable while explicitly skipped attributes remain protected')
 }
 
 function testPluginVersionComparison (): void {

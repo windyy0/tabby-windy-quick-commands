@@ -1,26 +1,28 @@
 {
-  "version": "1.6.3",
+  "version": "1.6.4",
   "zh-CN": {
-    "title": "分类操作与本地化问题修复",
+    "title": "英文本地化与按钮对齐修复",
     "sections": [
       {
         "title": "问题修复",
         "items": [
-          "修复添加分类、重命名、删除和导入确认等弹窗按钮点击无响应的问题",
-          "修复英文界面下命令名称、说明和自定义分类中的中文被误翻译的问题"
+          "修复英文界面下“全部”、“常用”和“收藏”系统分类未翻译的问题",
+          "修复输出规则匹配文本输入框的英文占位提示未翻译的问题",
+          "修复更新历史弹窗中“重新加载”按钮文字未居中的问题"
         ]
       }
     ],
     "notice": "更新安装完成后需要重启 Tabby 才会生效。"
   },
   "en": {
-    "title": "Category actions and localization fixes",
+    "title": "English localization and button alignment fixes",
     "sections": [
       {
         "title": "Bug fixes",
         "items": [
-          "Fix unresponsive buttons in add category, rename, delete, import confirmation, and other dialogs",
-          "Prevent Chinese text in command names, descriptions, and custom categories from being translated in the English interface"
+          "Translate the built-in All, Frequent, and Favorite categories in the English interface",
+          "Translate placeholders for output-rule match text fields in the English interface",
+          "Center the Reload button label in the update history dialog"
         ]
       }
     ],

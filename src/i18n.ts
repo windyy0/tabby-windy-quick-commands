@@ -31,6 +31,10 @@ export class QuickCommandsI18n {
         return Boolean(element.closest('textarea, pre, code, [data-i18n-skip]'))
     }
 
+    private isAttributeLocalizationSkipped (element: HTMLElement): boolean {
+        return Boolean(element.closest('[data-i18n-skip]'))
+    }
+
     localizeElement (root: HTMLElement): void {
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
         let node = walker.nextNode()
@@ -50,7 +54,7 @@ export class QuickCommandsI18n {
         }
 
         for (const element of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
-            if (this.isLocalizationSkipped(element)) {
+            if (this.isAttributeLocalizationSkipped(element)) {
                 continue
             }
             const cachedAttributes = this.attributeSources.get(element) || {}

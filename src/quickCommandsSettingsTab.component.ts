@@ -973,7 +973,11 @@ const historyDateFormatters = {
       }
 
       .wqc-update-history-footer .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         min-width: 82px;
+        text-align: center;
       }
 
       .wqc-update-history-confirm-close {
