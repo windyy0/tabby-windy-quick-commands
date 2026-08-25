@@ -27,12 +27,16 @@ export class QuickCommandsI18n {
         return this.language === 'zh-CN'
     }
 
+    private isLocalizationSkipped (element: HTMLElement): boolean {
+        return Boolean(element.closest('textarea, pre, code, [data-i18n-skip]'))
+    }
+
     localizeElement (root: HTMLElement): void {
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
         let node = walker.nextNode()
         while (node) {
             const parent = node.parentElement
-            if (parent && !parent.closest('textarea, pre, code, [data-i18n-skip]')) {
+            if (parent && !this.isLocalizationSkipped(parent)) {
                 const current = node.nodeValue || ''
                 const cached = this.textSources.get(node)
                 const source = !cached || current !== cached.rendered ? current : cached.source
@@ -46,6 +50,9 @@ export class QuickCommandsI18n {
         }
 
         for (const element of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
+            if (this.isLocalizationSkipped(element)) {
+                continue
+            }
             const cachedAttributes = this.attributeSources.get(element) || {}
             for (const attribute of translatableAttributes) {
                 const value = element.getAttribute(attribute)

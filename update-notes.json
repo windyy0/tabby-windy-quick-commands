@@ -1,38 +1,26 @@
 {
-  "version": "1.6.2",
+  "version": "1.6.3",
   "zh-CN": {
-    "title": "版本更新界面与发布流程优化",
+    "title": "分类操作与本地化问题修复",
     "sections": [
       {
-        "title": "界面优化",
+        "title": "问题修复",
         "items": [
-          "设置页的“更新”调整为“版本更新”，“每7天”精简为“每周”",
-          "优化“自动检查”的文字样式，并让检查频率区域根据中英文内容自动调整宽度"
-        ]
-      },
-      {
-        "title": "发布优化",
-        "items": [
-          "限制 CI 仅在 main 分支推送、拉取请求或手动操作时运行，避免发布版本标签时重复触发"
+          "修复添加分类、重命名、删除和导入确认等弹窗按钮点击无响应的问题",
+          "修复英文界面下命令名称、说明和自定义分类中的中文被误翻译的问题"
         ]
       }
     ],
     "notice": "更新安装完成后需要重启 Tabby 才会生效。"
   },
   "en": {
-    "title": "Version update interface and release workflow improvements",
+    "title": "Category actions and localization fixes",
     "sections": [
       {
-        "title": "Interface improvements",
+        "title": "Bug fixes",
         "items": [
-          "Rename the Settings section from “Updates” to “Version updates” and simplify “Every 7 days” to “Weekly”",
-          "Refine the Automatic checks label and size the check interval control to fit its Chinese or English text"
-        ]
-      },
-      {
-        "title": "Release workflow improvements",
-        "items": [
-          "Run CI only for pushes to main, pull requests, or manual dispatches to avoid duplicate runs when release tags are created"
+          "Fix unresponsive buttons in add category, rename, delete, import confirmation, and other dialogs",
+          "Prevent Chinese text in command names, descriptions, and custom categories from being translated in the English interface"
         ]
       }
     ],

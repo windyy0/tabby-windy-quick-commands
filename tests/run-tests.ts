@@ -38,6 +38,7 @@ import {
     getNextPluginUpdateCheckDelay,
     isNewerPluginVersion,
 } from '../src/pluginUpdate'
+import { shouldHandleDelegatedAction } from '../src/delegatedClick'
 
 let id = 0
 const createId = (): string => `test-${++id}`
@@ -121,6 +122,15 @@ function testTranslations (): void {
     assert(translatePluginText('检查失败：请求失败（HTTP 503）。', 'en-US') === 'Update check failed: Request failed (HTTP 503).', 'update request errors should be translated')
 }
 
+function testUserContentLocalizationBoundary (): void {
+    const drawerSource = fs.readFileSync(path.join(process.cwd(), 'src', 'quickCommands.service.ts'), 'utf8')
+    const settingsSource = fs.readFileSync(path.join(process.cwd(), 'src', 'quickCommandsSettingsTab.component.ts'), 'utf8')
+    const i18nSource = fs.readFileSync(path.join(process.cwd(), 'src', 'i18n.ts'), 'utf8')
+    assert(drawerSource.includes('class="tqc-command-name" data-i18n-skip'), 'drawer command names should opt out of UI translation')
+    assert(settingsSource.includes('<strong data-i18n-skip>{{ command.name }}</strong>'), 'settings command names should opt out of UI translation')
+    assert(i18nSource.includes('if (this.isLocalizationSkipped(element))'), 'translation should skip attributes on user-content elements')
+}
+
 function testPluginVersionComparison (): void {
     assert(isNewerPluginVersion('1.6.0', '1.5.2'), 'minor updates should be detected')
     assert(!isNewerPluginVersion('1.5.2', '1.5.2'), 'equal versions should not be updates')
@@ -134,6 +144,21 @@ function testPluginVersionComparison (): void {
     assert(
         getNextPluginUpdateCheckDelay('daily', '2026-08-20T00:00:00Z', now - hour, now) === 23 * hour,
         'a recent failed attempt should prevent rapid retries when the successful cache is stale',
+    )
+}
+
+function testDelegatedDialogClicks (): void {
+    assert(
+        shouldHandleDelegatedAction('category-confirm', false, true),
+        'dialog action buttons should reach the delegated click handler',
+    )
+    assert(
+        shouldHandleDelegatedAction('category-cancel', true, true),
+        'clicking the dialog backdrop itself should close the dialog',
+    )
+    assert(
+        !shouldHandleDelegatedAction('category-cancel', true, false),
+        'clicking dialog content should not trigger the backdrop action',
     )
 }
 
@@ -830,7 +855,9 @@ const colorEnabled = Boolean(process.stdout.isTTY && !process.env.NO_COLOR)
 const style = (code: string, text: string): string => colorEnabled ? `\x1b[${code}m${text}\x1b[0m` : text
 const tests: Array<[string, () => void | Promise<void>]> = [
     ['中英文界面', testTranslations],
+    ['用户内容本地化边界', testUserContentLocalizationBoundary],
     ['插件版本比较', testPluginVersionComparison],
+    ['弹窗委托点击', testDelegatedDialogClicks],
     ['插件更新说明', testPluginUpdateNotes],
     ['命令导入预览', testImportPreview],
     ['导入数据校验', testImportValidation],

@@ -26,6 +26,7 @@ import {
     normalizeShortcut,
     shortcutFromKeyboardEvent,
 } from './shortcutManager'
+import { shouldHandleDelegatedAction } from './delegatedClick'
 import { getDangerCheck } from './safety'
 import { getExecutableLineCount } from './scriptParser'
 import { CommandUsageStats, QuickCommandsRuntimeStore } from './runtimeStorage'
@@ -260,7 +261,7 @@ export class QuickCommandsService {
               <div class="tqc-categories">
                 <div class="tqc-category-scroll">
                   ${categories.map(category => `
-                    <button class="tqc-chip${this.state.selectedCategory === category ? ' tqc-active' : ''}" type="button" data-category="${this.escapeAttr(category)}" ${this.canDragCategory(category) ? 'draggable="true"' : ''}>
+                    <button class="tqc-chip${this.state.selectedCategory === category ? ' tqc-active' : ''}" type="button" data-i18n-skip data-category="${this.escapeAttr(category)}" ${this.canDragCategory(category) ? 'draggable="true"' : ''}>
                       ${this.escape(category)}
                     </button>
                   `).join('')}
@@ -283,7 +284,7 @@ export class QuickCommandsService {
                     <input class="tqc-category-overflow-search" data-role="category-overflow-search" placeholder="搜索分类">
                     <div class="tqc-category-overflow-options">
                       ${categories.map(category => `
-                        <button class="tqc-category-overflow-option${this.state.selectedCategory === category ? ' tqc-active' : ''}" type="button" role="menuitem" data-category="${this.escapeAttr(category)}" data-category-overflow-option ${this.canDragCategory(category) ? 'draggable="true"' : ''}>
+                        <button class="tqc-category-overflow-option${this.state.selectedCategory === category ? ' tqc-active' : ''}" type="button" role="menuitem" data-i18n-skip data-category="${this.escapeAttr(category)}" data-category-overflow-option ${this.canDragCategory(category) ? 'draggable="true"' : ''}>
                           ${this.escape(category)}
                         </button>
                       `).join('')}
@@ -330,7 +331,7 @@ export class QuickCommandsService {
 
     private renderCommandListItem (command: QuickCommand, selected: boolean): string {
         const badges = [
-            this.state.selectedCategory === '全部' ? `<span class="tqc-pill">${this.escape(command.category)}</span>` : '',
+            this.state.selectedCategory === '全部' ? `<span class="tqc-pill" data-i18n-skip>${this.escape(command.category)}</span>` : '',
             command.shortcut ? `<span class="tqc-kbd">${this.escape(command.shortcut)}</span>` : '',
             command.pinned ? '<span class="tqc-pill">置顶</span>' : '',
             command.favorite ? '<span class="tqc-pill">收藏</span>' : '',
@@ -339,9 +340,9 @@ export class QuickCommandsService {
           <div class="tqc-command-shell">
             <button class="tqc-command${selected ? ' tqc-selected' : ''}" type="button" draggable="true" data-command-id="${this.escapeAttr(command.id)}">
               <div class="tqc-command-top">
-                <div class="tqc-command-name" title="${this.escapeAttr(command.name)}">${this.escape(command.name)}</div>
+                <div class="tqc-command-name" data-i18n-skip title="${this.escapeAttr(command.name)}">${this.escape(command.name)}</div>
               </div>
-              ${command.description ? `<div class="tqc-command-desc">${this.escape(command.description)}</div>` : ''}
+              ${command.description ? `<div class="tqc-command-desc" data-i18n-skip>${this.escape(command.description)}</div>` : ''}
               ${badges.length ? `<div class="tqc-command-meta">${badges.join('')}</div>` : ''}
             </button>
             <button class="tqc-icon-button tqc-command-edit" type="button" data-action="edit-command" data-command-edit-id="${this.escapeAttr(command.id)}" data-tooltip="编辑名称和说明" aria-label="编辑名称和说明">${icons.edit}</button>
@@ -593,7 +594,7 @@ export class QuickCommandsService {
               <div class="tqc-rule-group" data-rule-group-line="${triggerLine}">
                 <div class="tqc-rule-group-head">
                   <span class="tqc-rule-group-title">${this.escape(title)}</span>
-                  ${preview ? `<span class="tqc-rule-group-preview" title="${this.escapeAttr(preview)}">${this.escape(preview)}</span>` : ''}
+                  ${preview ? `<span class="tqc-rule-group-preview" data-i18n-skip title="${this.escapeAttr(preview)}">${this.escape(preview)}</span>` : ''}
                   ${executable ? `<button class="tqc-mini" type="button" data-action="${triggerLine ? 'add-line-rule' : 'add-rule'}"${triggerLine ? ` data-rule-line="${triggerLine}"` : ''}>${icons.plus} 规则</button>` : ''}
                 </div>
                 ${groups.get(triggerLine)?.map((rule, groupIndex) => this.renderAutomationRule(command, rule, groupIndex)).join('') || ''}
@@ -807,14 +808,14 @@ export class QuickCommandsService {
         return `
           <div class="tqc-rule-select" data-rule-menu-key="${this.escapeAttr(menuKey)}">
             <button class="tqc-select" type="button" data-action="rule-menu-toggle" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(field)}" aria-haspopup="listbox" aria-expanded="${open}">
-              <span${selectedTitle}>${this.escape(selectedLabel)}</span>
+              <span${selectedId && this.state.commands.some(command => command.id === selectedId) ? ' data-i18n-skip' : ''}${selectedTitle}>${this.escape(selectedLabel)}</span>
               ${icons.chevron}
             </button>
             ${open ? `
               <div class="tqc-rule-menu" role="listbox">
                 <input class="tqc-input tqc-rule-command-search" data-role="automation-command-search" placeholder="搜索命令">
                 ${options.map(option => `
-                  <button class="tqc-rule-option${option.value === selectedId ? ' tqc-active' : ''}" type="button" role="option" aria-selected="${option.value === selectedId}" data-action="rule-option-select" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(field)}" data-rule-value="${this.escapeAttr(option.value)}" data-command-search-text="${this.escapeAttr(option.label.toLowerCase())}" title="${this.escapeAttr(option.label)}">${this.escape(option.label)}</button>
+                  <button class="tqc-rule-option${option.value === selectedId ? ' tqc-active' : ''}" type="button" role="option" aria-selected="${option.value === selectedId}" data-i18n-skip data-action="rule-option-select" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(field)}" data-rule-value="${this.escapeAttr(option.value)}" data-command-search-text="${this.escapeAttr(option.label.toLowerCase())}" title="${this.escapeAttr(option.label)}">${this.escape(option.label)}</button>
                 `).join('')}
                 <div class="tqc-rule-menu-empty" data-role="automation-command-empty" hidden>没有匹配的命令</div>
               </div>
@@ -858,13 +859,13 @@ export class QuickCommandsService {
         return `
           <div class="tqc-category-select">
             <button class="tqc-select" type="button" data-action="category-menu-toggle">
-              <span>${this.escape(currentCategory || '未分类')}</span>
+              <span${currentCategory ? ' data-i18n-skip' : ''}>${this.escape(currentCategory || '未分类')}</span>
               ${icons.chevron}
             </button>
             ${this.categoryMenuOpen ? `
               <div class="tqc-category-menu">
                 ${categories.map(category => `
-                  <button class="tqc-category-option${category === currentCategory ? ' tqc-active' : ''}" type="button" data-action="category-select" data-category-value="${this.escapeAttr(category)}">
+                  <button class="tqc-category-option${category === currentCategory ? ' tqc-active' : ''}" type="button" data-i18n-skip data-action="category-select" data-category-value="${this.escapeAttr(category)}">
                     ${this.escape(category)}
                   </button>
                 `).join('')}
@@ -1008,10 +1009,10 @@ export class QuickCommandsService {
                 <span class="tqc-label">目标分类</span>
                 <div class="tqc-move-select${this.moveCategoryMenuOpen ? ' tqc-open' : ''}">
                   <button class="tqc-select tqc-move-select-button" type="button" data-action="toggle-move-category-menu" aria-haspopup="listbox" aria-expanded="${this.moveCategoryMenuOpen}">
-                    <span>${this.escape(this.moveTargetCategory || '请选择')}</span>${icons.chevron}
+                    <span${this.moveTargetCategory ? ' data-i18n-skip' : ''}>${this.escape(this.moveTargetCategory || '请选择')}</span>${icons.chevron}
                   </button>
                   ${this.moveCategoryMenuOpen ? `<div class="tqc-move-select-menu" role="listbox">
-                    ${categories.map(category => `<button class="tqc-move-select-option${category === this.moveTargetCategory ? ' tqc-active' : ''}" type="button" role="option" aria-selected="${category === this.moveTargetCategory}" data-action="select-move-category" data-move-category="${this.escapeAttr(category)}">${this.escape(category)}</button>`).join('')}
+                    ${categories.map(category => `<button class="tqc-move-select-option${category === this.moveTargetCategory ? ' tqc-active' : ''}" type="button" role="option" aria-selected="${category === this.moveTargetCategory}" data-i18n-skip data-action="select-move-category" data-move-category="${this.escapeAttr(category)}">${this.escape(category)}</button>`).join('')}
                   </div>` : ''}
                 </div>
               </label>
@@ -1229,10 +1230,6 @@ export class QuickCommandsService {
         if (!this.root) {
             return
         }
-
-        this.root.querySelectorAll<HTMLElement>('[data-role="confirm-dialog"]').forEach(element => {
-            element.addEventListener('click', event => event.stopPropagation())
-        })
 
         this.root.querySelectorAll<HTMLElement>('[data-category]').forEach(element => {
             element.addEventListener('click', () => {
@@ -3123,10 +3120,14 @@ export class QuickCommandsService {
 
     private handleDelegatedRootClick (event: MouseEvent): void {
         const actionElement = this.getDelegatedTarget(event, '[data-action]')
-        if (actionElement) {
+        const action = actionElement?.dataset.action || ''
+        if (actionElement && shouldHandleDelegatedAction(
+            action,
+            actionElement.classList.contains('tqc-confirm-backdrop'),
+            event.target === actionElement,
+        )) {
             event.preventDefault()
             event.stopPropagation()
-            const action = actionElement.dataset.action || ''
             if (this.commandMenuOpen && action !== 'toggle-command-menu' && action !== 'duplicate' && action !== 'delete') {
                 this.closeCommandMenu()
             }

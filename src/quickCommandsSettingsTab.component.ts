@@ -129,11 +129,11 @@ const historyDateFormatters = {
             <div class="wqc-command-filter-options">
               <div class="wqc-select-shell wqc-filter-select" [class.wqc-open]="commandCategoryMenuOpen" (click)="$event.stopPropagation()">
                 <button class="form-control wqc-select" type="button" aria-haspopup="listbox" [attr.aria-expanded]="commandCategoryMenuOpen" (click)="toggleCommandCategoryMenu()">
-                  <span>{{ commandCategoryLabel }}</span>
+                  <span [attr.data-i18n-skip]="commandCategory !== 'all' ? '' : null">{{ commandCategoryLabel }}</span>
                 </button>
                 <div class="wqc-select-menu" role="listbox" *ngIf="commandCategoryMenuOpen">
                   <button type="button" role="option" [attr.aria-selected]="commandCategory === 'all'" [class.wqc-selected]="commandCategory === 'all'" (click)="setCommandCategory('all')">全部分类</button>
-                  <button type="button" role="option" *ngFor="let category of commandCategories" [attr.aria-selected]="commandCategory === category" [class.wqc-selected]="commandCategory === category" (click)="setCommandCategory(category)">{{ category }}</button>
+                  <button type="button" role="option" data-i18n-skip *ngFor="let category of commandCategories" [attr.aria-selected]="commandCategory === category" [class.wqc-selected]="commandCategory === category" (click)="setCommandCategory(category)">{{ category }}</button>
                 </div>
               </div>
               <div class="wqc-select-shell wqc-filter-select" [class.wqc-open]="commandUsageMenuOpen" (click)="$event.stopPropagation()">
@@ -160,10 +160,10 @@ const historyDateFormatters = {
             <span>将选中的 {{ selectedCommandCount }} 条命令移动到</span>
             <div class="wqc-select-shell wqc-batch-move-select" [class.wqc-open]="batchMoveCategoryMenuOpen" (click)="$event.stopPropagation()">
               <button class="form-control wqc-select" type="button" aria-haspopup="listbox" [attr.aria-expanded]="batchMoveCategoryMenuOpen" (click)="toggleBatchMoveCategoryMenu()">
-                <span>{{ batchMoveCategory || '请选择目标分类' }}</span>
+                <span [attr.data-i18n-skip]="batchMoveCategory ? '' : null">{{ batchMoveCategory || '请选择目标分类' }}</span>
               </button>
               <div class="wqc-select-menu" role="listbox" *ngIf="batchMoveCategoryMenuOpen">
-                <button type="button" role="option" *ngFor="let category of moveCategories" [attr.aria-selected]="batchMoveCategory === category" [class.wqc-selected]="batchMoveCategory === category" (click)="selectBatchMoveCategory(category)">{{ category }}</button>
+                <button type="button" role="option" data-i18n-skip *ngFor="let category of moveCategories" [attr.aria-selected]="batchMoveCategory === category" [class.wqc-selected]="batchMoveCategory === category" (click)="selectBatchMoveCategory(category)">{{ category }}</button>
               </div>
             </div>
             <div class="wqc-batch-confirm-actions">
@@ -188,8 +188,8 @@ const historyDateFormatters = {
             <div class="wqc-stat-row" *ngFor="let command of pagedCommandStats" [class.wqc-stat-row-selected]="isCommandSelected(command.id)">
               <button class="wqc-command-check" type="button" role="checkbox" [attr.aria-label]="'选择命令：' + command.name" [attr.aria-checked]="isCommandSelected(command.id)" [class.wqc-checked]="isCommandSelected(command.id)" (click)="toggleCommandSelection(command.id)"></button>
               <div class="wqc-stat-command">
-                <strong>{{ command.name }}</strong>
-                <span class="wqc-pill">{{ command.category }}</span>
+                <strong data-i18n-skip>{{ command.name }}</strong>
+                <span class="wqc-pill" data-i18n-skip>{{ command.category }}</span>
               </div>
               <strong class="wqc-stat-count">{{ command.usageCount || 0 }}</strong>
               <span class="wqc-muted wqc-stat-time">{{ formatLastUsed(command.lastUsedAt) }}</span>
