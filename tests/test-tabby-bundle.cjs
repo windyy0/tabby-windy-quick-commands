@@ -300,16 +300,22 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
         settingsTab.pendingConfigImport = pending
         settingsTab.importPendingFullConfig()
         assert.equal(settingsTab.pendingConfigImport, pending, 'failed imports must remain available to retry')
-        assert.match(settingsTab.configMessage, language === 'zh-CN' ? /保存失败/ : /Save failed/)
+        assert.equal(i18n.text(settingsTab.configMessage), i18n.text('导入失败'))
+        assert.match(settingsTab.configMessageDetail, language === 'zh-CN' ? /保存失败/ : /Save failed/)
         settingsTab.openResetDefaultsConfirm()
         settingsTab.restoreDefaultSettings()
-        assert.equal(settingsTab.resetDefaultsConfirmOpen, true, 'failed restore must not report success or close the confirmation')
+        assert.equal(settingsTab.resetDefaultsConfirmOpen, false, 'failed restore must close the dialog so the result is visible')
+        assert.equal(i18n.text(settingsTab.configMessage), i18n.text('恢复失败'))
+        assert.match(settingsTab.configMessageDetail, language === 'zh-CN' ? /保存失败/ : /Save failed/)
         assert.equal(fs.readFileSync(settingsPath, 'utf8'), savedSettingsBytes, 'contention must not modify the persisted configuration')
         assert.deepEqual(clone(settingsTab.pluginConfigStore.load({})), savedSettings, 'failed saves must invalidate the mutated store cache')
     } finally { fs.unlinkSync(lockPath) }
+    const lastMessage = settingsTab.configMessage
     const retry = { checked: !savedSettings.requireConfirmBeforeExecute }
     settingsTab.setBoolean('requireConfirmBeforeExecute', { target: retry })
     assert.equal(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).requireConfirmBeforeExecute, retry.checked, 'a retry after the other writer exits must persist normally')
+    assert.equal(settingsTab.configMessage, lastMessage, 'ordinary saves must not dismiss the current notification')
+    settingsTab.dismissConfigMessage()
     assert.equal(settingsTab.configMessage, '')
     settingsTab.pendingConfigImport = null
     settingsTab.closeResetDefaultsConfirm()
@@ -326,6 +332,8 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     assert.equal(fs.readFileSync(path.join(dataPath, 'plugin-config.json'), 'utf8'), beforeReset, 'cancel must not modify data')
     settingsTab.openResetDefaultsConfirm()
     settingsTab.restoreDefaultSettings()
+    assert.equal(settingsTab.resetDefaultsConfirmOpen, false)
+    assert.equal(i18n.text(settingsTab.configMessage), i18n.text('恢复成功'))
     assert.equal(fs.existsSync(path.join(dataPath, 'update-cache.json')), true, 'ordinary restore defaults must not clear cache or user data')
 
     settingsTab.openResetDefaultsConfirm()

@@ -1,8 +1,12 @@
-# Tabby Windy Quick Commands
+<h1 align="center">Tabby Windy Quick Commands</h1>
 
-[Simplified Chinese](./README.md) | [English](./README.en.md)
+<p align="center">
+  A local quick-command manager for the <a href="https://tabby.sh/">Tabby</a> terminal.
+</p>
 
-A local quick-command manager for the [Tabby](https://tabby.sh/) terminal.
+<p align="center">
+  <a href="./README.md">简体中文</a> &nbsp;·&nbsp; <strong>English</strong>
+</p>
 
 The plugin adds a Quick Commands button to the upper-right corner of Tabby and opens a drawer from the right. It provides a central place to manage, search, and run frequently used commands, with support for shortcuts, multi-session sending, line-by-line execution, output triggers, and command-library import and export.
 
@@ -233,7 +237,7 @@ Run `npm run publish:check` to validate without publishing. Running `npm publish
 
 ```json
 {
-  "version": "1.8.0",
+  "version": "1.8.1",
   "zh-CN": {
     "title": "Update title",
     "sections": [

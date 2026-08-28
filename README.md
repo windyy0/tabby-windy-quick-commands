@@ -1,8 +1,12 @@
-# Tabby Windy Quick Commands
+<h1 align="center">Tabby Windy Quick Commands</h1>
 
-[简体中文](./README.md) | [English](./README.en.md)
+<p align="center">
+  一个面向 <a href="https://tabby.sh/">Tabby</a> 终端的本地快速命令管理插件。
+</p>
 
-一个面向 [Tabby](https://tabby.sh/) 终端的本地快速命令管理插件。
+<p align="center">
+  <strong>简体中文</strong> &nbsp;·&nbsp; <a href="./README.en.md">English</a>
+</p>
 
 插件在 Tabby 右上角提供快速命令按钮，并从右侧展开抽屉，用于集中管理、搜索和执行常用命令。支持快捷键、多会话发送、逐行执行、输出触发器，以及命令库导入导出。
 
@@ -232,7 +236,7 @@ npm run release
 
 ```json
 {
-  "version": "1.8.0",
+  "version": "1.8.1",
   "zh-CN": {
     "title": "本次更新标题",
     "sections": [

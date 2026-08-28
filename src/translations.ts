@@ -64,6 +64,9 @@ const englishPhrases: Record<string, string> = {
     '请稍后重试': 'Try again later',
     '请求失败': 'Request failed',
     'npm 没有返回有效版本号。': 'npm did not return a valid version.',
+    '更新安装失败。': 'Update installation failed.',
+    '检查更新失败。': 'Failed to check for updates.',
+    '加载更新历史失败。': 'Failed to load update history.',
     '每个会话独立匹配；后续规则只读取上一条规则结束后的新输出。': 'Each session is matched independently. Later rules only read output produced after the previous rule finishes.',
     '新分类会显示在分类栏里，可以先建空分类，再向其中添加命令。': 'New categories appear in the category bar. You can create an empty category before adding commands to it.',
     '按关键词、分类和使用状态筛选，并按最近使用时间排序，每页 6 条。': 'Filter by keyword, category, and usage, sorted by most recently used, with 6 commands per page.',
@@ -173,14 +176,23 @@ const englishPhrases: Record<string, string> = {
     '副本': 'copy',
     '覆盖': 'Overwrite',
     '包含强制递归删除': 'Contains forced recursive deletion',
+    '包含 PowerShell 强制递归删除': 'Contains forced recursive deletion in PowerShell',
     '包含 Windows 强制删除': 'Contains forced Windows deletion',
     '包含目录递归删除': 'Contains recursive directory deletion',
     '包含关机命令': 'Contains a shutdown command',
     '包含重启命令': 'Contains a restart command',
+    '包含关机或重启命令': 'Contains a shutdown or restart command',
+    '包含格式化或清空磁盘': 'Contains disk formatting or wiping',
+    '包含 Windows 磁盘格式化': 'Contains Windows disk formatting',
+    '包含直接磁盘写入': 'Contains a direct disk write',
     '包含格式化文件系统': 'Contains filesystem formatting',
     '包含磁盘写入命令': 'Contains a raw disk write',
     '包含 Docker 清理命令': 'Contains a Docker cleanup command',
     '包含 Kubernetes 删除命令': 'Contains a Kubernetes delete command',
+    '包含 Terraform 资源销毁': 'Contains Terraform resource destruction',
+    '包含 Git 强制清理未跟踪文件': 'Contains forced removal of untracked files with Git',
+    '包含 Git 强制重置': 'Contains a hard Git reset',
+    '包含删除数据库对象': 'Contains database object deletion',
     '包含删除数据库': 'Contains a database drop',
     '包含清空表数据': 'Contains table truncation',
     'JSON 格式无效。': 'Invalid JSON.',
@@ -194,6 +206,7 @@ const englishPhrases: Record<string, string> = {
     '配置文件格式无效。': 'Invalid configuration file format.',
     '配置文件缺少 config 对象。': 'The configuration file is missing the config object.',
     '配置文件缺少 commands 数组。': 'The configuration file is missing the commands array.',
+    '文件只包含命令，不包含插件配置。': 'The file contains commands only, not plugin configuration.',
     '显示右上角按钮': 'Show the top-right toolbar button',
     '每次执行前确认': 'Confirm before every execution',
     '逐行发送失败后': 'After a line fails to send',
@@ -302,6 +315,8 @@ const englishPhrases: Record<string, string> = {
     '到剪贴板': 'to clipboard',
     '文件格式': 'File format',
     '导入失败': 'Import failed',
+    '导入成功': 'Import successful',
+    '关闭提示': 'Dismiss notification',
     '开始执行': 'Run',
     '执行完成': 'Execution complete',
     '逐行执行': 'Line-by-line execution',
@@ -313,6 +328,8 @@ const englishPhrases: Record<string, string> = {
     '选择导入内容': 'Choose what to import',
     '导入完整配置': 'Import full configuration',
     '恢复默认配置': 'Restore defaults',
+    '恢复成功': 'Defaults restored',
+    '恢复失败': 'Restore failed',
     '重置插件数据': 'Reset plugin data',
     '返回': 'Back',
     '此操作不可撤销': 'This action cannot be undone',
@@ -471,10 +488,13 @@ export function translatePluginText (text: string, locale: string | null | undef
         .replace(/只支持 v1 导出文件，当前文件版本为 (.+?)。/g, 'Only v1 export files are supported; this file is version $1.')
         .replace(/第\s*(\d+)\s*条命令缺少有效的名称或命令内容。/g, 'Command $1 is missing a valid name or command text.')
         .replace(/第\s*(\d+)\s*条命令格式无效。/g, 'Command $1 has an invalid format.')
+        .replace(/配置字段 (.+?) 无效。/g, 'Configuration field $1 is invalid.')
+        .replace(/(.+?)包含重复输出触发器 ID：(.+?)。/g, '$1 contains duplicate output trigger ID $2.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器字段 (.+?) 无效。/g, '$1 output trigger $2 has an invalid $3 field.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器启用状态无效。/g, '$1 output trigger $2 has an invalid enabled state.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器匹配方式无效。/g, '$1 output trigger $2 has an invalid match mode.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器触发行无效。/g, '$1 output trigger $2 has an invalid trigger line.')
+        .replace(/(.+?)的第\s*(\d+)\s*条输出触发器超时时间无效。/g, '$1 output trigger $2 has an invalid timeout.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器成功条件无效。/g, '$1 output trigger $2 has an invalid success condition.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器错误条件无效。/g, '$1 output trigger $2 has an invalid error condition.')
         .replace(/(.+?)的第\s*(\d+)\s*条输出触发器匹配后动作无效。/g, '$1 output trigger $2 has an invalid post-match action.')

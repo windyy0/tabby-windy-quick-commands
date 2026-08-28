@@ -75,12 +75,24 @@ const historyDateFormatters = {
             </div>
           </div>
           <div class="wqc-config-actions">
-            <button class="btn btn-secondary" type="button" (click)="exportPluginConfig()">导出</button>
-            <button class="btn btn-secondary" type="button" (click)="pluginConfigFile.click()">导入</button>
-            <button class="btn wqc-danger-button wqc-reset-config" type="button" (click)="openResetDefaultsConfirm()">恢复默认配置</button>
+            <div class="wqc-config-transfer">
+              <button class="btn btn-secondary" type="button" (click)="exportPluginConfig()">导出</button>
+              <button class="btn btn-secondary" type="button" (click)="pluginConfigFile.click()">导入</button>
+            </div>
+            <div class="wqc-config-feedback">
+              <div class="wqc-config-message" *ngIf="configMessage" role="status">
+                <span class="wqc-config-message-text" [class.wqc-config-message-has-detail]="configMessageDetail" [attr.tabindex]="configMessageDetail ? 0 : null" [attr.aria-describedby]="configMessageDetail ? 'wqc-config-message-detail' : null">
+                  {{ configMessage }}
+                  <span class="wqc-help-tooltip wqc-config-message-tooltip" *ngIf="configMessageDetail" id="wqc-config-message-detail" role="tooltip">
+                    <span class="wqc-config-message-tooltip-body">{{ configMessageDetail }}</span>
+                  </span>
+                </span>
+                <button class="wqc-config-message-close" type="button" aria-label="关闭提示" (click)="dismissConfigMessage()">×</button>
+              </div>
+              <button class="btn wqc-danger-button wqc-reset-config" type="button" (click)="openResetDefaultsConfirm()">恢复默认配置</button>
+            </div>
             <input #pluginConfigFile class="wqc-hidden-file" type="file" accept="application/json,.json" (change)="importPluginConfig($event)">
           </div>
-          <div class="wqc-config-message" *ngIf="configMessage">{{ configMessage }}</div>
         </section>
 
         <section class="wqc-section">
@@ -1072,6 +1084,7 @@ const historyDateFormatters = {
       }
 
       .wqc-config-section {
+        container: wqc-config / inline-size;
         padding-top: 0;
         border-top: 0;
       }
@@ -1079,11 +1092,29 @@ const historyDateFormatters = {
       .wqc-config-actions {
         display: flex;
         align-items: center;
+        flex-wrap: nowrap;
         gap: 8px;
         width: 100%;
       }
 
+      .wqc-config-transfer {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .wqc-config-feedback {
+        position: relative;
+        display: flex;
+        flex: 1 1 0;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
       .wqc-config-actions .btn {
+        flex: 0 0 auto;
         width: auto;
         min-width: 0;
         white-space: nowrap;
@@ -1098,12 +1129,63 @@ const historyDateFormatters = {
       }
 
       .wqc-config-message {
-        margin-top: 10px;
-        padding: 8px 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        padding: 6px 8px 6px 10px;
         color: var(--bs-primary);
         background: color-mix(in srgb, var(--bs-primary) 8%, transparent);
         border-radius: 7px;
         font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .wqc-config-message-text {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .wqc-config-message-has-detail {
+        cursor: help;
+        text-decoration: underline dotted;
+        text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
+        text-underline-offset: 3px;
+      }
+
+      .wqc-config-message-has-detail:focus-visible {
+        outline: 2px solid var(--wqc-accent);
+        outline-offset: 3px;
+        border-radius: 2px;
+      }
+
+      .wqc-config-message-close {
+        display: inline-flex;
+        flex: 0 0 22px;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        color: inherit;
+        background: transparent;
+        border: 0;
+        border-radius: 4px;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        opacity: 0.75;
+      }
+
+      .wqc-config-message-close:hover,
+      .wqc-config-message-close:focus-visible {
+        background: color-mix(in srgb, var(--bs-primary) 14%, transparent);
+        opacity: 1;
+      }
+
+      .wqc-config-message-close:focus-visible {
+        outline: 2px solid var(--wqc-accent);
+        outline-offset: 2px;
       }
 
       .wqc-section h4 {
@@ -1213,6 +1295,77 @@ const historyDateFormatters = {
         visibility: visible;
         opacity: 1;
         transform: translateY(0);
+      }
+
+      .wqc-help-tooltip.wqc-config-message-tooltip {
+        left: 0;
+        right: auto;
+        width: max-content;
+        max-width: min(340px, 100%);
+        text-decoration: none;
+        cursor: auto;
+      }
+
+      .wqc-config-message-tooltip::after {
+        left: 12px;
+        right: auto;
+      }
+
+      .wqc-config-message-tooltip::before {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        width: 100%;
+        height: 9px;
+        content: '';
+      }
+
+      .wqc-config-message-tooltip-body {
+        display: block;
+        max-height: min(240px, 45vh);
+        overflow-y: auto;
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+
+      .wqc-config-message-has-detail:hover .wqc-config-message-tooltip,
+      .wqc-config-message-has-detail:focus-visible .wqc-config-message-tooltip,
+      .wqc-config-message-has-detail:focus-within .wqc-config-message-tooltip {
+        visibility: visible;
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0);
+      }
+
+      @container wqc-config (max-width: 420px) {
+        .wqc-config-actions,
+        .wqc-config-transfer,
+        .wqc-config-feedback {
+          gap: 6px;
+        }
+
+        .wqc-config-actions .btn {
+          padding-right: 4px;
+          padding-left: 4px;
+          font-size: 12px;
+        }
+
+        .wqc-config-actions .wqc-reset-config {
+          max-width: 76px;
+          white-space: normal;
+        }
+
+        .wqc-config-message {
+          gap: 4px;
+          padding-right: 6px;
+          padding-left: 6px;
+        }
+
+        .wqc-config-message-close {
+          flex-basis: 20px;
+          width: 20px;
+          height: 20px;
+        }
       }
 
       .wqc-check {
@@ -2092,20 +2245,6 @@ const historyDateFormatters = {
           flex-direction: column;
         }
 
-        .wqc-config-actions {
-          align-items: stretch;
-          flex-wrap: wrap;
-          width: 100%;
-        }
-
-        .wqc-config-actions .btn {
-          flex: 0 0 auto;
-        }
-
-        .wqc-reset-config {
-          margin-left: auto;
-        }
-
         .wqc-config-dialog-actions {
           align-items: stretch;
           flex-direction: column-reverse;
@@ -2155,6 +2294,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     runtimeLogs: any[] = []
     runtimeStats: CommandUsageStats = {}
     configMessage = ''
+    configMessageDetail = ''
     readonly projectUrl = 'https://github.com/windyy0/tabby-windy-quick-commands'
     readonly issuesUrl = 'https://github.com/windyy0/tabby-windy-quick-commands/issues'
     updateState: PluginUpdateState
@@ -2214,9 +2354,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     }
 
     ngOnDestroy (): void {
-        if (this.configMessageTimer) {
-            clearTimeout(this.configMessageTimer)
-        }
+        this.dismissConfigMessage()
 
         this.stopLocalizing?.()
         this.subscriptions.unsubscribe()
@@ -2809,7 +2947,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
             this.pendingConfigImport = parsed
         } catch (error) {
             if (store !== this.pluginConfigStore || !store.dataAccess.isCurrent()) { return }
-            this.showConfigMessage(`导入失败：${error instanceof Error ? error.message : '配置文件无效。'}`)
+            this.showConfigMessage('导入失败', error instanceof Error ? error.message : '配置文件无效。')
         }
     }
 
@@ -2857,9 +2995,9 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
             selectedCommandId,
             selectedCategory,
         }
-        if (!this.applyImportedConfig(next)) { return }
+        if (!this.applyImportedConfig(next, '导入失败')) { return }
         this.pendingConfigImport = null
-        this.showConfigMessage('命令已合并导入。')
+        this.showConfigMessage('导入成功')
     }
 
     importPendingFullConfig (): void {
@@ -2867,9 +3005,9 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         if (!imported) {
             return
         }
-        if (!this.applyImportedConfig(imported)) { return }
+        if (!this.applyImportedConfig(imported, '导入失败')) { return }
         this.pendingConfigImport = null
-        this.showConfigMessage('插件配置已导入。按钮显示设置将在重启 Tabby 后生效。')
+        this.showConfigMessage('导入成功')
     }
 
     openResetDefaultsConfirm (): void {
@@ -2930,9 +3068,11 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     restoreDefaultSettings (): void {
         if (!this.resetDefaultsConfirmOpen || this.resetInitialConfirmOpen) { return }
         const restored = buildDefaultSettingsConfig(this.root, defaultQuickCommandsConfig)
-        if (!this.applyImportedConfig(restored)) { return }
-        this.resetDefaultsConfirmOpen = false
-        this.showConfigMessage('已恢复默认配置，现有命令、分类和输出触发器已保留。按钮显示设置将在重启 Tabby 后生效。')
+        const success = this.applyImportedConfig(restored, '恢复失败')
+        this.closeResetDefaultsConfirm()
+        if (success) {
+            this.showConfigMessage('恢复成功', '已恢复默认配置，现有命令、分类和输出触发器已保留。按钮显示设置将在重启 Tabby 后生效。')
+        }
     }
 
     setBoolean (field: string, event: Event): void {
@@ -3038,9 +3178,9 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.batchDeleteConfirmOpen = false
     }
 
-    private applyImportedConfig (config: Record<string, unknown>): boolean {
+    private applyImportedConfig (config: Record<string, unknown>, failureMessage?: string): boolean {
         this.pluginConfig = config
-        if (!this.save()) { return false }
+        if (!this.save(failureMessage)) { return false }
         this.selectedCommandIds = new Set<string>()
         this.commandPage = 1
         this.commandQuery = ''
@@ -3063,11 +3203,10 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         return stored
     }
 
-    private save (): boolean {
+    private save (failureMessage?: string): boolean {
         try {
             this.pluginConfigStore.set(this.root)
             this.savedConfigSnapshot = JSON.stringify(this.root)
-            this.configMessage = ''
             return true
         } catch (error) {
             this.pluginConfig = JSON.parse(this.savedConfigSnapshot)
@@ -3075,22 +3214,31 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
             // If a reset invalidated this store, retain the last known snapshot
             // and show the original restart/error instruction instead.
             try { this.refreshPluginConfig() } catch { /* Keep the saved snapshot. */ }
-            this.showConfigMessage(this.i18n.text('保存失败，本次更改未保存。详情：') +
-                this.i18n.text(error instanceof Error ? error.message : String(error)))
+            const detail = this.i18n.text('保存失败，本次更改未保存。详情：') +
+                this.i18n.text(error instanceof Error ? error.message : String(error))
+            this.showConfigMessage(failureMessage || detail, failureMessage ? detail : '')
             return false
         }
     }
 
-    private showConfigMessage (message: string): void {
-        if (this.configMessageTimer) {
+    dismissConfigMessage (): void {
+        if (this.configMessageTimer !== null) {
             clearTimeout(this.configMessageTimer)
         }
+        this.configMessageTimer = null
+        this.configMessage = ''
+        this.configMessageDetail = ''
+    }
+
+    private showConfigMessage (message: string, detail = ''): void {
+        this.dismissConfigMessage()
+        if (!message) { return }
         this.configMessage = message
+        this.configMessageDetail = detail
         this.configMessageTimer = setTimeout(() => {
-            this.configMessage = ''
-            this.configMessageTimer = null
+            this.dismissConfigMessage()
             this.changeDetector.detectChanges()
-        }, 5000)
+        }, 60_000)
     }
 
     private downloadJson (text: string, fileName: string): void {

@@ -44,6 +44,7 @@ import {
 import { shouldHandleDelegatedAction } from '../src/delegatedClick'
 import { getPluginIdentity } from '../src/pluginIdentity'
 import { PluginDataAccess } from '../src/pluginData'
+import { testSettingsMessages } from './settingsMessages'
 
 function testBuildIsolation (): void {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wqc-channels-'))
@@ -209,6 +210,15 @@ function testTranslations (): void {
     assert(translatePluginText('发现新版本 v1.5.2', 'en-US') === 'New version available v1.5.2', 'available update status should include the version in English')
     assert(translatePluginText('此版本未提供更新说明。', 'en-US') === 'No release notes were provided for this version.', 'missing historical notes should be translated')
     assert(translatePluginText('检查失败：请求失败（HTTP 503）。', 'en-US') === 'Update check failed: Request failed (HTTP 503).', 'update request errors should be translated')
+    for (const [source, english] of [
+        ['文件只包含命令，不包含插件配置。', 'The file contains commands only, not plugin configuration.'],
+        ['更新安装失败。', 'Update installation failed.'],
+        ['检查更新失败。', 'Failed to check for updates.'],
+        ['加载更新历史失败。', 'Failed to load update history.'],
+    ]) {
+        assert(translatePluginText(source, 'en-US') === english, `fallback error must be fully translated: ${source}`)
+        assert(translatePluginText(source, 'zh-CN') === source, 'Chinese fallback errors must remain unchanged')
+    }
 }
 
 function testUserContentLocalizationBoundary (): void {
@@ -434,10 +444,27 @@ function testImportValidation (): void {
                 automationRules: [{ timeoutMs: -1 }],
             }],
         }))
-    } catch {
+    } catch (error) {
         negativeTimeoutRejected = true
+        assert(error instanceof Error && translatePluginText(error.message, 'en-US') === 'Command 1 output trigger 1 has an invalid timeout.', 'invalid trigger timeouts must include translated command and rule positions')
     }
     assert(negativeTimeoutRejected, 'import parser should still reject negative automation timeouts')
+
+    let duplicateRuleRejected = false
+    try {
+        parseImportPayload(JSON.stringify({
+            format: 'tabby-windy-quick-commands', version: 1, kind: 'commands',
+            customCategories: [], categoryOrder: [],
+            commands: [{
+                name: 'Duplicate rules', command: 'echo ok',
+                automationRules: [{ id: 'rule-duplicate' }, { id: 'rule-duplicate' }],
+            }],
+        }))
+    } catch (error) {
+        duplicateRuleRejected = true
+        assert(error instanceof Error && translatePluginText(error.message, 'en-US') === 'Command 1 contains duplicate output trigger ID rule-duplicate.', 'duplicate trigger errors must preserve the ID and translate the explanation')
+    }
+    assert(duplicateRuleRejected, 'import parser should reject duplicate output trigger IDs')
 
     const withMissingReference = normalizeCommandConfig({
         id: 'reference-source',
@@ -534,6 +561,23 @@ function testDangerChecks (): void {
     assert(!getDangerCheck('git clean --dry-run --force --directories').dangerous, 'long git clean dry-run flags should not be marked dangerous')
     assert(!getDangerCheck('echo git -C /tmp/demo clean -f').dangerous, 'git text passed to unrelated commands should not be treated as executable git')
     assert(!getDangerCheck('echo deploy').dangerous, 'ordinary commands should not be marked dangerous')
+
+    for (const [input, english] of [
+        ['Remove-Item C:\\temp\\demo -Recurse -Force', 'Contains forced recursive deletion in PowerShell'],
+        ['shutdown /s', 'Contains a shutdown or restart command'],
+        ['Clear-Disk -Number 9', 'Contains disk formatting or wiping'],
+        ['format Z:', 'Contains Windows disk formatting'],
+        ['dd if=/dev/zero of=/dev/sda', 'Contains a direct disk write'],
+        ['terraform destroy', 'Contains Terraform resource destruction'],
+        ['git clean -fd', 'Contains forced removal of untracked files with Git'],
+        ['git reset --hard', 'Contains a hard Git reset'],
+        ['DROP TABLE test', 'Contains database object deletion'],
+    ]) {
+        const reasons = getDangerCheck(input).reasons
+        assert(reasons.length > 0, `translation fixture must trigger a risk warning: ${input}`)
+        assert(reasons.map(reason => translatePluginText(reason, 'en-US')).includes(english), `risk warning must be fully translated: ${input}`)
+        assert(reasons.every(reason => translatePluginText(reason, 'zh-CN') === reason), 'Chinese risk warnings must remain unchanged')
+    }
 }
 
 function testScriptParser (): void {
@@ -1107,8 +1151,9 @@ function testPluginConfigStorage (): void {
                     showToolbarButton: 'yes',
                 },
             }))
-        } catch {
+        } catch (error) {
             malformedSettingRejected = true
+            assert(error instanceof Error && translatePluginText(error.message, 'en-US') === 'Configuration field showToolbarButton is invalid.', 'invalid configuration fields must have translated error details')
         }
         assert(malformedSettingRejected, 'full config import should reject invalid top-level setting types')
         let rejected = false
@@ -1291,6 +1336,7 @@ const style = (code: string, text: string): string => colorEnabled ? `\x1b[${cod
 const tests: Array<[string, () => void | Promise<void>]> = [
     ['中英文界面', testTranslations],
     ['用户内容本地化边界', testUserContentLocalizationBoundary],
+    ['设置提示关闭与计时', testSettingsMessages],
     ['插件版本比较', testPluginVersionComparison],
     ['弹窗委托点击', testDelegatedDialogClicks],
     ['插件更新说明', testPluginUpdateNotes],
