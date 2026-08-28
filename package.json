@@ -1,6 +1,6 @@
 {
   "name": "tabby-windy-quick-commands",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "快速命令|local quick-command drawer for Tabby terminal.",
   "homepage": "https://github.com/windyy0/tabby-windy-quick-commands",
   "keywords": [
@@ -17,14 +17,19 @@
   "typings": "dist/index.d.ts",
   "scripts": {
     "test": "tsc -p tsconfig.test.json && node dist-tests/tests/run-tests.js && node scripts/test-release-validation.js",
+    "test:tabby:install": "pwsh -NoProfile -NonInteractive -File tests/test-tabby-installation.ps1 -Install",
     "clean": "node -e \"for (const dir of ['dist', 'dist-tests']) require('fs').rmSync(dir, { recursive: true, force: true })\"",
     "build": "npm run clean && webpack --mode production --stats errors-warnings --no-color",
+    "build:dev": "webpack --mode production --env channel=dev --stats errors-warnings --no-color",
     "build:debug": "npm run clean && webpack --mode development --progress --color",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "watch": "webpack --mode development --watch --stats errors-warnings --no-color",
     "watch:debug": "webpack --mode development --progress --color --watch",
     "install:tabby": "pwsh -ExecutionPolicy Bypass -File scripts/install-tabby-plugin.ps1",
     "install:tabby:restart": "pwsh -ExecutionPolicy Bypass -File scripts/install-tabby-plugin.ps1 -Restart",
+    "install:tabby:dev": "pwsh -ExecutionPolicy Bypass -File scripts/install-tabby-plugin.ps1 -DevBuild",
+    "install:tabby:dev:restart": "pwsh -ExecutionPolicy Bypass -File scripts/install-tabby-plugin.ps1 -DevBuild -Restart",
+    "clean:tabby:dev": "pwsh -ExecutionPolicy Bypass -File scripts/clean-tabby-dev-data.ps1",
     "clean:pack": "node -e \"const fs=require('fs'); for (const file of fs.readdirSync('.')) if (file.endsWith('.tgz')) fs.rmSync(file, { force: true })\"",
     "publish:check": "node scripts/publish-check.js",
     "release:validate": "node scripts/validate-release.js",

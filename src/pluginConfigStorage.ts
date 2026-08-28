@@ -10,8 +10,10 @@ import {
     sanitizeAutomationReferences,
 } from './commandLibrary'
 import { QuickCommand } from './types'
+import { pluginIdentity } from './pluginIdentity'
+import { PluginDataAccess } from './pluginData'
 
-export const pluginConfigChangedEvent = 'windy-quick-commands-config-changed'
+export const pluginConfigChangedEvent = pluginIdentity.configChangedEvent
 export const pluginConfigFormat = quickCommandsFileFormat
 export const pluginConfigVersion = quickCommandsFileVersion
 
@@ -51,11 +53,13 @@ export function buildDefaultSettingsConfig (
 export class QuickCommandsPluginConfigStore {
     readonly configPath: string | null
     readonly backupPath: string | null
+    readonly dataAccess: PluginDataAccess
     private config: Record<string, unknown> | null = null
 
-    constructor (configPath: string | null) {
+    constructor (configPath: string | null, readonly identity = pluginIdentity) {
+        this.dataAccess = new PluginDataAccess(configPath, identity)
         const directory = configPath
-            ? path.join(path.dirname(configPath), 'windy-quick-commands')
+            ? path.join(path.dirname(configPath), identity.dataDirectory)
             : null
         this.configPath = directory ? path.join(directory, 'plugin-config.json') : null
         this.backupPath = directory ? path.join(directory, 'plugin-config.backup.json') : null
@@ -65,7 +69,16 @@ export class QuickCommandsPluginConfigStore {
         return Boolean(this.configPath && fs.existsSync(this.configPath))
     }
 
+    initialize (defaults: Record<string, unknown>): void {
+        // A saved library (even empty), or its backup, must never be reseeded.
+        if (!this.configPath || this.exists() || (this.backupPath && fs.existsSync(this.backupPath))) {
+            return
+        }
+        this.set(this.clone(defaults))
+    }
+
     load (fallback: Record<string, unknown>, reload = false): Record<string, unknown> {
+        this.dataAccess.assertCurrent()
         if (!reload && this.config) {
             return this.config
         }
@@ -74,12 +87,26 @@ export class QuickCommandsPluginConfigStore {
     }
 
     set (config: Record<string, unknown>, persist = true): void {
-        this.config = config
+        this.dataAccess.assertCurrent()
         if (!persist) {
+            this.config = config
             return
         }
-        this.writeConfigFile(config)
+        try {
+            this.dataAccess.write(() => this.writeConfigFile(config))
+        } catch (error) {
+            // Callers may have edited the loaded object in place. Do not retain
+            // that unsaved object as the authoritative cached configuration.
+            this.config = null
+            throw error
+        }
+        this.config = config
         this.notifyChanged()
+    }
+
+    reset (defaults: Record<string, unknown>): void {
+        this.dataAccess.reset(defaults)
+        this.config = this.clone(defaults)
     }
 
     exportPayload (config: Record<string, unknown>): PluginConfigExportPayload {
@@ -202,7 +229,7 @@ export class QuickCommandsPluginConfigStore {
 
     private notifyChanged (): void {
         if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent(pluginConfigChangedEvent))
+            window.dispatchEvent(new CustomEvent(this.identity.configChangedEvent))
         }
     }
 

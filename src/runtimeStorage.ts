@@ -2,6 +2,8 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 import { AutomationLogEntry } from './types'
+import { pluginIdentity } from './pluginIdentity'
+import { PluginDataAccess } from './pluginData'
 
 export interface CommandUsageStat {
     usageCount: number
@@ -10,17 +12,19 @@ export interface CommandUsageStat {
 
 export type CommandUsageStats = Record<string, CommandUsageStat>
 
-const runtimeChangedEvent = 'windy-quick-commands-runtime-changed'
+export const runtimeChangedEvent = pluginIdentity.runtimeChangedEvent
 
 export class QuickCommandsRuntimeStore {
     readonly logsPath: string | null
     readonly statsPath: string | null
     private logs: AutomationLogEntry[] | null = null
     private stats: CommandUsageStats | null = null
+    private dataAccess: PluginDataAccess
 
-    constructor (configPath: string | null) {
+    constructor (configPath: string | null, readonly identity = pluginIdentity) {
+        this.dataAccess = new PluginDataAccess(configPath, identity)
         const directory = configPath
-            ? path.join(path.dirname(configPath), 'windy-quick-commands')
+            ? path.join(path.dirname(configPath), identity.dataDirectory)
             : null
         this.logsPath = directory ? path.join(directory, 'logs.json') : null
         this.statsPath = directory ? path.join(directory, 'command-stats.json') : null
@@ -34,6 +38,7 @@ export class QuickCommandsRuntimeStore {
     }
 
     setLogs (logs: AutomationLogEntry[]): void {
+        if (!this.dataAccess.isCurrent()) { return }
         this.logs = [...logs]
         this.writeJson(this.logsPath, this.logs)
         this.notifyChanged()
@@ -47,6 +52,7 @@ export class QuickCommandsRuntimeStore {
     }
 
     setStats (stats: CommandUsageStats): void {
+        if (!this.dataAccess.isCurrent()) { return }
         this.stats = { ...stats }
         this.writeJson(this.statsPath, this.stats)
         this.notifyChanged()
@@ -92,8 +98,10 @@ export class QuickCommandsRuntimeStore {
             return
         }
         try {
-            fs.mkdirSync(path.dirname(filePath), { recursive: true })
-            fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+            this.dataAccess.write(() => {
+                fs.mkdirSync(path.dirname(filePath), { recursive: true })
+                fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+            })
         } catch {
             // Runtime data must not prevent command execution when the disk is unavailable.
         }
@@ -101,7 +109,7 @@ export class QuickCommandsRuntimeStore {
 
     private notifyChanged (): void {
         if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent(runtimeChangedEvent))
+            window.dispatchEvent(new CustomEvent(this.identity.runtimeChangedEvent))
         }
     }
 
@@ -120,4 +128,3 @@ export class QuickCommandsRuntimeStore {
         return Number.isFinite(time) ? time : 0
     }
 }
-

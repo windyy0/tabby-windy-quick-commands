@@ -1,5 +1,17 @@
+import { pluginIdentity } from './pluginIdentity'
+
+const brandPath = 'M781.01 104.89H422.56c-69.47 0-125.99 56.52-125.99 125.99v33.53h-57.92c-71.72 0-130.06 58.34-130.06 130.06v393.14c0 71.72 58.34 130.06 130.06 130.06h371.41c71.72 0 130.06-58.34 130.06-130.06v-57.1H781c69.47 0 125.99-56.52 125.99-125.99V230.88c0.01-69.47-56.51-125.99-125.98-125.99zM672.27 787.62c0 34.3-27.9 62.2-62.2 62.2H238.66c-34.3 0-62.2-27.9-62.2-62.2V394.47c0-34.3 27.9-62.2 62.2-62.2h57.92v272.24c0 69.47 56.52 125.99 125.99 125.99h249.7v57.12z m0-124.97h-249.7c-32.05 0-58.13-26.08-58.13-58.13V332.28h245.63c34.3 0 62.2 27.9 62.2 62.2v268.17z m166.87-58.13c0 32.05-26.07 58.13-58.13 58.13h-40.88V394.47c0-71.72-58.34-130.06-130.06-130.06H364.44v-33.53c0-32.05 26.07-58.13 58.13-58.13h358.45c32.05 0 58.13 26.08 58.13 58.13v373.64z'
+
+/** Share the original silhouette across stable/dev and the toolbar/drawer. */
+export function getQuickCommandsBrandIcon (devBuild: boolean): string {
+    const body = devBuild
+        ? `<defs><mask id="wqc-dev-brand-cutout" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><rect width="1024" height="1024" fill="white"/><circle cx="790" cy="790" r="220" fill="black"/></mask></defs><path d="${brandPath}" mask="url(#wqc-dev-brand-cutout)"/><path fill-rule="evenodd" d="M790 600a190 190 0 1 1 0 380a190 190 0 1 1 0-380Z M714 684h60c72 0 106 40 106 106s-34 106-106 106h-60Z M764 734v112h10c36 0 54-20 54-56s-18-56-54-56Z"/>`
+        : `<path d="${brandPath}"/>`
+    return `<svg viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true">${body}</svg>`
+}
+
 export const quickCommandIcons = {
-    bolt: '<svg viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M781.01 104.89H422.56c-69.47 0-125.99 56.52-125.99 125.99v33.53h-57.92c-71.72 0-130.06 58.34-130.06 130.06v393.14c0 71.72 58.34 130.06 130.06 130.06h371.41c71.72 0 130.06-58.34 130.06-130.06v-57.1H781c69.47 0 125.99-56.52 125.99-125.99V230.88c0.01-69.47-56.51-125.99-125.98-125.99zM672.27 787.62c0 34.3-27.9 62.2-62.2 62.2H238.66c-34.3 0-62.2-27.9-62.2-62.2V394.47c0-34.3 27.9-62.2 62.2-62.2h57.92v272.24c0 69.47 56.52 125.99 125.99 125.99h249.7v57.12z m0-124.97h-249.7c-32.05 0-58.13-26.08-58.13-58.13V332.28h245.63c34.3 0 62.2 27.9 62.2 62.2v268.17z m166.87-58.13c0 32.05-26.07 58.13-58.13 58.13h-40.88V394.47c0-71.72-58.34-130.06-130.06-130.06H364.44v-33.53c0-32.05 26.07-58.13 58.13-58.13h358.45c32.05 0 58.13 26.08 58.13 58.13v373.64z"/></svg>',
+    bolt: getQuickCommandsBrandIcon(pluginIdentity.devBuild),
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
     copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',

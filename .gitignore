@@ -1,5 +1,8 @@
 node_modules/
 dist/
+dist-dev/
+# Ignore artifacts from the previous local channel name too.
+dist-test/
 dist-tests/
 coverage/
 *.tgz

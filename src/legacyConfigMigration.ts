@@ -5,34 +5,35 @@ import { defaultQuickCommandsConfig } from './defaults'
 import { QuickCommandsPluginConfigStore } from './pluginConfigStorage'
 import { CommandUsageStats, QuickCommandsRuntimeStore } from './runtimeStorage'
 import { AutomationLogEntry } from './types'
+import { pluginIdentity } from './pluginIdentity'
 
-export function readLegacyPluginConfig (configPath: string | null): unknown {
+export function readLegacyPluginConfig (configPath: string | null, identity = pluginIdentity): unknown {
     if (!configPath || !fs.existsSync(configPath)) {
         return null
     }
     try {
         const parsed = parseYaml(fs.readFileSync(configPath, 'utf8'))
         return parsed && typeof parsed === 'object'
-            ? (parsed as Record<string, unknown>).windyCommandCenter
+            ? (parsed as Record<string, unknown>)[identity.legacyConfigKey]
             : null
     } catch {
         return null
     }
 }
 
-export function removeLegacyPluginConfig (configPath: string | null): boolean {
+export function removeLegacyPluginConfig (configPath: string | null, identity = pluginIdentity): boolean {
     if (!configPath || !fs.existsSync(configPath)) {
         return false
     }
     try {
         const parsed = parseYaml(fs.readFileSync(configPath, 'utf8'))
         if (!parsed || typeof parsed !== 'object' ||
-            !Object.prototype.hasOwnProperty.call(parsed, 'windyCommandCenter')) {
+            !Object.prototype.hasOwnProperty.call(parsed, identity.legacyConfigKey)) {
             return false
         }
-        delete (parsed as Record<string, unknown>).windyCommandCenter
-        const backupPath = `${configPath}.windy-quick-commands.backup`
-        const temporaryPath = `${configPath}.windy-quick-commands.tmp`
+        delete (parsed as Record<string, unknown>)[identity.legacyConfigKey]
+        const backupPath = `${configPath}.${identity.dataDirectory}.backup`
+        const temporaryPath = `${configPath}.${identity.dataDirectory}.tmp`
         fs.copyFileSync(configPath, backupPath)
         fs.writeFileSync(temporaryPath, stringifyYaml(parsed, {
             lineWidth: -1,
@@ -55,7 +56,8 @@ export function migrateLegacyPluginConfig (
     pluginStore: QuickCommandsPluginConfigStore,
     runtimeStore: QuickCommandsRuntimeStore,
 ): boolean {
-    if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) {
+    if (pluginStore.identity.dataDirectory !== runtimeStore.identity.dataDirectory ||
+        !legacy || typeof legacy !== 'object' || Array.isArray(legacy)) {
         return false
     }
     const source = legacy as Record<string, any>

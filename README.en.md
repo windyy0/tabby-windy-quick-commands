@@ -62,6 +62,8 @@ npm run install:tabby
 
 Click the Quick Commands button in the upper-right corner of Tabby to open the drawer. To configure the global toggle shortcut, open `Settings -> Hotkeys` and search for "Quick Commands."
 
+> On first use, an example category and command are created in Tabby's current interface language.
+
 ### Import and Export
 
 - **Export commands** in the drawer exports commands, categories, and output triggers only.
@@ -99,7 +101,7 @@ The interface is designed to work with a wide range of color themes.
 - [Latest Tabby release](https://github.com/Eugeny/tabby/releases/latest): download installers and review release notes.
 - [Node.js](https://nodejs.org/): Node.js 18 or later is required; npm is included with Node.js.
 - [Git](https://git-scm.com/): clone the repository and manage versions.
-- [PowerShell 7](https://learn.microsoft.com/powershell/): the Windows installation and restart scripts require `pwsh`; tests and builds do not otherwise require Windows.
+- [PowerShell 7](https://learn.microsoft.com/powershell/): the Windows installation, restart, and cleanup scripts require `pwsh`; tests and builds do not otherwise require Windows.
 - Optional editor: [Visual Studio Code](https://code.visualstudio.com/) with its built-in TypeScript support.
 - An [npm account](https://www.npmjs.com/).
 
@@ -112,9 +114,17 @@ Install dependencies and install the plugin into the local Tabby plugin director
 ```powershell
 npm ci
 npm run install:tabby
+npm run install:tabby:dev # Dev build
 ```
 
-> `npm ci` is recommended. Use `npm install` if the lockfile is missing, unusable, or needs to be updated.
+Both `npm ci` and `npm install` install project dependencies. Run either one from this repository's root directory:
+
+| Command | Installation behavior | When to use it |
+| --- | --- | --- |
+| `npm ci` | Removes the project's existing `node_modules`, then installs strictly from `package-lock.json` without changing it. Fails if the lockfile is missing or inconsistent with `package.json`. | Reproducing the repository's fixed dependency environment and running automated tests |
+| `npm install` | Installs using dependency declarations and an available lockfile without first clearing the entire `node_modules` directory. Creates or updates the lockfile when needed. | Everyday local development, creating a lockfile, or changing dependencies |
+
+> You can use `npm install` directly for local development; `npm ci` is not required. Both commands install this project's dependencies, not the plugin in Tabby.
 
 Run tests and build the plugin:
 
@@ -127,6 +137,7 @@ Install into the local Tabby instance and restart it:
 
 ```powershell
 npm run install:tabby:restart
+npm run install:tabby:dev:restart # Dev build
 ```
 
 **To uninstall the plugin, click Uninstall in Tabby's Plugin Manager.**
@@ -148,9 +159,13 @@ Common development commands:
 | `npm test`                        | Compile and run tests                                     |
 | `npm run clean`                   | Remove `dist` and `dist-tests`                            |
 | `npm run build`                   | Clean and build `dist`                                    |
+| `npm run build:dev`              | Build Dev into `dist-dev` without installing              |
 | `npm run watch`                   | Continuously rebuild when source files change             |
 | `npm run install:tabby`           | Build and install into the local Tabby instance           |
 | `npm run install:tabby:restart`   | Build, install, and restart Tabby                         |
+| `npm run install:tabby:dev`       | Build and install Dev, preserving existing Dev data       |
+| `npm run install:tabby:dev:restart` | Build and install Dev, then restart Tabby               |
+| `npm run clean:tabby:dev`         | Clear Dev data; if Tabby is running, confirm to close, clear, and restart; otherwise, only clear |
 | `npm run publish:check`           | Run all pre-publish checks and preview the npm package    |
 | `npm run release:validate`        | Validate versions, update notes, and the latest npm version |
 | `npm run release`                 | Run all checks, confirm, and publish to npm               |
@@ -158,6 +173,36 @@ Common development commands:
 | `npm run clean:pack`              | Remove local `.tgz` installation packages                 |
 
 The plugin entry point is `dist/index.js`. The `dist` directory is not committed to Git; it is generated before builds and npm publishing.
+
+### Local Dev Build (Alongside Stable)
+
+| Item | Stable | Dev |
+| --- | --- | --- |
+| Local package name | `tabby-windy-quick-commands` | `tabby-windy-quick-commands-dev` |
+| Data directory (under Tabby's configuration directory) | `windy-quick-commands` | `windy-quick-commands-dev` |
+| Build directory | `dist` | `dist-dev` |
+| Default command library | One example command in the Default category, favorited but not pinned | Same as stable |
+| Default settings, execution, and shortcuts | Standard functionality | Same as stable |
+| Update information and history | Release information from the stable package | Reads the same stable package, with separate caches and update check preferences |
+| Update installation | Install the stable package online | Update the local source and reinstall Dev; does not install the stable package |
+| Legacy configuration migration | Stable namespace | Same logic, using the Dev namespace |
+
+The default Dev data path on Windows is `%APPDATA%\tabby\windy-quick-commands-dev`. The cleanup command deletes only this directory, including configuration, backups, logs, statistics, and update caches.
+
+For a custom Tabby configuration directory, use matching paths for installation and data operations:
+
+```powershell
+# Example: change these paths as needed; the installation parameter also works for stable
+npm run install:tabby:dev -- -TabbyPluginsDir 'D:\TabbyProfile\plugins'
+npm run clean:tabby:dev -- -TabbyConfigDir 'D:\TabbyProfile'
+```
+
+Clearing Dev data and configuration:
+When `clean:tabby:dev` detects that Tabby is running, it prompts to close Tabby → clear Dev data → restart. Only Enter confirms.
+Ctrl+C or any other input cancels; noninteractive environments never confirm automatically.
+If Tabby is already closed, the command only clears data without prompting or starting Tabby. Open Tabby yourself afterward.
+
+The Enter confirmation prompt follows Tabby's interface language, falling back to the Windows display language if it cannot be read. This workflow has only been tested on Windows.
 
 ## Publishing to npm
 
@@ -180,7 +225,7 @@ npm version major --no-git-tag-version # Breaking changes
 npm run release
 ```
 
-This command verifies the npm login, version, and update notes; runs type checking, tests, and a package preview; and publishes only after confirmation. It does not modify Git history.
+This command verifies the npm login, version, and update notes; runs type checking, tests, and a package preview; and publishes only after you press Enter to confirm. It does not perform any Git operations.
 
 Run `npm run publish:check` to validate without publishing. Running `npm publish` directly also validates the version and update notes automatically.
 
@@ -188,16 +233,16 @@ Run `npm run publish:check` to validate without publishing. Running `npm publish
 
 ```json
 {
-  "version": "1.6.0",
+  "version": "1.8.0",
   "zh-CN": {
-    "title": "本次更新标题",
+    "title": "Update title",
     "sections": [
       {
-        "title": "新增",
-        "items": ["新增功能一", "新增功能二"]
+        "title": "Added",
+        "items": ["New feature one", "New feature two"]
       }
     ],
-    "notice": "更新完成后需要重启 Tabby。"
+    "notice": "Restart Tabby after installation."
   },
   "en": {
     "title": "Update title",
@@ -211,6 +256,8 @@ Run `npm run publish:check` to validate without publishing. Running `npm publish
   }
 }
 ```
+
+The sample text above is translated into English for reference. For an actual release, write the `zh-CN` values in Chinese and the `en` values in English.
 
 The `version` must match `package.json` and `package-lock.json`. Both languages require a `title`, `sections`, and at least one item; `notice` is optional. Other interface languages fall back to English.
 

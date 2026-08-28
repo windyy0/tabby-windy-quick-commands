@@ -7,17 +7,21 @@ import {
     normalizeCommandConfig,
     sanitizeAutomationReferences,
 } from './commandLibrary'
-import { CommandUsageStats, QuickCommandsRuntimeStore } from './runtimeStorage'
-import { defaultQuickCommandsConfig } from './configProvider'
+import { CommandUsageStats, QuickCommandsRuntimeStore, runtimeChangedEvent } from './runtimeStorage'
+import { defaultQuickCommandsConfig, createDefaultQuickCommandsConfig } from './configProvider'
 import {
     buildDefaultSettingsConfig,
     PluginConfigImportFile,
+    pluginConfigChangedEvent,
     QuickCommandsPluginConfigStore,
 } from './pluginConfigStorage'
 import { QuickCommand } from './types'
 import { QuickCommandsI18n } from './i18n'
 import { PluginUpdateHistoryState, PluginUpdateState, QuickCommandsPluginUpdateService } from './pluginUpdate.service'
 import { UpdateCheckInterval } from './pluginUpdate'
+import { pluginIdentity } from './pluginIdentity'
+import { pluginDataResetEvent } from './pluginData'
+import { QuickCommandsService } from './quickCommands.service'
 
 const historyDateFormatters = {
     'zh-CN': new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }),
@@ -30,7 +34,7 @@ const historyDateFormatters = {
       <div class="wqc-settings">
         <header class="wqc-header">
           <div>
-            <h3>快速命令</h3>
+            <h3>{{ pluginTitle }}</h3>
             <div class="wqc-muted">{{ commandCount }} 条命令，{{ logCount }} 条运行日志</div>
           </div>
           <label class="wqc-header-toggle" title="修改后重启 Tabby 生效；隐藏按钮后仍可使用快捷键">
@@ -296,6 +300,10 @@ const historyDateFormatters = {
             <button class="btn btn-secondary wqc-back-to-top" type="button" (click)="scrollToSettingsTop()">返回顶部 <span aria-hidden="true">↑</span></button>
           </div>
 
+          <p class="wqc-muted" *ngIf="!canInstallUpdate">
+            <span>Dev 读取正式版的版本信息和更新历史，不会安装正式包。</span><br>
+            <span>更新本地代码后，请在源码目录运行：</span> <code data-i18n-skip>npm run install:tabby:dev</code> <span>然后重启 Tabby。</span>
+          </p>
           <div class="wqc-update-panel" *ngIf="updateState.available">
             <button class="wqc-update-summary" type="button" [attr.aria-expanded]="updateDetailsExpanded" (click)="toggleUpdateDetails()">
               <span class="wqc-update-summary-title">
@@ -309,7 +317,7 @@ const historyDateFormatters = {
               <pre class="wqc-update-notes" data-i18n-skip *ngIf="updateState.releaseNotes">{{ updateState.releaseNotes }}</pre>
               <div class="wqc-update-empty" *ngIf="!updateState.releaseNotes">本次更新未提供更新说明。</div>
               <div class="wqc-update-actions">
-                <button class="btn btn-primary" type="button" [disabled]="updateState.status === 'installing' || updateState.status === 'restart'" (click)="installUpdate()">
+                <button class="btn btn-primary" type="button" [disabled]="!canInstallUpdate || updateState.status === 'installing' || updateState.status === 'restart'" (click)="installUpdate()">
                   {{ updateState.status === 'installing' ? '正在更新…' : updateState.status === 'restart' ? '等待重启' : '立即更新' }}
                 </button>
                 <button class="btn btn-secondary" type="button" [disabled]="updateState.ignored" (click)="ignoreCurrentUpdate()">{{ updateState.ignored ? '已停止提醒' : '本版本不再提醒' }}</button>
@@ -339,12 +347,41 @@ const historyDateFormatters = {
 
         <div class="wqc-config-dialog-backdrop" *ngIf="resetDefaultsConfirmOpen" (click)="closeResetDefaultsConfirm()">
           <section class="wqc-config-dialog" role="dialog" aria-modal="true" aria-labelledby="wqc-reset-defaults-title" (click)="$event.stopPropagation()">
-            <h4 id="wqc-reset-defaults-title">恢复默认配置</h4>
-            <p>确定恢复所有插件设置的默认值？现有命令、分类和输出触发器将保留，运行日志和使用统计也不会清除。</p>
-            <div class="wqc-config-dialog-actions">
-              <button class="btn btn-secondary" type="button" (click)="closeResetDefaultsConfirm()">取消</button>
-              <button class="btn wqc-danger-button" type="button" (click)="restoreDefaultSettings()">确认恢复</button>
-            </div>
+            <h4 id="wqc-reset-defaults-title">{{ resetInitialConfirmOpen ? '重置插件数据' : '恢复默认配置' }}</h4>
+            <ng-container *ngIf="!resetInitialConfirmOpen">
+              <p>确定恢复所有插件设置的默认值？现有命令、分类和输出触发器将保留，运行日志和使用统计也不会清除。</p>
+              <div class="wqc-config-dialog-actions wqc-reset-actions">
+                <button class="wqc-reset-initial-entry wqc-reset-text-action" type="button" (click)="openResetInitialConfirm()">重置插件数据</button>
+                <button class="btn btn-secondary" type="button" (click)="closeResetDefaultsConfirm()">取消</button>
+                <button class="btn wqc-danger-button" type="button" (click)="restoreDefaultSettings()">确认恢复</button>
+              </div>
+            </ng-container>
+            <ng-container *ngIf="resetInitialConfirmOpen">
+              <div class="wqc-reset-warning" role="note">
+                <strong>此操作不可撤销</strong>
+                <p>将删除现有插件数据，并按当前界面语言重新创建默认分类和示例命令。</p>
+                <ul>
+                  <li>命令、分类、命令快捷键和输出触发器</li>
+                  <li>插件设置、配置备份、运行日志和使用统计</li>
+                  <li>插件本地缓存</li>
+                </ul>
+              </div>
+              <p>请先导出需要保留的命令和配置；导出文件不包含运行日志和使用统计。</p>
+              <p>不会卸载插件，也不会删除保存在其他位置的导出文件。</p>
+              <p>当前 Tabby 窗口不会重启。请在操作后重启，以免继续使用旧数据。</p>
+              <p>仅清空下方显示的当前插件数据目录，不影响 Tabby 配置和其他插件。</p>
+              <div class="wqc-reset-path"><span>清理目录</span><code data-i18n-skip>{{ pluginDataDirectory }}</code></div>
+              <label class="wqc-reset-acknowledge">
+                <input type="checkbox" [checked]="resetInitialAcknowledged" [disabled]="resetInProgress" (change)="setResetInitialAcknowledged($event)">
+                <span>我已了解数据将永久删除，并已保存需要保留的内容。</span>
+              </label>
+              <p class="wqc-reset-error" role="alert" data-i18n-skip *ngIf="resetInitialError">{{ resetInitialError }}</p>
+              <div class="wqc-config-dialog-actions wqc-reset-actions">
+                <button class="btn btn-secondary wqc-reset-initial-entry" type="button" [disabled]="resetInProgress" (click)="backToResetDefaults()">返回</button>
+                <button class="btn btn-secondary" type="button" [disabled]="resetInProgress" (click)="closeResetDefaultsConfirm()">取消</button>
+                <button class="btn wqc-danger-button" type="button" [disabled]="!resetInitialAcknowledged || resetInProgress" (click)="restoreInitialState()">{{ resetInProgress ? '正在重置…' : '确认重置' }}</button>
+              </div>
+            </ng-container>
           </section>
         </div>
 
@@ -1459,6 +1496,8 @@ const historyDateFormatters = {
 
       .wqc-config-dialog {
         width: min(520px, 100%);
+        max-height: calc(100vh - 40px);
+        overflow-y: auto;
         padding: 18px 18px 12px;
         color: var(--wqc-text);
         background: var(--bs-body-bg);
@@ -1491,6 +1530,86 @@ const historyDateFormatters = {
         margin-top: 20px;
         padding-top: 8px;
         border-top: 1px solid color-mix(in srgb, var(--wqc-surface-border) 70%, transparent);
+      }
+
+      .wqc-reset-initial-entry {
+        margin-right: auto;
+      }
+
+      .wqc-reset-text-action {
+        appearance: none;
+        padding: 7px 0;
+        border: 0;
+        background: none;
+        box-shadow: none;
+        color: var(--wqc-muted);
+        font: inherit;
+        cursor: pointer;
+        text-decoration: none;
+        text-underline-offset: 3px;
+      }
+
+      .wqc-reset-text-action:hover,
+      .wqc-reset-text-action:focus-visible {
+        color: var(--wqc-text);
+        text-decoration: underline;
+      }
+
+      .wqc-reset-text-action:focus-visible {
+        outline: 2px solid var(--wqc-accent);
+        outline-offset: 3px;
+      }
+
+      .wqc-reset-warning {
+        margin-top: 16px;
+        padding: 13px 15px;
+        background: color-mix(in srgb, var(--bs-danger) 8%, var(--bs-body-bg));
+        border: 1px solid color-mix(in srgb, var(--bs-danger) 38%, var(--bs-border-color));
+        border-radius: 8px;
+      }
+
+      .wqc-reset-warning strong,
+      .wqc-config-dialog .wqc-reset-error {
+        color: var(--bs-danger);
+      }
+
+      .wqc-reset-warning ul {
+        padding-left: 20px;
+        margin: 8px 0 0;
+        font-size: 13px;
+        line-height: 1.75;
+      }
+
+      .wqc-reset-path {
+        display: grid;
+        gap: 5px;
+        margin-top: 14px;
+        font-size: 12px;
+        color: var(--wqc-muted);
+      }
+
+      .wqc-reset-path code {
+        padding: 8px 10px;
+        overflow-wrap: anywhere;
+        white-space: normal;
+        color: var(--wqc-text);
+        background: color-mix(in srgb, var(--bs-body-color) 5%, var(--bs-body-bg));
+        border-radius: 5px;
+      }
+
+      .wqc-reset-acknowledge {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-top: 16px;
+        font-size: 13px;
+        line-height: 1.6;
+        cursor: pointer;
+      }
+
+      .wqc-reset-acknowledge input {
+        flex: none;
+        margin-top: 4px;
       }
 
       .wqc-selection-count {
@@ -1992,6 +2111,11 @@ const historyDateFormatters = {
           flex-direction: column-reverse;
         }
 
+        .wqc-reset-actions {
+          flex-direction: row;
+          flex-wrap: wrap;
+        }
+
         .wqc-command-filter-options {
           grid-template-columns: 1fr;
         }
@@ -2003,7 +2127,8 @@ const historyDateFormatters = {
     `],
 })
 export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestroy {
-    readonly defaultExportFileName = 'tabby-windy-quick-commands-{date}.json'
+    readonly pluginTitle = pluginIdentity.title
+    readonly defaultExportFileName = pluginIdentity.exportFileName
     failureMenuOpen = false
     updateIntervalMenuOpen = false
     commandCategoryMenuOpen = false
@@ -2022,6 +2147,10 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     batchMoveCategory = ''
     pendingConfigImport: PluginConfigImportFile | null = null
     resetDefaultsConfirmOpen = false
+    resetInitialConfirmOpen = false
+    resetInitialAcknowledged = false
+    resetInitialError = ''
+    resetInProgress = false
     selectedCommandIds = new Set<string>()
     runtimeLogs: any[] = []
     runtimeStats: CommandUsageStats = {}
@@ -2039,6 +2168,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     private runtimeStore: QuickCommandsRuntimeStore
     private pluginConfigStore: QuickCommandsPluginConfigStore
     private pluginConfig: Record<string, any>
+    private savedConfigSnapshot: string
     private stopLocalizing: (() => void) | null = null
     private readonly subscriptions = new Subscription()
 
@@ -2049,10 +2179,12 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         private i18n: QuickCommandsI18n,
         private zone: NgZone,
         private pluginUpdate: QuickCommandsPluginUpdateService,
+        private quickCommands: QuickCommandsService,
     ) {
         this.runtimeStore = new QuickCommandsRuntimeStore(this.platform.getConfigPath())
         this.pluginConfigStore = new QuickCommandsPluginConfigStore(this.platform.getConfigPath())
-        this.pluginConfig = this.pluginConfigStore.load(defaultQuickCommandsConfig)
+        this.pluginConfig = this.pluginConfigStore.load(createDefaultQuickCommandsConfig(this.i18n.language))
+        this.savedConfigSnapshot = JSON.stringify(this.pluginConfig)
         this.updateState = this.pluginUpdate.snapshot
         this.updateCheckInterval = this.pluginUpdate.checkInterval
         this.subscriptions.add(this.pluginUpdate.state$.subscribe(state => {
@@ -2273,21 +2405,38 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.batchMoveOpen = false
         this.batchMoveCategoryMenuOpen = false
         this.pendingConfigImport = null
-        this.resetDefaultsConfirmOpen = false
+        this.closeResetDefaultsConfirm()
         this.updateHistoryOpen = false
     }
 
-    @HostListener('window:windy-quick-commands-runtime-changed')
+    @HostListener(`window:${runtimeChangedEvent}`)
     refreshRuntimeData (): void {
         this.runtimeStore = new QuickCommandsRuntimeStore(this.platform.getConfigPath())
         this.runtimeLogs = this.runtimeStore.getLogs()
         this.runtimeStats = this.runtimeStore.getStats()
     }
 
-    @HostListener('window:windy-quick-commands-config-changed')
+    @HostListener(`window:${pluginConfigChangedEvent}`)
     refreshPluginConfig (): void {
-        this.pluginConfig = this.pluginConfigStore.load(defaultQuickCommandsConfig, true)
+        this.pluginConfig = this.pluginConfigStore.load(createDefaultQuickCommandsConfig(this.i18n.language), true)
+        this.savedConfigSnapshot = JSON.stringify(this.pluginConfig)
         this.updateCheckInterval = this.pluginUpdate.checkInterval
+    }
+
+    @HostListener(`window:${pluginDataResetEvent}`)
+    refreshAfterDataReset (): void {
+        this.pluginConfigStore = new QuickCommandsPluginConfigStore(this.platform.getConfigPath())
+        this.refreshPluginConfig()
+        this.refreshRuntimeData()
+        this.selectedCommandIds.clear()
+        this.commandQuery = ''; this.commandCategory = 'all'; this.commandUsage = 'all'; this.commandPage = 1
+        this.logQuery = ''; this.logLevel = 'all'; this.logPage = 1
+        this.pendingConfigImport = null
+        this.batchDeleteConfirmOpen = false
+        this.closeBatchMove()
+        this.expandedHistoryVersions.clear()
+        this.historyExpansionInitialized = false
+        this.updateHistoryOpen = false
     }
 
     get updateStatusLabel (): string {
@@ -2326,6 +2475,10 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     scrollToSettingsTop (): void {
         this.scrollTo('.wqc-settings')
+    }
+
+    get canInstallUpdate (): boolean {
+        return this.pluginUpdate.canInstallUpdate
     }
 
     installUpdate (): void {
@@ -2390,9 +2543,9 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     }
 
     selectUpdateCheckInterval (interval: UpdateCheckInterval): void {
-        this.updateCheckInterval = interval
         this.updateIntervalMenuOpen = false
-        this.pluginUpdate.setCheckInterval(this.updateCheckInterval)
+        this.root.updateCheckInterval = interval
+        if (this.save()) { this.updateCheckInterval = interval }
     }
 
     private scrollTo (selector: string): void {
@@ -2594,13 +2747,13 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
             this.root.selectedCommandId = remaining[0]?.id || null
         }
 
+        if (!this.save()) { return }
         const stats = this.runtimeStore.getStats()
         selectedIds.forEach(commandId => delete stats[commandId])
         this.runtimeStore.setStats(stats)
         this.runtimeStats = stats
         this.commandPage = Math.min(this.commandPage, Math.max(1, Math.ceil(remaining.length / 6)))
         this.clearCommandSelection()
-        this.save()
     }
 
     previousLogPage (): void {
@@ -2628,7 +2781,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         const text = JSON.stringify(payload, null, 2)
         const date = new Date().toISOString().slice(0, 10)
         try {
-            this.downloadJson(text, `tabby-windy-quick-commands-config-${date}.json`)
+            this.downloadJson(text, `${pluginIdentity.packageName}-config-${date}.json`)
             this.showConfigMessage('已触发插件配置文件下载，请检查下载目录。')
         } catch {
             this.showConfigMessage('无法触发配置文件下载，请重试。')
@@ -2636,6 +2789,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     }
 
     async importPluginConfig (event: Event): Promise<void> {
+        const store = this.pluginConfigStore
         const input = event.target as HTMLInputElement
         const file = input.files?.[0]
         input.value = ''
@@ -2646,12 +2800,15 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
             if (file.size > 5 * 1024 * 1024) {
                 throw new Error('配置文件不能超过 5MB。')
             }
-            const parsed = this.pluginConfigStore.parseImportFile(await file.text())
+            const text = await file.text()
+            if (store !== this.pluginConfigStore || !store.dataAccess.isCurrent()) { return }
+            const parsed = store.parseImportFile(text)
             if (parsed.kind === 'commands' && !parsed.commands.length) {
                 throw new Error('导入文件里没有命令。')
             }
             this.pendingConfigImport = parsed
         } catch (error) {
+            if (store !== this.pluginConfigStore || !store.dataAccess.isCurrent()) { return }
             this.showConfigMessage(`导入失败：${error instanceof Error ? error.message : '配置文件无效。'}`)
         }
     }
@@ -2700,8 +2857,8 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
             selectedCommandId,
             selectedCategory,
         }
+        if (!this.applyImportedConfig(next)) { return }
         this.pendingConfigImport = null
-        this.applyImportedConfig(next)
         this.showConfigMessage('命令已合并导入。')
     }
 
@@ -2710,45 +2867,93 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         if (!imported) {
             return
         }
+        if (!this.applyImportedConfig(imported)) { return }
         this.pendingConfigImport = null
-        this.applyImportedConfig(imported)
         this.showConfigMessage('插件配置已导入。按钮显示设置将在重启 Tabby 后生效。')
     }
 
     openResetDefaultsConfirm (): void {
+        this.resetInitialConfirmOpen = false
+        this.resetInitialAcknowledged = false
+        this.resetInitialError = ''
         this.resetDefaultsConfirmOpen = true
     }
 
     closeResetDefaultsConfirm (): void {
+        if (this.resetInProgress) { return }
         this.resetDefaultsConfirmOpen = false
+        this.resetInitialConfirmOpen = false
+        this.resetInitialAcknowledged = false
+        this.resetInitialError = ''
+    }
+
+    get pluginDataDirectory (): string {
+        return this.quickCommands.dataDirectory || this.i18n.text('无法定位插件数据目录，未清理数据。')
+    }
+
+    openResetInitialConfirm (): void {
+        if (!this.resetDefaultsConfirmOpen) { return }
+        this.resetInitialConfirmOpen = true
+        this.resetInitialAcknowledged = false
+        this.resetInitialError = ''
+    }
+
+    backToResetDefaults (): void {
+        if (this.resetInProgress) { return }
+        this.resetInitialConfirmOpen = false
+        this.resetInitialAcknowledged = false
+        this.resetInitialError = ''
+    }
+
+    setResetInitialAcknowledged (event: Event): void {
+        this.resetInitialAcknowledged = (event.target as HTMLInputElement).checked
+    }
+
+    restoreInitialState (): void {
+        if (!this.resetDefaultsConfirmOpen || !this.resetInitialConfirmOpen || !this.resetInitialAcknowledged || this.resetInProgress) { return }
+        this.resetInProgress = true
+        this.resetInitialError = ''
+        try {
+            this.quickCommands.restoreInitialState()
+            this.refreshAfterDataReset()
+            this.resetDefaultsConfirmOpen = false
+            this.resetInitialConfirmOpen = false
+            this.showConfigMessage('已重置插件数据，并按当前语言创建默认分类和示例命令。按钮显示设置将在重启 Tabby 后生效。')
+        } catch (error) {
+            this.resetInitialError = this.i18n.text(error instanceof Error ? error.message : String(error))
+        } finally {
+            this.resetInProgress = false
+            this.resetInitialAcknowledged = false
+        }
     }
 
     restoreDefaultSettings (): void {
+        if (!this.resetDefaultsConfirmOpen || this.resetInitialConfirmOpen) { return }
         const restored = buildDefaultSettingsConfig(this.root, defaultQuickCommandsConfig)
+        if (!this.applyImportedConfig(restored)) { return }
         this.resetDefaultsConfirmOpen = false
-        this.applyImportedConfig(restored)
         this.showConfigMessage('已恢复默认配置，现有命令、分类和输出触发器已保留。按钮显示设置将在重启 Tabby 后生效。')
     }
 
     setBoolean (field: string, event: Event): void {
         this.root[field] = (event.target as HTMLInputElement).checked
-        this.save()
+        if (!this.save()) { (event.target as HTMLInputElement).checked = Boolean(this.root[field]) }
     }
 
     setToolbarButtonVisibility (event: Event): void {
         this.root.showToolbarButton = (event.target as HTMLInputElement).checked
-        this.save()
+        if (!this.save()) { (event.target as HTMLInputElement).checked = this.root.showToolbarButton !== false }
     }
 
     setString (field: string, event: Event): void {
         this.root[field] = (event.target as HTMLInputElement).value
-        this.save()
+        if (!this.save()) { (event.target as HTMLInputElement).value = String(this.root[field] ?? '') }
     }
 
     setNumber (field: string, event: Event, min: number, max: number): void {
         const raw = Number((event.target as HTMLInputElement).value)
         this.root[field] = Math.max(min, Math.min(max, Number.isFinite(raw) ? raw : min))
-        this.save()
+        if (!this.save()) { (event.target as HTMLInputElement).value = String(this.root[field] ?? '') }
     }
 
     clearLogs (): void {
@@ -2833,9 +3038,9 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.batchDeleteConfirmOpen = false
     }
 
-    private applyImportedConfig (config: Record<string, unknown>): void {
+    private applyImportedConfig (config: Record<string, unknown>): boolean {
         this.pluginConfig = config
-        this.pluginConfigStore.set(config)
+        if (!this.save()) { return false }
         this.selectedCommandIds = new Set<string>()
         this.commandPage = 1
         this.commandQuery = ''
@@ -2844,6 +3049,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.closeBatchMove()
         this.batchDeleteConfirmOpen = false
         this.updateCheckInterval = this.pluginUpdate.checkInterval
+        return true
     }
 
     private createImportIdFactory (): () => string {
@@ -2857,8 +3063,22 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         return stored
     }
 
-    private save (): void {
-        this.pluginConfigStore.set(this.root)
+    private save (): boolean {
+        try {
+            this.pluginConfigStore.set(this.root)
+            this.savedConfigSnapshot = JSON.stringify(this.root)
+            this.configMessage = ''
+            return true
+        } catch (error) {
+            this.pluginConfig = JSON.parse(this.savedConfigSnapshot)
+            // Prefer the actual saved state, including another window's edits.
+            // If a reset invalidated this store, retain the last known snapshot
+            // and show the original restart/error instruction instead.
+            try { this.refreshPluginConfig() } catch { /* Keep the saved snapshot. */ }
+            this.showConfigMessage(this.i18n.text('保存失败，本次更改未保存。详情：') +
+                this.i18n.text(error instanceof Error ? error.message : String(error)))
+            return false
+        }
     }
 
     private showConfigMessage (message: string): void {

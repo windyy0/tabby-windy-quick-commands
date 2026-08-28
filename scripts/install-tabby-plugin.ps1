@@ -1,16 +1,28 @@
 param(
     [string]$TabbyPluginsDir = "$env:APPDATA\tabby\plugins",
     [string]$TabbyExe = "",
+    [switch]$DevBuild,
     [switch]$Restart
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "tabby-path-safety.ps1")
+. (Join-Path $PSScriptRoot "tabby-process.ps1")
 
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $PackageJsonPath = Join-Path $ProjectRoot "package.json"
 $PackageJson = Get-Content -LiteralPath $PackageJsonPath -Raw | ConvertFrom-Json
 $PackageName = $PackageJson.name
+if ($DevBuild) {
+    $PackageName = "$PackageName-dev"
+}
+$BuildScript = if ($DevBuild) { "build:dev" } else { "build" }
+$BuildDirectory = if ($DevBuild) { "dist-dev" } else { "dist" }
+$DataDirectoryName = if ($DevBuild) { "windy-quick-commands-dev" } else { "windy-quick-commands" }
+$LegacyConfigKey = if ($DevBuild) { "windyCommandCenterDev" } else { "windyCommandCenter" }
+$TabbyPluginsDir = [System.IO.Path]::GetFullPath($TabbyPluginsDir)
 $InstalledPath = Join-Path $TabbyPluginsDir "node_modules\$PackageName"
+Assert-TabbyChildPath -ParentPath (Join-Path $TabbyPluginsDir "node_modules") -Path $InstalledPath -ChildName $PackageName
 
 function Write-Utf8NoBom {
     param(
@@ -22,55 +34,20 @@ function Write-Utf8NoBom {
     [System.IO.File]::WriteAllText($Path, $Value, $Utf8NoBom)
 }
 
-function Resolve-TabbyExe {
-    param(
-        [string]$RequestedPath
-    )
-
-    $Candidates = @()
-    if ($RequestedPath) {
-        $Candidates += $RequestedPath
-    }
-    Get-Process -Name "Tabby" -ErrorAction SilentlyContinue | ForEach-Object {
-        try {
-            if ($_.MainModule.FileName) {
-                $Candidates += $_.MainModule.FileName
-            }
-        } catch {
-            # Some Windows process queries can fail under restricted permissions.
-        }
-    }
-    if ($env:LOCALAPPDATA) {
-        $Candidates += (Join-Path $env:LOCALAPPDATA "Programs\Tabby\Tabby.exe")
-    }
-    if ($env:ProgramFiles) {
-        $Candidates += (Join-Path $env:ProgramFiles "Tabby\Tabby.exe")
-    }
-    if (${env:ProgramFiles(x86)}) {
-        $Candidates += (Join-Path ${env:ProgramFiles(x86)} "Tabby\Tabby.exe")
-    }
-    $Candidates += @(
-        "D:\Application\tabby\Tabby.exe",
-        "D:\Applications\tabby\Tabby.exe",
-        "D:\Program Files\Tabby\Tabby.exe"
-    )
-
-    foreach ($Candidate in $Candidates) {
-        if ($Candidate -and (Test-Path -LiteralPath $Candidate)) {
-            return (Resolve-Path -LiteralPath $Candidate).Path
-        }
-    }
-
-    $Command = Get-Command "Tabby.exe" -ErrorAction SilentlyContinue
-    if ($Command) {
-        return $Command.Source
-    }
-
-    return $null
-}
-
 Write-Host "Project: $ProjectRoot"
 Write-Host "Tabby plugins: $TabbyPluginsDir"
+Write-Host "Channel: $(if ($DevBuild) { 'DEV (isolated data)' } else { 'stable' })"
+
+Push-Location $ProjectRoot
+try {
+    Write-Host "Building plugin..."
+    npm run -s $BuildScript
+    if ($LASTEXITCODE -ne 0) {
+        throw "Plugin build failed. Existing installation was not changed."
+    }
+} finally {
+    Pop-Location
+}
 
 if (!(Test-Path -LiteralPath $TabbyPluginsDir)) {
     New-Item -ItemType Directory -Force -Path $TabbyPluginsDir | Out-Null
@@ -81,17 +58,12 @@ if (!(Test-Path -LiteralPath $PluginsPackageJson)) {
     Push-Location $TabbyPluginsDir
     try {
         npm init -y | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to initialize Tabby plugins package.json"
+        }
     } finally {
         Pop-Location
     }
-}
-
-Push-Location $ProjectRoot
-try {
-    Write-Host "Building plugin..."
-    npm run -s build
-} finally {
-    Pop-Location
 }
 
 $NodeModulesDir = Join-Path $TabbyPluginsDir "node_modules"
@@ -99,6 +71,7 @@ if (!(Test-Path -LiteralPath $NodeModulesDir)) {
     New-Item -ItemType Directory -Force -Path $NodeModulesDir | Out-Null
 }
 
+Assert-TabbyChildPath -ParentPath $NodeModulesDir -Path $InstalledPath -ChildName $PackageName
 if (Test-Path -LiteralPath $InstalledPath) {
     $ResolvedNodeModules = (Resolve-Path -LiteralPath $NodeModulesDir).Path.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
     $ResolvedInstalled = (Resolve-Path -LiteralPath $InstalledPath).Path
@@ -113,40 +86,36 @@ Write-Host "Copying minimal plugin files..."
 New-Item -ItemType Directory -Force -Path $InstalledPath | Out-Null
 
 $InstalledPackageJson = [ordered]@{
-    name = $PackageJson.name
-    version = $PackageJson.version
-    description = $PackageJson.description
+    name = $PackageName
+    version = $(if ($DevBuild) { "$($PackageJson.version.Split('+')[0])-dev.local" } else { $PackageJson.version })
+    description = $(if ($DevBuild) { "[DEV] $($PackageJson.description)" } else { $PackageJson.description })
     keywords = $PackageJson.keywords
     main = $PackageJson.main
     typings = $PackageJson.typings
     author = $PackageJson.author
     license = $PackageJson.license
 }
+if ($DevBuild) {
+    $InstalledPackageJson.private = $true
+}
 Write-Utf8NoBom -Path (Join-Path $InstalledPath "package.json") -Value ($InstalledPackageJson | ConvertTo-Json -Depth 10)
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "README.md") -Destination $InstalledPath
-Copy-Item -LiteralPath (Join-Path $ProjectRoot "dist") -Destination $InstalledPath -Recurse
+Copy-Item -LiteralPath (Join-Path $ProjectRoot $BuildDirectory) -Destination (Join-Path $InstalledPath "dist") -Recurse
 
-if (Test-Path -LiteralPath $PluginsPackageJson) {
-    $PluginsPackage = Get-Content -LiteralPath $PluginsPackageJson -Raw | ConvertFrom-Json
-    if (!$PluginsPackage.dependencies) {
-        $PluginsPackage | Add-Member -MemberType NoteProperty -Name dependencies -Value ([PSCustomObject]@{})
-    }
-    $DependencyValue = "file:node_modules/$PackageName"
-    if ($PluginsPackage.dependencies.PSObject.Properties.Name -contains $PackageName) {
-        $PluginsPackage.dependencies.$PackageName = $DependencyValue
-    } else {
-        $PluginsPackage.dependencies | Add-Member -MemberType NoteProperty -Name $PackageName -Value $DependencyValue
-    }
-    Write-Utf8NoBom -Path $PluginsPackageJson -Value ($PluginsPackage | ConvertTo-Json -Depth 20)
-}
+& node (Join-Path $PSScriptRoot 'register-tabby-plugin.cjs') $TabbyPluginsDir $PackageName
+if ($LASTEXITCODE -ne 0) { throw 'Failed to register local plugin metadata. See the error above before using the plugin manager.' }
 
-if (!(Test-Path -LiteralPath $InstalledPath)) {
+if (!(Test-Path -LiteralPath (Join-Path $InstalledPath "dist\index.js"))) {
     throw "Install check failed: $InstalledPath"
 }
 
 Write-Host ""
 Write-Host "Installed:"
 Write-Host "  $InstalledPath"
+if ($DevBuild) {
+    Write-Host "Dev data: $(Join-Path (Split-Path -Parent $TabbyPluginsDir) 'windy-quick-commands-dev')"
+    Write-Host "New dev profiles use the same defaults as stable; existing dev data is preserved."
+}
 
 if ($Restart) {
     Write-Host ""
@@ -178,10 +147,10 @@ if ($Restart) {
         }
     }
     $TabbyConfigPath = Join-Path (Split-Path -Parent $TabbyPluginsDir) "config.yaml"
-    $PluginConfigPath = Join-Path (Split-Path -Parent $TabbyPluginsDir) "windy-quick-commands\plugin-config.json"
+    $PluginConfigPath = Join-Path (Join-Path (Split-Path -Parent $TabbyPluginsDir) $DataDirectoryName) "plugin-config.json"
     $CleanupScript = Join-Path $ProjectRoot "scripts\cleanup-tabby-config.cjs"
     if ((Test-Path -LiteralPath $CleanupScript) -and (Test-Path -LiteralPath $PluginConfigPath)) {
-        & node $CleanupScript $TabbyConfigPath $PluginConfigPath
+        & node $CleanupScript $TabbyConfigPath $PluginConfigPath $LegacyConfigKey $DataDirectoryName
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to remove legacy plugin config from Tabby config.yaml"
         }
@@ -204,6 +173,10 @@ if ($Restart) {
     }
 } else {
     Write-Host ""
-    Write-Host "Next step: fully restart Tabby, then look for the lightning button in the top-right toolbar."
+    if ($DevBuild) {
+        Write-Host "Next step: fully restart Tabby, then open Quick Commands (Dev) via the quick commands icon with a D badge."
+    } else {
+        Write-Host "Next step: fully restart Tabby, then look for the quick commands button in the top-right toolbar."
+    }
     Write-Host "Tip: run with -Restart to close and reopen Tabby automatically."
 }

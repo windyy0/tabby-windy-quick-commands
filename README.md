@@ -62,6 +62,8 @@ npm run install:tabby
 
 点击 Tabby 右上角的快速命令按钮打开抽屉。全局开关快捷键可在 `设置 -> 快捷键` 中搜索“快速命令”或 “Quick Commands” 后配置。
 
+> 首次使用时候，会根据当前tabby客户端语言创建示例分类和命令。
+
 ### 导入与导出
 
 - 抽屉中的“导出命令”只导出命令、分类和输出触发器。
@@ -99,7 +101,7 @@ npm run install:tabby
 - [Tabby 最新版本](https://github.com/Eugeny/tabby/releases/latest)：下载安装包和查看发布说明。
 - [Node.js](https://nodejs.org/)：需要 Node.js 18 或更高版本，npm 随 Node.js 安装。
 - [Git](https://git-scm.com/)：用于克隆仓库和版本管理。
-- [PowerShell 7](https://learn.microsoft.com/powershell/)：Windows 本地安装/重启脚本需要 `pwsh`；单纯测试和构建不依赖 Windows。
+- [PowerShell 7](https://learn.microsoft.com/powershell/)：Windows 本地安装/重启/清理 脚本需要 `pwsh`；单纯测试和构建不依赖 Windows。
 - 可选编辑器：[Visual Studio Code](https://code.visualstudio.com/) 及其内置 TypeScript 支持。
 - [NPM 账号](https://www.npmjs.com)。
 
@@ -112,9 +114,17 @@ npm run install:tabby
 ```powershell
 npm ci
 npm run install:tabby
+npm run install:tabby:dev #开发版
 ```
 
-> 推荐使用 `npm ci`；锁文件缺失、不可用或需要更新依赖时，可改用 `npm install`。
+`npm ci` 和 `npm install` 都用于安装项目依赖，在本仓库根目录执行，任选其一即可：
+
+| 命令 | 安装行为 | 适用场景 |
+| --- | --- | --- |
+| `npm ci` | 先删除当前项目的 `node_modules`，再严格按 `package-lock.json` 安装，不修改锁文件；锁文件缺失或与 `package.json` 不一致时会报错 | 复现仓库的固定依赖环境、自动化测试 |
+| `npm install` | 不先清空整个 `node_modules`，按依赖声明和可用的锁文件安装，必要时生成或更新锁文件 | 日常本地开发、首次生成锁文件或调整依赖 |
+
+> 本地开发可以直接使用 `npm install`，`npm ci` 不是必须的。两者只安装本项目的依赖，不会自动安装或升级 Tabby 中的插件。
 
 运行测试和构建：
 
@@ -127,6 +137,7 @@ npm run build
 
 ```powershell
 npm run install:tabby:restart
+npm run install:tabby:dev:restart #开发版
 ```
 
 **卸载时直接在 Tabby 插件管理器中点击卸载即可。**
@@ -148,9 +159,13 @@ Tabby 开发相关资料：
 | `npm test`                      | 编译并运行测试                  |
 | `npm run clean`                 | 清理 `dist` 和 `dist-tests` |
 | `npm run build`                 | 清理并构建 `dist`             |
+| `npm run build:dev`             | 构建开发版到 `dist-dev`，不安装 |
 | `npm run watch`                 | 监听源码变化并持续构建          |
 | `npm run install:tabby`         | 构建并安装到本机 Tabby          |
 | `npm run install:tabby:restart` | 构建、安装并重启 Tabby          |
+| `npm run install:tabby:dev`     | 构建并安装开发版，保留现有 Dev 数据 |
+| `npm run install:tabby:dev:restart` | 构建、安装开发版并重启 Tabby |
+| `npm run clean:tabby:dev`       | 清理 Dev 数据；运行中确认后关闭、清理并重启，已关闭时仅清理 |
 | `npm run publish:check`         | 完整执行发布前检查并预览 npm 包 |
 | `npm run release:validate`      | 校验版本号、更新说明与 npm 最新版本 |
 | `npm run release`               | 完整检查、二次确认并发布到 npm  |
@@ -158,6 +173,35 @@ Tabby 开发相关资料：
 | `npm run clean:pack`            | 清理本地 `.tgz` 安装包        |
 
 插件入口为 `dist/index.js`。`dist` 不提交到 Git，而是在构建和 npm 发布前生成。
+
+### 本地开发版 Dev（与正式版并存）
+
+| 项目 | 正式版 | 开发版 |
+| --- | --- | --- |
+| 本地包名 | `tabby-windy-quick-commands` | `tabby-windy-quick-commands-dev` |
+| 数据目录（Tabby 配置目录下） | `windy-quick-commands` | `windy-quick-commands-dev` |
+| 构建目录 | `dist` | `dist-dev` |
+| 默认命令库 | “默认”分类中的一条示例命令，已收藏、不置顶 | 与正式版相同 |
+| 默认设置、执行和快捷键 | 正常功能 | 与正式版相同 |
+| 更新信息和历史 | 正式包发布信息 | 读取同一正式包，缓存与检查更新偏好独立 |
+| 更新安装 | 在线安装正式包 | 更新本地源码后重新安装 Dev，不安装正式包 |
+| 旧配置迁移 | 正式版命名空间 | 相同逻辑，使用 Dev 命名空间 |
+
+Windows 默认开发版数据路径为 `%APPDATA%\tabby\windy-quick-commands-dev`。清空命令只删除这个目录（包括配置、备份、日志、统计和更新缓存）
+
+自定义 Tabby 配置目录需对安装和数据操作使用对应路径：
+```powershell
+#示例 文件夹可以更改，安装正式版也可以使用这个参数
+npm run install:tabby:dev -- -TabbyPluginsDir 'D:\TabbyProfile\plugins'
+npm run clean:tabby:dev -- -TabbyConfigDir 'D:\TabbyProfile'
+```
+
+清理dev数据配置：
+`clean:tabby:dev` 检测到 Tabby 运行中时，提示“关闭 → 清理 Dev 数据 → 重启”，仅按回车确认；
+Ctrl+C 或其他输入取消，非交互环境不会自动确认。
+Tabby 原本已关闭时，只清理，不询问、不启动；之后自行打开 Tabby 即可。
+
+回车确认提示跟随tabby客户端语言，失败尝试Windows显示语言，目前只测试过Windows。
 
 ## 发布到 npm
 
@@ -180,7 +224,7 @@ npm version major --no-git-tag-version # 不兼容改动、大版本
 npm run release
 ```
 
-该命令会检查登录状态、版本与更新说明，运行类型检查、测试和打包预览；输入本次版本号确认后才会发布，不会操作 Git。
+该命令会检查登录状态、版本与更新说明，运行类型检查、测试和打包预览；按回车确认后才会发布，不会操作 Git。
 
 只检查可运行 `npm run publish:check`。直接运行 `npm publish` 时也会自动校验版本和更新说明。
 
@@ -188,7 +232,7 @@ npm run release
 
 ```json
 {
-  "version": "1.6.0",
+  "version": "1.8.0",
   "zh-CN": {
     "title": "本次更新标题",
     "sections": [

@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { spawnSync } from 'child_process'
 
 import {
     applyImportPreview,
@@ -22,6 +23,7 @@ import { getExecutableLineCount, parseScriptSteps } from '../src/scriptParser'
 import { QuickCommandsRuntimeStore } from '../src/runtimeStorage'
 import { shouldShowToolbarButton } from '../src/toolbarVisibility'
 import { buildDefaultSettingsConfig, QuickCommandsPluginConfigStore } from '../src/pluginConfigStorage'
+import { createDefaultQuickCommandsConfig, defaultQuickCommandsConfig } from '../src/defaults'
 import { migrateLegacyPluginConfig, readLegacyPluginConfig, removeLegacyPluginConfig } from '../src/legacyConfigMigration'
 import {
     findOutputMatch,
@@ -37,8 +39,67 @@ import {
     formatPluginUpdateNotes,
     getNextPluginUpdateCheckDelay,
     isNewerPluginVersion,
+    getUpdateComparisonVersion,
 } from '../src/pluginUpdate'
 import { shouldHandleDelegatedAction } from '../src/delegatedClick'
+import { getPluginIdentity } from '../src/pluginIdentity'
+import { PluginDataAccess } from '../src/pluginData'
+
+function testBuildIsolation (): void {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wqc-channels-'))
+    try {
+        const configPath = path.join(directory, 'config.yaml')
+        const originalYaml = 'windyCommandCenter:\n  commands: []\nhotkeys: {}\n'
+        fs.writeFileSync(configPath, originalYaml)
+        const stable = getPluginIdentity(false)
+        const test = getPluginIdentity(true)
+        const stableStore = new QuickCommandsPluginConfigStore(configPath, stable)
+        const testStore = new QuickCommandsPluginConfigStore(configPath, test)
+        const stableRuntime = new QuickCommandsRuntimeStore(configPath, stable)
+        const testRuntime = new QuickCommandsRuntimeStore(configPath, test)
+        const events: string[] = []
+        const originalWindow = (global as any).window
+        const originalCustomEvent = (global as any).CustomEvent
+        ;(global as any).window = { dispatchEvent: (event: { type: string }) => events.push(event.type) }
+        ;(global as any).CustomEvent = class { constructor (public type: string) {} }
+        try {
+            stableStore.set({ commands: [{ id: 'same-id', command: 'echo stable' }] })
+            const stableBytes = fs.readFileSync(stableStore.configPath!, 'utf8')
+            testStore.set({ commands: [{ id: 'same-id', command: 'echo test' }] })
+            testStore.set({ commands: [] })
+            stableRuntime.setStats({ 'same-id': { usageCount: 8, lastUsedAt: null } })
+            testRuntime.setStats({ 'same-id': { usageCount: 2, lastUsedAt: null } })
+            testRuntime.setLogs([{ id: 'test-log', time: '2026-08-27', level: 'info', message: 'test' }])
+            assert(fs.readFileSync(stableStore.configPath!, 'utf8') === stableBytes, 'test saves must preserve stable config bytes')
+            assert(new QuickCommandsRuntimeStore(configPath).getStats()['same-id'].usageCount === 8, 'stats with identical command IDs must remain separate')
+            assert(stableRuntime.getLogs().length === 0, 'test logs must not appear in stable storage')
+            assert(testStore.backupPath !== stableStore.backupPath && fs.existsSync(testStore.backupPath!), 'test backups must stay in the test directory')
+            assert(events.filter(event => event === stable.configChangedEvent).length === 1, 'test writes must not dispatch stable config events')
+            assert(events.includes(test.configChangedEvent) && events.includes(test.runtimeChangedEvent), 'test writes must dispatch their own events')
+            assert(!migrateLegacyPluginConfig(readLegacyPluginConfig(configPath, test), testStore, testRuntime), 'dev migration must not read stable legacy data')
+            assert(!migrateLegacyPluginConfig({ commands: [] }, testStore, stableRuntime), 'migration must reject mismatched storage namespaces')
+            assert(fs.readFileSync(configPath, 'utf8') === originalYaml, 'test operations must preserve Tabby config.yaml')
+        } finally {
+            ;(global as any).window = originalWindow
+            ;(global as any).CustomEvent = originalCustomEvent
+        }
+        const namespace = require('../../scripts/dev-namespace-loader.cjs')
+        assert(namespace('.tqc-root { --tqc-width: 5px } #wqc-help quick-commands-settings-tab') === '.tqc-dev-root { --tqc-dev-width: 5px } #wqc-dev-help quick-commands-dev-settings-tab', 'test markup and CSS must use matching isolated names')
+    } finally {
+        fs.rmSync(directory, { recursive: true, force: true })
+    }
+}
+
+function testTestDataScripts (): void {
+    if (process.platform !== 'win32') {
+        console.log('  Windows PowerShell data script checks skipped on this platform')
+        return
+    }
+    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', 'tests/test-tabby-installation.ps1'], {
+        encoding: 'utf8', windowsHide: true,
+    })
+    assert(result.status === 0, `dev data script checks failed: ${result.error || ''}\n${result.stdout}\n${result.stderr}`)
+}
 
 let id = 0
 const createId = (): string => `test-${++id}`
@@ -114,6 +175,13 @@ function testTranslations (): void {
     assert(translatePluginText('全部行匹配', 'en-US') === 'Match all patterns', 'output pattern logic should be translated')
     assert(translatePluginText('输入要发送到终端的命令', 'en-US') === 'Enter the command to send to the terminal', 'custom automation command placeholder should be translated')
     assert(translatePluginText('恢复默认配置', 'en-US') === 'Restore defaults', 'restore-defaults action should be translated')
+    assert(translatePluginText('重置插件数据', 'en-US') === 'Reset plugin data', 'destructive reset entry should be translated')
+    assert(translatePluginText('确认重置', 'en-US') === 'Confirm reset', 'reset confirmation must not imply restarting Tabby')
+    assert(translatePluginText('插件本地缓存', 'en-US') === 'Local plugin cache', 'reset cache scope should be translated')
+    assert(translatePluginText('仅清空下方显示的当前插件数据目录，不影响 Tabby 配置和其他插件。', 'en-US') === "Only this plugin's data directory shown below is cleared. Tabby configuration and other plugins are not affected.", 'reset directory scope must be explicit in both languages')
+    assert(translatePluginText('当前 Tabby 窗口不会重启。请在操作后重启，以免继续使用旧数据。', 'en-US') === 'The current Tabby window will not restart automatically. Please restart Tabby afterward to avoid using stale data.', 'reset result should explain that restart is manual and recommended afterward')
+    assert(translatePluginText('返回', 'en-US') === 'Back', 'the second reset page must have a translated Back button')
+    assert(translatePluginText('当前插件仍有命令正在执行，请停止执行后再重置插件数据。', 'en-US') === 'A command is still running in this plugin. Stop execution before resetting.', 'reset blockers must be localized')
     assert(translatePluginText('导入完整配置', 'en-US') === 'Import full configuration', 'full configuration import action should be translated')
     assert(translatePluginText('该文件只包含命令。', 'en-US') === 'This file contains commands only.', 'commands-only import message first line should be translated')
     assert(translatePluginText('是否将命令合并到当前命令库？', 'en-US') === 'Merge them into the current command library?', 'commands-only import message second line should be translated')
@@ -132,6 +200,9 @@ function testTranslations (): void {
     assert(translatePluginText('将“部署”移动到指定分类。', 'en-US') === 'Move "部署" to the selected category.', 'move dialog should translate dynamic command names')
     assert(translatePluginText('将选中的 3 条命令移动到', 'en-US') === 'Move the selected 3 commands to', 'batch move prompt should be translated')
     assert(translatePluginText('检查更新', 'en-US') === 'Check for updates', 'update controls should be translated')
+    assert(translatePluginText('Dev 读取正式版的版本信息和更新历史，不会安装正式包。', 'en-US') === 'Dev reads stable release information and history without installing the stable package.', 'Dev update source notice must be translated independently')
+    assert(translatePluginText('更新本地代码后，请在源码目录运行：', 'en-US') === 'After updating your local source, run this in the source directory:', 'Dev local installation notice must be translated independently')
+    assert(translatePluginText('然后重启 Tabby。', 'en-US') === 'Then restart Tabby.', 'local installation instructions must be fully translated')
     assert(translatePluginText('点击跳转到底部更新设置', 'en-US') === 'Click to jump to update settings at the bottom', 'update status jump tooltip should be translated')
     assert(translatePluginText('返回顶部', 'en-US') === 'Back to top', 'back-to-top update action should be translated')
     assert(translatePluginText('检查中…', 'en-US') === 'Checking…', 'update checking status should be translated')
@@ -157,6 +228,12 @@ function testPluginVersionComparison (): void {
     assert(comparePluginVersions('2.0.0', '1.99.99') > 0, 'major versions should use numeric comparison')
     assert(comparePluginVersions('1.6.0-beta.2', '1.6.0-beta.1') > 0, 'prerelease identifiers should be compared')
     assert(comparePluginVersions('1.6.0', '1.6.0-beta.2') > 0, 'stable versions should sort after prereleases')
+    assert(!isNewerPluginVersion('1.7.0', getUpdateComparisonVersion('1.7.0-dev.local', true)), 'a local Dev suffix must not cause a same-version update')
+    assert(isNewerPluginVersion('1.8.0', getUpdateComparisonVersion('1.7.0-dev.local', true)), 'Dev must detect newer stable versions')
+    assert(!isNewerPluginVersion('1.6.0', getUpdateComparisonVersion('1.7.0-dev.local', true)), 'Dev must not offer a downgrade')
+    assert(getUpdateComparisonVersion('1.7.0-beta.2-dev.local+build', true) === '1.7.0-beta.2+build', 'only the local Dev suffix should be stripped')
+    assert(getUpdateComparisonVersion('1.7.0-dev.local', false) === '1.7.0-dev.local', 'stable version comparison must remain unchanged')
+    assert(getUpdateComparisonVersion('1.7.0-dev.local.1', true) === '1.7.0-dev.local.1', 'genuine prerelease suffixes must not be stripped')
     const hour = 60 * 60 * 1000
     const now = new Date('2026-08-25T00:00:00Z').getTime()
     assert(getNextPluginUpdateCheckDelay('never', null, 0, now) === null, 'disabled checks should not schedule a timer')
@@ -665,11 +742,265 @@ function testRuntimeStorage (): void {
     }
 }
 
+function testPluginDataReset (): void {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'windy-reset-'))
+    try {
+        const configPath = path.join(directory, 'profile with spaces', 'config.yaml')
+        fs.mkdirSync(path.dirname(configPath), { recursive: true })
+        fs.writeFileSync(configPath, 'language: en-US\n')
+        for (const devBuild of [false, true]) {
+            const identity = getPluginIdentity(devBuild)
+            const store = new QuickCommandsPluginConfigStore(configPath, identity)
+            const peer = new QuickCommandsPluginConfigStore(configPath, getPluginIdentity(!devBuild))
+            peer.set({ commands: [{ name: 'Other channel', command: 'echo keep' }] })
+            const peerBytes = fs.readFileSync(peer.configPath!, 'utf8')
+            store.initialize(createDefaultQuickCommandsConfig('zh-CN'))
+            store.set({ commands: [{ name: 'Private command', command: 'echo secret' }] })
+            const stale = new QuickCommandsPluginConfigStore(configPath, identity)
+            stale.load({})
+            const runtime = new QuickCommandsRuntimeStore(configPath, identity)
+            runtime.setLogs([{ id: 'old', time: '2026-08-27', level: 'info', message: 'Old log' }])
+            runtime.setStats({ old: { usageCount: 9, lastUsedAt: null } })
+            const dataDirectory = store.dataAccess.directory!
+            fs.writeFileSync(path.join(dataDirectory, 'update-cache.json'), '{"old":true}')
+            fs.mkdirSync(path.join(dataDirectory, 'extra'))
+            fs.writeFileSync(path.join(dataDirectory, 'extra', 'other-data.txt'), 'old user data')
+            const before = fs.readFileSync(store.configPath!, 'utf8')
+            const release = stale.dataAccess.beginExecution()
+            let failure = ''
+            try { store.reset(createDefaultQuickCommandsConfig('en')) } catch (error) { failure = (error as Error).message }
+            assert(failure.includes('命令正在执行') && fs.readFileSync(store.configPath!, 'utf8') === before, 'an execution in any store must prevent reset without modifying data')
+            release()
+
+            const link = path.join(dataDirectory, 'linked-data')
+            fs.symlinkSync(peer.dataAccess.directory!, link, 'junction')
+            failure = ''
+            try { store.reset(createDefaultQuickCommandsConfig('en')) } catch (error) { failure = (error as Error).message }
+            assert(failure.includes('符号链接') && fs.readFileSync(store.configPath!, 'utf8') === before, 'links must be rejected before any deletion')
+            fs.unlinkSync(link)
+
+            const lockPath = path.join(path.dirname(configPath), `.${identity.dataDirectory}.lock-${process.pid}-test-peer`)
+            const releaseWhileLocked = store.dataAccess.beginExecution()
+            fs.writeFileSync(lockPath, String(process.pid))
+            assert(new QuickCommandsPluginConfigStore(configPath, identity).load({}).commands !== undefined, 'opening a reader must not require the active writer lock')
+            failure = ''
+            try { store.reset(createDefaultQuickCommandsConfig('en')) } catch (error) { failure = (error as Error).message }
+            assert(failure.includes('其他窗口使用') && fs.readFileSync(store.configPath!, 'utf8') === before, 'a live writer lock must prevent reset')
+            releaseWhileLocked()
+            releaseWhileLocked()
+            assert(!fs.readdirSync(dataDirectory).some(name => name.startsWith('.execution-')), 'execution cleanup must finish even while another window owns the writer lock, and repeated cleanup must be harmless')
+            assert(fs.readFileSync(lockPath, 'utf8') === String(process.pid), 'execution cleanup must not bypass or remove another writer lock')
+            fs.unlinkSync(lockPath)
+
+            const nativeFs = require('fs')
+            const exited = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8', windowsHide: true })
+            assert(exited.status === 0, 'dead-owner fixture must exit successfully')
+            const deadPid = Number(exited.stdout)
+            let deadOwner = false
+            try { process.kill(deadPid, 0) } catch (error) { deadOwner = (error as NodeJS.ErrnoException).code === 'ESRCH' }
+            assert(deadOwner, 'stale-lock fixture must belong to an exited process')
+            const staleLock = path.join(path.dirname(configPath), `.${identity.dataDirectory}.lock-${deadPid}-stale`)
+            fs.writeFileSync(staleLock, '')
+            const originalUnlink = nativeFs.unlinkSync
+            let checkedCompetingWriter = false
+            try {
+                nativeFs.unlinkSync = (target: string) => {
+                    if (target === staleLock && !checkedCompetingWriter) {
+                        checkedCompetingWriter = true
+                        // Another cleaner already removed the captured stale
+                        // claim, then a new writer attempts to acquire its own.
+                        originalUnlink(staleLock)
+                        let entered = false
+                        let blocked = false
+                        try { stale.dataAccess.write(() => { entered = true }) } catch (error) { blocked = (error as Error).message.includes('其他窗口使用') }
+                        assert(blocked && !entered, 'a writer racing stale cleanup must observe the cleaner\'s already-published claim')
+                    }
+                    originalUnlink(target)
+                }
+                store.dataAccess.write(() => {
+                    const claims = fs.readdirSync(path.dirname(configPath)).filter(name => name.startsWith(`.${identity.dataDirectory}.lock-`))
+                    assert(claims.length === 1, 'the active writer must retain its own claim after stale cleanup races')
+                })
+            } finally { nativeFs.unlinkSync = originalUnlink }
+            assert(checkedCompetingWriter && !fs.existsSync(staleLock), 'dead owner cleanup must tolerate another cleaner removing the same claim')
+            let actionFailed = false
+            try { store.dataAccess.write(() => { throw new Error('writer action failed') }) } catch { actionFailed = true }
+            assert(actionFailed && !fs.readdirSync(path.dirname(configPath)).some(name => name.startsWith(`.${identity.dataDirectory}.lock-`)), 'failed actions must release their own claims')
+
+            const originalRemove = nativeFs.rmSync
+            const originalWrite = nativeFs.writeFileSync
+            const resetReads: string[] = []
+            try {
+                const tryReadDuringReset = (stage: string) => {
+                    let errorMessage = ''
+                    try { new QuickCommandsPluginConfigStore(configPath, identity).load({}) } catch (error) { errorMessage = (error as Error).message }
+                    assert(errorMessage.includes('其他窗口使用'), `readers must not adopt an unfinished reset generation: ${stage}`)
+                    resetReads.push(stage)
+                }
+                nativeFs.rmSync = (target: string, options: unknown) => {
+                    if (target === dataDirectory) { tryReadDuringReset('before deleting old config') }
+                    originalRemove(target, options)
+                }
+                nativeFs.writeFileSync = (target: string | number, value: unknown, options: unknown) => {
+                    if (target === store.configPath) { tryReadDuringReset('before writing new config') }
+                    originalWrite(target, value, options)
+                }
+                store.reset(createDefaultQuickCommandsConfig('en'))
+            } finally {
+                nativeFs.rmSync = originalRemove
+                nativeFs.writeFileSync = originalWrite
+            }
+            assert(resetReads.length === 2, 'reset must reject readers both before deletion and while rebuilding the new config')
+            assert(JSON.stringify(fs.readdirSync(dataDirectory).sort()) === JSON.stringify(['.data-generation', 'plugin-config.json']), 'reset must remove backups, logs, stats, cache and arbitrary data, leaving only fresh config and its generation marker')
+            const fresh = store.load({}) as any
+            assert(fresh.commands.length === 1 && fresh.commands[0].name === 'Example command' && fresh.commands[0].favorite && !fresh.commands[0].pinned, 'reset must use the shared localized first-use defaults')
+            const freshBytes = fs.readFileSync(store.configPath!, 'utf8')
+            failure = ''
+            try { stale.set({ commands: [{ name: 'Stale write' }] }) } catch (error) { failure = (error as Error).message }
+            assert(failure.includes('已在其他窗口重置'), 'pre-reset config stores must not resurrect deleted data')
+            runtime.setLogs([{ id: 'stale', time: '', level: 'info', message: 'stale' }])
+            runtime.setStats({ old: { usageCount: 99, lastUsedAt: null } })
+            assert(!fs.existsSync(runtime.logsPath!) && !fs.existsSync(runtime.statsPath!), 'stale runtime caches must not be written back')
+            assert(fs.readFileSync(store.configPath!, 'utf8') === freshBytes && fs.readFileSync(peer.configPath!, 'utf8') === peerBytes, 'reset must preserve new config and the other channel')
+            assert(fs.readFileSync(configPath, 'utf8') === 'language: en-US\n', 'reset must not modify Tabby configuration')
+
+            // Lease release is independent of the reset lock and may happen
+            // between the tree listing and its per-file safety check.
+            const releaseDuringPreflight = store.dataAccess.beginExecution()
+            const originalStat = nativeFs.lstatSync
+            try {
+                nativeFs.lstatSync = (target: string, ...args: unknown[]) => {
+                    if (path.basename(target).startsWith('.execution-')) {
+                        nativeFs.lstatSync = originalStat
+                        releaseDuringPreflight()
+                    }
+                    return originalStat(target, ...args)
+                }
+                store.reset(createDefaultQuickCommandsConfig('en'))
+            } finally { nativeFs.lstatSync = originalStat }
+            const newerRelease = store.dataAccess.beginExecution()
+            releaseDuringPreflight()
+            assert(fs.readdirSync(dataDirectory).filter(name => name.startsWith('.execution-')).length === 1, 'a late repeated release after reset must never remove a newer execution lease')
+            newerRelease()
+            store.reset(createDefaultQuickCommandsConfig('zh-CN'))
+            assert((store.load({}).commands as any[])[0].name === '示例命令', 'a second explicit reset must create defaults in the newly selected language')
+
+            try {
+                nativeFs.rmSync = () => { throw new Error('simulated locked file') }
+                failure = ''
+                try { store.reset(createDefaultQuickCommandsConfig('zh-CN')) } catch (error) { failure = (error as Error).message }
+                assert(failure.includes('部分数据可能已删除') && failure.includes('simulated locked file'), 'failed deletion must report its stage and preserve the original error')
+                assert(!store.dataAccess.isCurrent(), 'even a failed reset must invalidate old writers before partial deletion can occur')
+            } finally { nativeFs.rmSync = originalRemove }
+            const recovered = new QuickCommandsPluginConfigStore(configPath, identity)
+            recovered.reset(createDefaultQuickCommandsConfig('en'))
+            assert((recovered.load({}).commands as any[])[0].name === 'Example command', 'a fresh store must recover from an interrupted reset marker and allow retrying')
+            assert(!store.dataAccess.isCurrent(), 'recovering a failed reset must not reactivate old stores')
+        }
+        // Independent JS runtimes contend on real files, not mocked lock calls.
+        const concurrentPath = path.join(directory, 'concurrent', 'config.yaml')
+        new QuickCommandsPluginConfigStore(concurrentPath).set({ counter: 0 })
+        const concurrent = spawnSync(process.execPath, ['-e', `
+            const { Worker } = require('worker_threads')
+            const worker = \`
+                const { workerData } = require('worker_threads')
+                const fs = require('fs')
+                const path = require('path')
+                const { PluginDataAccess } = require(workerData.modulePath)
+                const access = new PluginDataAccess(workerData.configPath)
+                const counterPath = path.join(access.directory, 'plugin-config.json')
+                const criticalPath = path.join(access.directory, 'active-writer')
+                const delay = new Int32Array(new SharedArrayBuffer(4))
+                for (let count = 0, attempts = 0; count < 40; attempts++) {
+                    if (attempts > 2000) throw new Error('writer made no progress')
+                    try {
+                        access.write(() => {
+                            const fd = fs.openSync(criticalPath, 'wx')
+                            try {
+                                const value = JSON.parse(fs.readFileSync(counterPath, 'utf8'))
+                                Atomics.wait(delay, 0, 0, 2)
+                                fs.writeFileSync(counterPath, JSON.stringify({ counter: value.counter + 1 }))
+                            } finally { fs.closeSync(fd); fs.unlinkSync(criticalPath) }
+                        })
+                        count++
+                    } catch (error) {
+                        if (!error.message.includes('其他窗口使用')) throw error
+                        Atomics.wait(delay, 0, 0, 2 + Math.random() * 5)
+                    }
+                }
+            \`
+            Promise.all(Array.from({ length: 4 }, () => new Promise((resolve, reject) => {
+                const thread = new Worker(worker, { eval: true, workerData: { modulePath: process.argv[1], configPath: process.argv[2] } })
+                thread.on('error', reject)
+                thread.on('exit', code => code === 0 ? resolve() : reject(new Error('worker exited: ' + code)))
+            }))).catch(error => { console.error(error); process.exitCode = 1 })
+        `, path.resolve(__dirname, '../src/pluginData.js'), concurrentPath], { encoding: 'utf8', timeout: 20000, windowsHide: true })
+        assert(concurrent.status === 0, `concurrent writers must never overlap: ${concurrent.stderr || concurrent.error || ''}`)
+        assert(new QuickCommandsPluginConfigStore(concurrentPath).load({}).counter === 160, 'all successful concurrent increments must persist without lost writes')
+        let invalid = false
+        try { new PluginDataAccess(null).reset({}) } catch { invalid = true }
+        assert(invalid, 'reset requires an actual data directory')
+    } finally {
+        fs.rmSync(directory, { recursive: true, force: true })
+    }
+}
+
 function testPluginConfigStorage (): void {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'windy-quick-config-'))
     try {
         const configPath = path.join(directory, 'config.yaml')
         const store = new QuickCommandsPluginConfigStore(configPath)
+        for (const devBuild of [false, true]) {
+            const identity = getPluginIdentity(devBuild)
+            for (const locale of ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', null]) {
+                const localizedPath = path.join(directory, `${devBuild}-${locale}`, 'config.yaml')
+                const localizedStore = new QuickCommandsPluginConfigStore(localizedPath, identity)
+                const defaults = createDefaultQuickCommandsConfig(locale)
+                const chinese = getPluginLanguage(locale) === 'zh-CN'
+                const category = chinese ? '默认' : 'Default'
+                // A pre-ready read must not lock in Tabby's temporary English locale.
+                localizedStore.load(createDefaultQuickCommandsConfig('en'))
+                localizedStore.initialize(defaults)
+                const fresh = localizedStore.load({}) as any
+                assert(fresh.customCategories.length === 1 && fresh.customCategories[0] === category, 'initial category must use the resolved interface language')
+                assert(fresh.commands[0].category === category && fresh.commands[0].name === (chinese ? '示例命令' : 'Example command'), 'sample command and category must use the same language')
+                assert(fresh.commands[0].description === (chinese ? '输出一条示例消息，可修改为自己的命令' : 'Print an example message; edit this to use your own command'), 'sample description must use the initial language')
+                const bytes = fs.readFileSync(localizedStore.configPath!, 'utf8')
+                const opposite = createDefaultQuickCommandsConfig(chinese ? 'en' : 'zh-CN')
+                const restarted = new QuickCommandsPluginConfigStore(localizedPath, identity)
+                restarted.initialize(opposite)
+                assert(JSON.stringify(restarted.load(opposite)) === JSON.stringify(fresh), 'restart in another language must preserve initialized user data')
+                assert(fs.readFileSync(localizedStore.configPath!, 'utf8') === bytes, 'language changes must not rewrite saved data')
+                defaults.commands[0].name = 'Edited template'
+                assert(fresh.commands[0].name !== defaults.commands[0].name, 'initialization must clone the supplied defaults')
+            }
+            const freshStore = new QuickCommandsPluginConfigStore(configPath, identity)
+            const fresh = freshStore.load(defaultQuickCommandsConfig)
+            const examples = fresh.commands as any[]
+            assert(examples.length === 1 && examples[0].category === '默认', 'new profiles must have one example in the default category')
+            assert(examples[0].command === 'echo Hello Tabby' && examples[0].favorite && !examples[0].pinned, 'the example must only echo text, be favorited and not pinned')
+            assert(fresh.selectedCommandId === examples[0].id, 'initial selection must point to the example')
+            for (const saved of [
+                { commands: [{ id: 'build-start', name: '用户保留的命令', category: '开发', command: 'echo custom' }], customCategories: ['开发', 'Git', '诊断'] },
+                { commands: [], customCategories: [] },
+            ]) {
+                freshStore.set(saved)
+                const bytes = fs.readFileSync(freshStore.configPath!, 'utf8')
+                const existing = new QuickCommandsPluginConfigStore(configPath, identity)
+                existing.initialize(createDefaultQuickCommandsConfig('en'))
+                const loaded = existing.load(createDefaultQuickCommandsConfig('en'))
+                assert(JSON.stringify(loaded) === JSON.stringify(saved), 'updated defaults must preserve existing libraries, including empty ones')
+                assert(fs.readFileSync(freshStore.configPath!, 'utf8') === bytes, 'loading with new defaults must not rewrite user data')
+            }
+            fs.writeFileSync(freshStore.configPath!, '{broken json')
+            freshStore.initialize(createDefaultQuickCommandsConfig('en'))
+            assert(fs.readFileSync(freshStore.configPath!, 'utf8') === '{broken json', 'a damaged existing config must not be overwritten with new starter data')
+            fs.unlinkSync(freshStore.configPath!)
+            const backupBytes = fs.readFileSync(freshStore.backupPath!, 'utf8')
+            freshStore.initialize(createDefaultQuickCommandsConfig('en'))
+            assert(!freshStore.exists() && fs.readFileSync(freshStore.backupPath!, 'utf8') === backupBytes, 'a remaining backup must not be mistaken for a fresh profile')
+        }
+        assert(defaultQuickCommandsConfig.commands[0].name === '示例命令', 'localized defaults must not mutate shared templates')
         const first = { commands: [{ id: 'a', name: 'A', command: 'echo a' }], drawerWidth: 560 }
         const second = {
             commands: [{ id: 'b', name: 'B', command: 'echo b' }],
@@ -846,6 +1177,27 @@ function testLegacyPluginConfigMigration (): void {
         assert(!(config.commands as any[])[0].usageCount, 'runtime command stats should be removed from plugin config')
         assert(runtimeStore.getStats()['legacy-command']?.usageCount === 4, 'legacy usage stats should move to runtime storage')
         assert(runtimeStore.getLogs().length === 1, 'legacy logs should move to runtime storage')
+
+        const devIdentity = getPluginIdentity(true)
+        const devConfigPath = path.join(directory, 'dev-config.yaml')
+        const legacyYaml = 'windyCommandCenter:\n  drawerWidth: 700\nwindyCommandCenterDev:\n  drawerWidth: 620\n  commands:\n    - id: legacy-dev\n      name: Dev command\n      command: echo dev\n      usageCount: 2\n'
+        fs.writeFileSync(devConfigPath, legacyYaml)
+        const devPluginStore = new QuickCommandsPluginConfigStore(devConfigPath, devIdentity)
+        const devRuntimeStore = new QuickCommandsRuntimeStore(devConfigPath, devIdentity)
+        assert(migrateLegacyPluginConfig(readLegacyPluginConfig(devConfigPath, devIdentity), devPluginStore, devRuntimeStore), 'dev must support the same migration flow in its own namespace')
+        assert(devPluginStore.load({}).drawerWidth === 620, 'dev must migrate its own settings')
+        assert(devRuntimeStore.getStats()['legacy-dev'].usageCount === 2, 'dev must migrate usage statistics')
+        assert(removeLegacyPluginConfig(devConfigPath, devIdentity), 'dev migration must clean its legacy namespace')
+        assert((readLegacyPluginConfig(devConfigPath) as any).drawerWidth === 700, 'dev cleanup must retain stable legacy settings')
+
+        fs.writeFileSync(devConfigPath, legacyYaml)
+        const cleanup = spawnSync(process.execPath, [
+            'scripts/cleanup-tabby-config.cjs', devConfigPath, devPluginStore.configPath!,
+            devIdentity.legacyConfigKey, devIdentity.dataDirectory,
+        ], { encoding: 'utf8', windowsHide: true })
+        assert(cleanup.status === 0, `installer legacy cleanup failed: ${cleanup.stderr}`)
+        assert(readLegacyPluginConfig(devConfigPath, devIdentity) === undefined, 'installer must clean only the selected legacy namespace')
+        assert((readLegacyPluginConfig(devConfigPath) as any).drawerWidth === 700, 'installer dev cleanup must retain stable legacy data')
     } finally {
         fs.rmSync(directory, { recursive: true, force: true })
     }
@@ -954,7 +1306,10 @@ const tests: Array<[string, () => void | Promise<void>]> = [
     ['终端输出缓冲', testRecentOutputBuffer],
     ['运行数据存储', testRuntimeStorage],
     ['插件配置存储', testPluginConfigStorage],
+    ['恢复初始状态与数据隔离', testPluginDataReset],
     ['旧配置迁移', testLegacyPluginConfigMigration],
+    ['开发版数据隔离', testBuildIsolation],
+    ['开发版数据脚本', testTestDataScripts],
     ['命令执行运行器', testExecutionRunner],
 ]
 

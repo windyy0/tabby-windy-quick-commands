@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common'
 import TabbyCoreModule, { ConfigProvider, ConfigService, HotkeyProvider, PlatformService, ToolbarButtonProvider } from 'tabby-core'
 import { SettingsTabProvider } from 'tabby-settings'
 
-import { QuickCommandsConfigProvider } from './configProvider'
+import { createDefaultQuickCommandsConfig, QuickCommandsConfigProvider } from './configProvider'
 import { QuickCommandsHotkeyProvider } from './hotkeyProvider'
 import { QuickCommandsSettingsTabComponent } from './quickCommandsSettingsTab.component'
 import { QuickCommandsSettingsTabProvider } from './settingsTabProvider'
@@ -11,6 +11,8 @@ import { QuickCommandsToolbarButtonProvider } from './toolbarButtonProvider'
 import { QuickCommandsPluginConfigStore } from './pluginConfigStorage'
 import { QuickCommandsRuntimeStore } from './runtimeStorage'
 import { migrateLegacyPluginConfig, readLegacyPluginConfig, removeLegacyPluginConfig } from './legacyConfigMigration'
+import { pluginIdentity } from './pluginIdentity'
+import { QuickCommandsI18n } from './i18n'
 
 @NgModule({
     imports: [
@@ -35,17 +37,23 @@ export default class QuickCommandsModule {
     constructor (
         private config: ConfigService,
         platform: PlatformService,
+        private i18n: QuickCommandsI18n,
     ) {
         this.configPath = platform.getConfigPath()
         this.pluginConfigStore = new QuickCommandsPluginConfigStore(this.configPath)
         this.runtimeStore = new QuickCommandsRuntimeStore(this.configPath)
         this.migrateLegacyConfig()
-        this.config.ready$.subscribe(() => this.migrateLegacyConfig())
+        // LocaleService subscribes to config readiness before us and resolves the
+        // actual interface language. Do not persist its temporary startup locale.
+        this.config.ready$.subscribe(() => {
+            this.migrateLegacyConfig()
+            this.pluginConfigStore.initialize(createDefaultQuickCommandsConfig(this.i18n.language))
+        })
         this.config.changed$.subscribe(() => this.migrateLegacyConfig())
     }
 
     private migrateLegacyConfig (): void {
-        const legacy = this.config.store?.windyCommandCenter || readLegacyPluginConfig(this.configPath)
+        const legacy = this.config.store?.[pluginIdentity.legacyConfigKey] || readLegacyPluginConfig(this.configPath)
         if (!migrateLegacyPluginConfig(
             legacy,
             this.pluginConfigStore,
@@ -54,7 +62,7 @@ export default class QuickCommandsModule {
             return
         }
         if (this.config.store) {
-            delete this.config.store.windyCommandCenter
+            delete this.config.store[pluginIdentity.legacyConfigKey]
         }
         removeLegacyPluginConfig(this.configPath)
         window.setTimeout(() => removeLegacyPluginConfig(this.configPath), 1000)

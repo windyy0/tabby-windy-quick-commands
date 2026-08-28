@@ -10,20 +10,24 @@ import {
     PlatformService,
 } from 'tabby-core'
 
-import { defaultQuickCommandsConfig } from './configProvider'
+import { createDefaultQuickCommandsConfig } from './configProvider'
 import { QuickCommandsI18n } from './i18n'
 import { pluginConfigChangedEvent, QuickCommandsPluginConfigStore } from './pluginConfigStorage'
+import { pluginIdentity } from './pluginIdentity'
+import { pluginDataResetEvent } from './pluginData'
 import {
     comparePluginVersions,
     formatPluginUpdateNotes,
     getNextPluginUpdateCheckDelay,
+    getUpdateComparisonVersion,
     isNewerPluginVersion,
     UpdateCheckInterval,
 } from './pluginUpdate'
 
 const packageInfo = require('../package.json') as { version?: string }
 
-export const quickCommandsPackageName = 'tabby-windy-quick-commands'
+export const quickCommandsPackageName = pluginIdentity.packageName
+export const quickCommandsUpdatePackageName = pluginIdentity.updatePackageName
 const updateNotesFileName = 'update-notes.json'
 
 export type PluginUpdateStatus = 'idle' | 'checking' | 'current' | 'available' | 'error' | 'installing' | 'restart'
@@ -55,6 +59,7 @@ export interface PluginUpdateHistoryState {
 
 interface PluginUpdateCache {
     source: 'jsdelivr-localized-v1'
+    packageName: string
     checkedAt: string
     latestVersion: string
     updateNotes?: unknown
@@ -74,10 +79,12 @@ export class QuickCommandsPluginUpdateService {
         entries: [],
         error: '',
     })
-    private readonly configStore: QuickCommandsPluginConfigStore
+    private configStore: QuickCommandsPluginConfigStore
     private readonly cachePath: string | null
     private checkPromise: Promise<void> | null = null
     private checkTimer: number | null = null
+    private initialCheckTimer: number | null = null
+    private requests = new Set<AbortController>()
     private scheduledInterval: UpdateCheckInterval | null = null
     private lastAttemptAt = 0
     private focusSettingsRequested = false
@@ -96,7 +103,7 @@ export class QuickCommandsPluginUpdateService {
         const configPath = this.platform.getConfigPath()
         this.configStore = new QuickCommandsPluginConfigStore(configPath)
         this.cachePath = configPath
-            ? path.join(path.dirname(configPath), 'windy-quick-commands', 'update-cache.json')
+            ? path.join(path.dirname(configPath), pluginIdentity.dataDirectory, 'update-cache.json')
             : null
         this.cache = this.readCache()
         this.state$ = new BehaviorSubject<PluginUpdateState>({
@@ -121,7 +128,20 @@ export class QuickCommandsPluginUpdateService {
                 this.scheduleAutomaticCheck()
             }
         })
-        window.setTimeout(() => {
+        window.addEventListener(pluginDataResetEvent, () => {
+            if (this.checkTimer !== null) { window.clearTimeout(this.checkTimer); this.checkTimer = null }
+            if (this.initialCheckTimer !== null) { window.clearTimeout(this.initialCheckTimer); this.initialCheckTimer = null }
+            for (const request of this.requests) { request.abort() }
+            this.configStore = new QuickCommandsPluginConfigStore(this.platform.getConfigPath())
+            this.cache = null
+            this.historySources = []
+            this.lastAttemptAt = 0
+            this.scheduledInterval = null
+            this.historyState$.next({ status: 'idle', entries: [], error: '' })
+            this.patchState({ latestVersion: null, available: false, ignored: false, status: 'idle', releaseNotes: '', error: '' })
+        })
+        this.initialCheckTimer = window.setTimeout(() => {
+            this.initialCheckTimer = null
             this.refreshPreferenceState()
             this.scheduleAutomaticCheck(true)
         }, 1000)
@@ -132,9 +152,13 @@ export class QuickCommandsPluginUpdateService {
     }
 
     get checkInterval (): UpdateCheckInterval {
-        const root = this.configStore.load(defaultQuickCommandsConfig, true)
+        const root = this.configStore.load(createDefaultQuickCommandsConfig(this.i18n.language), true)
         const interval = root.updateCheckInterval
         return interval === 'weekly' || interval === 'never' ? interval : 'daily'
+    }
+
+    get canInstallUpdate (): boolean {
+        return !pluginIdentity.devBuild
     }
 
     async checkNow (): Promise<void> {
@@ -162,6 +186,8 @@ export class QuickCommandsPluginUpdateService {
     }
 
     async installLatest (): Promise<void> {
+        // Published stable bundles cannot replace a locally namespaced Dev build.
+        if (!this.canInstallUpdate) { return }
         const state = this.snapshot
         if (!state.latestVersion || !state.available || state.status === 'installing') {
             return
@@ -184,14 +210,14 @@ export class QuickCommandsPluginUpdateService {
         if (!latestVersion) {
             return
         }
-        const root = this.configStore.load(defaultQuickCommandsConfig, true)
+        const root = this.configStore.load(createDefaultQuickCommandsConfig(this.i18n.language), true)
         root.ignoredUpdateVersion = latestVersion
         this.configStore.set(root)
     }
 
     setCheckInterval (interval: UpdateCheckInterval): void {
         const normalized: UpdateCheckInterval = interval === 'weekly' || interval === 'never' ? interval : 'daily'
-        const root = this.configStore.load(defaultQuickCommandsConfig, true)
+        const root = this.configStore.load(createDefaultQuickCommandsConfig(this.i18n.language), true)
         root.updateCheckInterval = normalized
         this.configStore.set(root)
     }
@@ -207,38 +233,44 @@ export class QuickCommandsPluginUpdateService {
     }
 
     private async checkForUpdates (): Promise<void> {
+        if (!this.configStore.dataAccess.isCurrent()) { return }
         if (this.checkPromise) {
             return this.checkPromise
         }
         this.lastAttemptAt = Date.now()
+        const access = this.configStore.dataAccess
         this.patchState({ status: 'checking', error: '' })
         this.checkPromise = this.performCheck()
         try {
             await this.checkPromise
         } finally {
             this.checkPromise = null
-            this.scheduleAutomaticCheck()
+            if (access.isCurrent()) { this.scheduleAutomaticCheck() }
         }
     }
 
     private async performCheck (): Promise<void> {
+        const access = this.configStore.dataAccess
         try {
             const latest = await this.fetchJson<{ version?: string }>(
-                `https://registry.npmjs.org/${quickCommandsPackageName}/latest`,
+                `https://registry.npmjs.org/${quickCommandsUpdatePackageName}/latest`,
             )
+            if (!access.isCurrent()) { return }
             const latestVersion = String(latest.version || '').trim()
             if (!latestVersion) {
                 throw new Error('npm 没有返回有效版本号。')
             }
             const updateNotes = await this.fetchUpdateNotesDocument(latestVersion)
+            if (!access.isCurrent()) { return }
             this.cache = {
                 source: 'jsdelivr-localized-v1',
+                packageName: quickCommandsUpdatePackageName,
                 checkedAt: new Date().toISOString(),
                 latestVersion,
                 updateNotes,
             }
             this.writeCache(this.cache)
-            const available = isNewerPluginVersion(latestVersion, this.snapshot.currentVersion)
+            const available = isNewerPluginVersion(latestVersion, getUpdateComparisonVersion(this.snapshot.currentVersion, pluginIdentity.devBuild))
             this.patchState({
                 latestVersion,
                 available,
@@ -248,6 +280,7 @@ export class QuickCommandsPluginUpdateService {
                 error: '',
             })
         } catch (error) {
+            if (!access.isCurrent()) { return }
             this.patchState({
                 status: 'error',
                 error: error instanceof Error ? error.message : String(error || '检查更新失败。'),
@@ -256,7 +289,7 @@ export class QuickCommandsPluginUpdateService {
     }
 
     private async fetchUpdateNotesDocument (version: string): Promise<unknown> {
-        const url = `https://cdn.jsdelivr.net/npm/${quickCommandsPackageName}@${encodeURIComponent(version)}/${updateNotesFileName}`
+        const url = `https://cdn.jsdelivr.net/npm/${quickCommandsUpdatePackageName}@${encodeURIComponent(version)}/${updateNotesFileName}`
         try {
             return await this.fetchJson<unknown>(url)
         } catch {
@@ -265,11 +298,12 @@ export class QuickCommandsPluginUpdateService {
     }
 
     private async performHistoryLoad (): Promise<void> {
+        const access = this.configStore.dataAccess
         try {
             const metadata = await this.fetchJson<{
                 versions?: Record<string, unknown>
                 time?: Record<string, string>
-            }>(`https://registry.npmjs.org/${quickCommandsPackageName}`)
+            }>(`https://registry.npmjs.org/${quickCommandsUpdatePackageName}`)
             const versions = Object.keys(metadata.versions || {})
                 .filter(Boolean)
                 .sort((left, right) => comparePluginVersions(right, left))
@@ -278,6 +312,7 @@ export class QuickCommandsPluginUpdateService {
             const workerCount = Math.min(5, versions.length)
             const workers = Array.from({ length: workerCount }, async () => {
                 while (cursor < versions.length) {
+                    if (!access.isCurrent()) { return }
                     const index = cursor++
                     const version = versions[index]
                     const cachedDocument = version === this.cache?.latestVersion
@@ -294,9 +329,11 @@ export class QuickCommandsPluginUpdateService {
                 }
             })
             await Promise.all(workers)
+            if (!access.isCurrent()) { return }
             this.historySources = sources
             this.renderHistory()
         } catch (error) {
+            if (!access.isCurrent()) { return }
             this.historyState$.next({
                 status: 'error',
                 entries: [],
@@ -329,6 +366,7 @@ export class QuickCommandsPluginUpdateService {
 
     private async fetchJson<T> (url: string): Promise<T> {
         const controller = new AbortController()
+        this.requests.add(controller)
         const timer = window.setTimeout(() => controller.abort(), 12000)
         try {
             const response = await fetch(url, {
@@ -340,6 +378,7 @@ export class QuickCommandsPluginUpdateService {
             }
             return await response.json() as T
         } finally {
+            this.requests.delete(controller)
             window.clearTimeout(timer)
         }
     }
@@ -348,7 +387,7 @@ export class QuickCommandsPluginUpdateService {
         if (!this.cache?.latestVersion) {
             return
         }
-        const available = isNewerPluginVersion(this.cache.latestVersion, this.snapshot.currentVersion)
+        const available = isNewerPluginVersion(this.cache.latestVersion, getUpdateComparisonVersion(this.snapshot.currentVersion, pluginIdentity.devBuild))
         this.patchState({
             latestVersion: this.cache.latestVersion,
             available,
@@ -367,6 +406,7 @@ export class QuickCommandsPluginUpdateService {
     }
 
     private scheduleAutomaticCheck (runWhenDue = false): void {
+        if (!this.configStore.dataAccess.isCurrent()) { return }
         if (this.checkTimer !== null) {
             window.clearTimeout(this.checkTimer)
             this.checkTimer = null
@@ -389,7 +429,7 @@ export class QuickCommandsPluginUpdateService {
     }
 
     private getIgnoredVersion (): string {
-        const root = this.configStore.load(defaultQuickCommandsConfig, true)
+        const root = this.configStore.load(createDefaultQuickCommandsConfig(this.i18n.language), true)
         return typeof root.ignoredUpdateVersion === 'string' ? root.ignoredUpdateVersion : ''
     }
 
@@ -403,7 +443,10 @@ export class QuickCommandsPluginUpdateService {
         }
         try {
             const parsed = JSON.parse(fs.readFileSync(this.cachePath, 'utf8')) as PluginUpdateCache
-            return parsed && parsed.source === 'jsdelivr-localized-v1' && typeof parsed.latestVersion === 'string' && typeof parsed.checkedAt === 'string'
+            // Stable legacy caches remain valid; Dev caches from the old source must be ignored.
+            const matchingPackage = parsed && (parsed.packageName === quickCommandsUpdatePackageName ||
+                (!pluginIdentity.devBuild && parsed.packageName === undefined))
+            return parsed && matchingPackage && parsed.source === 'jsdelivr-localized-v1' && typeof parsed.latestVersion === 'string' && typeof parsed.checkedAt === 'string'
                 ? parsed
                 : null
         } catch {
@@ -416,8 +459,10 @@ export class QuickCommandsPluginUpdateService {
             return
         }
         try {
-            fs.mkdirSync(path.dirname(this.cachePath), { recursive: true })
-            fs.writeFileSync(this.cachePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf8')
+            this.configStore.dataAccess.write(() => {
+                fs.mkdirSync(path.dirname(this.cachePath!), { recursive: true })
+                fs.writeFileSync(this.cachePath!, `${JSON.stringify(cache, null, 2)}\n`, 'utf8')
+            })
         } catch {
             // Update cache failures must not affect the plugin itself.
         }

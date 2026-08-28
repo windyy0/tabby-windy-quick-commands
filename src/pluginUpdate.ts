@@ -105,6 +105,11 @@ export function isNewerPluginVersion (candidate: string, current: string): boole
     return comparePluginVersions(candidate, current) > 0
 }
 
+/** Local Dev builds compare against their source version, while keeping genuine prereleases. */
+export function getUpdateComparisonVersion (version: string, devBuild: boolean): string {
+    return devBuild ? version.replace(/-dev\.local(?=\+|$)/, '') : version
+}
+
 function selectPluginUpdateNotes (
     value: unknown,
     language: PluginLanguage,

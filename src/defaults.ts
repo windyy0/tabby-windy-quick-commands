@@ -1,52 +1,20 @@
 import { QuickCommand } from './types'
+import { pluginIdentity } from './pluginIdentity'
+import { getPluginLanguage } from './translations'
 
 export const defaultCommands: QuickCommand[] = [
     {
-        id: 'build-start',
-        name: '构建并启动',
-        description: '安装依赖、构建、测试并启动开发服务',
-        category: '开发',
-        command: 'npm install\nnpm run build\nnpm run test\nnpm run dev',
+        id: 'example-command',
+        name: '示例命令',
+        description: '输出一条示例消息，可修改为自己的命令',
+        category: '默认',
+        command: 'echo Hello Tabby',
         autoEnter: true,
-        lineDelay: 600,
+        lineDelay: 300,
         lineDelays: [],
         linePauses: [],
         shortcut: '',
         favorite: true,
-        pinned: true,
-        usageCount: 0,
-        lastUsedAt: null,
-        automationRules: [],
-    },
-    {
-        id: 'git-status',
-        name: '查看 Git 状态',
-        description: '查看当前仓库状态和最近提交',
-        category: 'Git',
-        command: 'git status\ngit log --oneline -5',
-        autoEnter: true,
-        lineDelay: 300,
-        lineDelays: [],
-        linePauses: [],
-        shortcut: '',
-        favorite: false,
-        pinned: false,
-        usageCount: 0,
-        lastUsedAt: null,
-        automationRules: [],
-    },
-    {
-        id: 'diagnose-node',
-        name: 'Node 环境诊断',
-        description: '查看 Node、npm 和当前路径',
-        category: '诊断',
-        command: 'node --version\nnpm --version\npwd',
-        autoEnter: true,
-        lineDelay: 300,
-        lineDelays: [],
-        linePauses: [],
-        shortcut: '',
-        favorite: false,
         pinned: false,
         usageCount: 0,
         lastUsedAt: null,
@@ -59,9 +27,9 @@ export const defaultQuickCommandsConfig = {
         const { usageCount: _usageCount, lastUsedAt: _lastUsedAt, ...stored } = command
         return stored
     }),
-    customCategories: [],
+    customCategories: ['默认'],
     categoryOrder: [],
-    selectedCommandId: 'build-start',
+    selectedCommandId: 'example-command',
     selectedCategory: '全部',
     executionMode: 'paste',
     targetMode: 'current',
@@ -70,7 +38,7 @@ export const defaultQuickCommandsConfig = {
     showToolbarButton: true,
     requireConfirmBeforeExecute: false,
     confirmBroadcast: true,
-    exportFileName: 'tabby-windy-quick-commands-{date}.json',
+    exportFileName: pluginIdentity.exportFileName,
     basicInfoCollapsed: true,
     moreSettingsCollapsed: true,
     previewCollapsed: false,
@@ -79,4 +47,16 @@ export const defaultQuickCommandsConfig = {
     logLimit: 200,
     updateCheckInterval: 'daily',
     ignoredUpdateVersion: '',
+}
+
+// These names become editable user data, not live-translated interface labels.
+export function createDefaultQuickCommandsConfig (locale: string | null | undefined): typeof defaultQuickCommandsConfig {
+    const config: typeof defaultQuickCommandsConfig = JSON.parse(JSON.stringify(defaultQuickCommandsConfig))
+    if (getPluginLanguage(locale) === 'en') {
+        config.customCategories = ['Default']
+        config.commands[0].category = 'Default'
+        config.commands[0].name = 'Example command'
+        config.commands[0].description = 'Print an example message; edit this to use your own command'
+    }
+    return config
 }

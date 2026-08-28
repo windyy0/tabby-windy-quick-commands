@@ -9,7 +9,7 @@ import {
     QuickCommand,
     QuickCommandsConfig,
 } from './types'
-import { defaultCommands, defaultQuickCommandsConfig } from './configProvider'
+import { createDefaultQuickCommandsConfig } from './configProvider'
 import {
     applyImportPreview,
     buildImportPreview,
@@ -37,6 +37,8 @@ import { pluginConfigChangedEvent, QuickCommandsPluginConfigStore } from './plug
 import { QuickCommandsI18n } from './i18n'
 import { quickCommandIcons as icons } from './quickCommandsIcons'
 import { QuickCommandsPluginUpdateService } from './pluginUpdate.service'
+import { pluginIdentity } from './pluginIdentity'
+import { pluginDataResetEvent } from './pluginData'
 import {
     ExecutionRunState,
     ExecutionTarget,
@@ -123,7 +125,7 @@ export class QuickCommandsService {
     constructor (
         private app: AppService,
         private config: ConfigService,
-        platform: PlatformService,
+        private platform: PlatformService,
         log: LogService,
         private i18n: QuickCommandsI18n,
         private pluginUpdate: QuickCommandsPluginUpdateService,
@@ -134,7 +136,7 @@ export class QuickCommandsService {
         this.state = this.readConfig()
 
         this.config.ready$.subscribe(() => {
-            this.state = this.readConfig()
+            this.state = this.readConfig(true)
             this.render()
         })
         window.addEventListener(pluginConfigChangedEvent, () => {
@@ -147,6 +149,21 @@ export class QuickCommandsService {
             this.render()
         })
         window.addEventListener('beforeunload', () => this.persistPluginConfig())
+        window.addEventListener(pluginDataResetEvent, () => {
+            this.cancelScheduledPluginConfigWrite()
+            this.pluginConfigDirty = false
+            this.pluginConfigStore = new QuickCommandsPluginConfigStore(this.platform.getConfigPath())
+            this.runtimeStore = new QuickCommandsRuntimeStore(this.platform.getConfigPath())
+            this.state = this.readConfig()
+            this.filter = ''
+            this.searchReturnCategory = null
+            this.searchReturnCommandId = null
+            this.editingCommandId = null
+            this.editCommandName = ''
+            this.editCommandDescription = ''
+            this.message = ''
+            this.close()
+        })
         document.addEventListener('keydown', event => this.handleDocumentKeyDown(event), true)
         document.addEventListener('click', event => this.handleDocumentClick(event))
         this.i18n.localeChanged$.subscribe(() => {
@@ -167,15 +184,44 @@ export class QuickCommandsService {
     }
 
     open (): void {
+        this.showDrawer()
+        this.focusCurrentTerminal()
+    }
+
+    private showDrawer (): void {
         this.visible = true
         this.ensureRoot()
+        // This attribute deliberately has no channel-specific CSS prefix. Both
+        // bundles use DOM order to agree which visible drawer owns Ctrl+Enter.
+        this.root!.setAttribute('data-windy-quick-commands-drawer', 'open')
+        document.body.appendChild(this.root!)
         this.render()
-        this.focusCurrentTerminal()
+    }
+
+    private isForegroundDrawer (): boolean {
+        const drawers = document.querySelectorAll('[data-windy-quick-commands-drawer="open"]')
+        return this.visible && drawers[drawers.length - 1] === this.root
+    }
+
+    get dataDirectory (): string | null {
+        return this.pluginConfigStore.dataAccess.directory
+    }
+
+    restoreInitialState (): void {
+        if (this.running) {
+            throw new Error('当前插件仍有命令正在执行，请停止执行后再重置插件数据。')
+        }
+        if (this.pluginUpdate.snapshot.status === 'installing') {
+            throw new Error('插件正在更新，请更新完成后再重置插件数据。')
+        }
+        this.pluginConfigStore.reset(createDefaultQuickCommandsConfig(this.i18n.language))
+        window.dispatchEvent(new CustomEvent(pluginDataResetEvent))
     }
 
     close (): void {
         this.persistPluginConfig()
         this.visible = false
+        this.root?.removeAttribute('data-windy-quick-commands-drawer')
         this.pendingExecutionId = null
         this.pendingDeleteId = null
         this.pendingRuleDeleteId = null
@@ -235,7 +281,7 @@ export class QuickCommandsService {
         this.root.className = `tqc-root${this.visible ? ' tqc-open' : ''}`
         this.root.style.setProperty('--tqc-width', `${this.clampWidth(this.state.drawerWidth)}px`)
         this.root.innerHTML = `
-          <aside class="tqc-drawer" aria-label="快速命令">
+          <aside class="tqc-drawer" aria-label="${this.escapeAttr(this.i18n.text(pluginIdentity.title))}">
             <div class="tqc-resize-handle" data-role="resize-handle" title="调整宽度"></div>
             <header class="tqc-header">
               <div class="tqc-top-row">
@@ -247,7 +293,7 @@ export class QuickCommandsService {
                 ` : ''}
               </div>
               <div class="tqc-titlebar">
-                <div class="tqc-title">${icons.bolt}<span>快速命令</span></div>
+                <div class="tqc-title">${icons.bolt}<span>${this.escape(this.i18n.text(pluginIdentity.title))}</span></div>
                 <div class="tqc-header-menu-shell">
                   <button class="tqc-secondary${this.libraryMenuOpen ? ' tqc-active' : ''}" type="button" data-action="toggle-library-menu" aria-haspopup="menu" aria-expanded="${this.libraryMenuOpen}">命令库 ${icons.chevron}</button>
                   ${this.libraryMenuOpen ? `
@@ -2122,7 +2168,7 @@ export class QuickCommandsService {
         this.persistPluginConfig()
         this.app.openNewTabRaw({
             type: SettingsTabComponent,
-            inputs: { activeTab: 'windy-quick-commands' },
+            inputs: { activeTab: pluginIdentity.settingsTabId },
         })
     }
 
@@ -2860,19 +2906,23 @@ export class QuickCommandsService {
 
     private renderExportFileName (): string {
         const date = new Date().toISOString().slice(0, 10)
-        const rendered = (this.state.exportFileName || 'tabby-windy-quick-commands-{date}.json')
+        const rendered = (this.state.exportFileName || pluginIdentity.exportFileName)
             .replace(/\{date\}/g, date)
-        const name = rendered.replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').trim() || `tabby-windy-quick-commands-${date}.json`
+        const name = rendered.replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').trim() || `${pluginIdentity.packageName}-${date}.json`
         return /\.json$/i.test(name) ? name : `${name}.json`
     }
 
     private async importCommandsFromFile (file: File): Promise<void> {
+        const store = this.pluginConfigStore
         try {
             if (file.size > 5 * 1024 * 1024) {
                 throw new Error('导入文件不能超过 5MB。')
             }
-            await this.importCommandsText(await file.text())
+            const text = await file.text()
+            if (store !== this.pluginConfigStore || !store.dataAccess.isCurrent()) { return }
+            await this.importCommandsText(text)
         } catch (error) {
+            if (store !== this.pluginConfigStore || !store.dataAccess.isCurrent()) { return }
             this.logger.warn('Command import failed', error)
             const reason = error instanceof Error ? error.message : '请确认 JSON 文件格式。'
             this.showMessage(`导入失败：${reason}`)
@@ -2892,9 +2942,7 @@ export class QuickCommandsService {
             categoryOrder: parsed.categoryOrder,
             version: parsed.version,
         })
-        this.visible = true
-        this.ensureRoot()
-        this.render()
+        this.showDrawer()
     }
 
     private applyImport (mode: ImportMode): void {
@@ -2928,6 +2976,10 @@ export class QuickCommandsService {
     }
 
     private async executeSelectedCommand (confirmed = false): Promise<void> {
+        if (!this.pluginConfigStore.dataAccess.isCurrent()) {
+            this.showMessage('插件数据已在其他窗口重置，请重启 Tabby 后再操作。')
+            return
+        }
         const selected = this.getSelectedCommand()
         if (!selected || this.running) {
             return
@@ -2950,9 +3002,7 @@ export class QuickCommandsService {
         if (!confirmed && summary.requiresConfirm) {
             this.pendingExecutionId = selected.id
             this.confirmInput = ''
-            this.visible = true
-            this.ensureRoot()
-            this.render()
+            this.showDrawer()
             return
         }
         if (confirmed && summary.requiresTypedConfirm && this.confirmInput !== summary.requiredText) {
@@ -2960,21 +3010,22 @@ export class QuickCommandsService {
             return
         }
 
-        this.running = true
-        this.pendingExecutionId = null
-        this.confirmInput = ''
-        this.message = ''
         const runner = this.createExecutionRunner()
-        this.executionRunner = runner
-        this.runState = runner.start(selected, this.state.executionMode)
-        this.updateUsage(selected.id)
-        this.addLog('info', '开始执行', selected.id, undefined, {
-            mode: summary.modeLabel,
-            targetNames: summary.targetNames,
-        })
-        this.render()
-
+        let releaseExecution: (() => void) | undefined
         try {
+            releaseExecution = this.pluginConfigStore.dataAccess.beginExecution()
+            this.running = true
+            this.pendingExecutionId = null
+            this.confirmInput = ''
+            this.message = ''
+            this.executionRunner = runner
+            this.runState = runner.start(selected, this.state.executionMode)
+            this.updateUsage(selected.id)
+            this.addLog('info', '开始执行', selected.id, undefined, {
+                mode: summary.modeLabel,
+                targetNames: summary.targetNames,
+            })
+            this.render()
             const stopped = await runner.execute(
                 selected,
                 targets,
@@ -3002,6 +3053,7 @@ export class QuickCommandsService {
             this.showMessage('执行失败，请查看 Tabby 日志。')
         } finally {
             runner.dispose()
+            try { releaseExecution?.() } catch (error) { this.logger.warn('Failed to release execution marker', error) }
             this.executionRunner = undefined
             this.running = false
             this.runState = undefined
@@ -3058,7 +3110,7 @@ export class QuickCommandsService {
     private updateDrawerWidthLive (width: number): void {
         const drawerWidth = this.clampWidth(width)
         this.state = { ...this.state, drawerWidth }
-        const root = this.pluginConfigStore.load(defaultQuickCommandsConfig)
+        const root = this.pluginConfigStore.load(createDefaultQuickCommandsConfig(this.i18n.language))
         root.drawerWidth = drawerWidth
         this.setPluginConfig(root, false)
         this.root?.style.setProperty('--tqc-width', `${drawerWidth}px`)
@@ -3085,7 +3137,7 @@ export class QuickCommandsService {
     }
 
     private handleDocumentKeyDown (event: KeyboardEvent): void {
-        if (event.repeat || event.isComposing) {
+        if (event.defaultPrevented || event.repeat || event.isComposing) {
             return
         }
 
@@ -3101,13 +3153,14 @@ export class QuickCommandsService {
             !event.altKey &&
             !event.metaKey &&
             !event.shiftKey &&
-            (!this.isEditableElement(event.target) || this.isTerminalInput(event.target)) &&
-            !this.running
+            (!this.isEditableElement(event.target) || this.isTerminalInput(event.target))
         ) {
+            if (!this.isForegroundDrawer()) { return }
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            if (this.running) { return }
             const selected = this.getSelectedCommand()
             if (selected) {
-                event.preventDefault()
-                event.stopPropagation()
                 void this.executeSelectedCommand()
             }
             return
@@ -3272,7 +3325,7 @@ export class QuickCommandsService {
     }
 
     private getDrawerShortcuts (): string[] {
-        const configured = this.config.store?.hotkeys?.['windy-command-center-toggle']
+        const configured = this.config.store?.hotkeys?.[pluginIdentity.toggleHotkeyId]
         const values = typeof configured === 'string' ? [configured] : Array.isArray(configured) ? configured : []
         return values
             .map(value => Array.isArray(value) && value.length === 1 ? value[0] : value)
@@ -3632,10 +3685,11 @@ export class QuickCommandsService {
     }
 
     private readConfig (reload = false): QuickCommandsConfig {
-        const root = this.pluginConfigStore.load(defaultQuickCommandsConfig, reload) as any
+        const defaults = createDefaultQuickCommandsConfig(this.i18n.language)
+        const root = this.pluginConfigStore.load(defaults, reload) as any
         const storedCommands = Array.isArray(root.commands)
             ? root.commands.map((command: Partial<QuickCommand>) => this.normalizeStoredCommand(command))
-            : defaultCommands.map(command => this.normalizeStoredCommand(command))
+            : defaults.commands.map(command => this.normalizeStoredCommand(command))
         const usageStats = this.runtimeStore.getStats()
         const commands = storedCommands.map(command => ({
             ...command,
@@ -3661,7 +3715,7 @@ export class QuickCommandsService {
             showToolbarButton: root.showToolbarButton !== false,
             requireConfirmBeforeExecute: root.requireConfirmBeforeExecute ?? false,
             confirmBroadcast: root.confirmBroadcast ?? true,
-            exportFileName: root.exportFileName || 'tabby-windy-quick-commands-{date}.json',
+            exportFileName: root.exportFileName || pluginIdentity.exportFileName,
             basicInfoCollapsed: root.basicInfoCollapsed ?? true,
             moreSettingsCollapsed: root.moreSettingsCollapsed ?? true,
             previewCollapsed: root.previewCollapsed ?? false,
@@ -3703,7 +3757,7 @@ export class QuickCommandsService {
         if (patch.commands && this.commandIdsChanged(this.state.commands, next.commands)) {
             this.runtimeStore.setStats(this.buildUsageStats(next.commands))
         }
-        const root = this.pluginConfigStore.load(defaultQuickCommandsConfig)
+        const root = this.pluginConfigStore.load(createDefaultQuickCommandsConfig(this.i18n.language))
         root.commands = next.commands.map(command => this.stripCommandRuntime(command))
         root.customCategories = next.customCategories
         root.categoryOrder = next.categoryOrder
@@ -3740,7 +3794,7 @@ export class QuickCommandsService {
         if (!this.pluginConfigDirty) {
             return
         }
-        this.pendingPluginConfigWrite = this.pluginConfigStore.load(defaultQuickCommandsConfig)
+        this.pendingPluginConfigWrite = this.pluginConfigStore.load(createDefaultQuickCommandsConfig(this.i18n.language))
         this.flushPluginConfigWrite()
     }
 
@@ -3772,7 +3826,7 @@ export class QuickCommandsService {
             this.pendingPluginConfigWrite = null
             return
         }
-        const config = this.pendingPluginConfigWrite || this.pluginConfigStore.load(defaultQuickCommandsConfig)
+        const config = this.pendingPluginConfigWrite || this.pluginConfigStore.load(createDefaultQuickCommandsConfig(this.i18n.language))
         this.writingPluginConfig = true
         try {
             this.pluginConfigStore.set(config)

@@ -27,20 +27,24 @@
   width: min(var(--tqc-width, 520px), 100vw);
   height: 100vh;
   margin-left: auto;
-  pointer-events: auto;
+  pointer-events: none;
+  visibility: hidden;
   color: var(--tqc-text);
   background: var(--tqc-panel);
   border-left: 1px solid var(--tqc-border);
   box-shadow: -18px 0 40px rgba(15, 23, 42, 0.16);
   transform: translateX(102%);
-  transition: transform 160ms ease;
+  transition: transform 160ms ease, visibility 0s linear 160ms;
   display: grid;
   grid-template-rows: auto 1fr auto;
   backdrop-filter: blur(18px);
 }
 
 .tqc-root.tqc-open .tqc-drawer {
+  pointer-events: auto;
+  visibility: visible;
   transform: translateX(0);
+  transition-delay: 0s;
 }
 
 .tqc-resize-handle {
@@ -1450,6 +1454,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .tqc-drawer,
   .tqc-icon-button,
   .tqc-primary,
   .tqc-secondary,

@@ -1,77 +1,99 @@
 {
-  "version": "1.7.0",
+  "version": "1.8.0",
   "zh-CN": {
-    "title": "统一导入导出与弹窗体验升级",
+    "title": "独立开发版、数据重置与稳定性改进",
     "sections": [
       {
-        "title": "⚠️ 重要提醒",
+        "title": "默认命令与语言",
         "items": [
-          "导入导出文件已统一为新的固定 v1 格式，旧版命令库和配置备份无法直接导入"
+          "首次使用仅创建一个默认分类和 echo Hello Tabby 示例命令，默认收藏、不置顶",
+          "默认分类、示例命令名称和说明按 Tabby 当前界面语言初始化，后续切换语言不会改写用户内容",
+          "升级和重新安装保留已有命令库，包括用户主动清空的命令库，不会重复添加示例"
         ]
       },
       {
-        "title": "导入、导出与配置",
+        "title": "重置插件数据",
         "items": [
-          "统一抽屉命令库与设置页配置的导入导出协议，两种文件均使用固定的 v1 格式并可相互识别",
-          "设置页导入时会根据文件内容提示仅导入命令或导入完整配置，抽屉也可从配置文件中提取命令",
-          "设置页新增“恢复默认配置”，只重置插件设置并保留命令、分类、输出触发器、运行日志和使用统计",
-          "设置页按钮简化为“导入”和“导出”，并优化按钮尺寸及导入提示排版"
+          "在“恢复默认配置”弹窗中新增“重置插件数据”入口，展示实际数据目录，并要求二次确认和勾选不可撤销操作提示",
+          "重置会清除当前插件的命令、分类、触发器、设置、备份、日志、统计和缓存，再按当前语言创建默认分类和示例命令",
+          "正式版与 Dev 仅重置各自数据，不卸载插件，不影响 Tabby 配置、其他插件或保存在其他位置的导出文件；执行中的命令、更新安装和不安全路径会阻止重置"
         ]
       },
       {
-        "title": "界面优化",
+        "title": "独立 Dev 开发版",
         "items": [
-          "统一抽屉操作弹窗与设置页配置弹窗的主题样式，增加标题和操作区分隔线并重新平衡间距",
-          "重新设计命令库导入预览，以紧凑的 2×2 统计、导入规则和结构化冲突详情展示导入结果",
-          "优化移动命令、删除命令和删除分类提示，重点标记命令名称与受影响的命令数量"
+          "新增可与正式版并存的本地 Dev 包，独立隔离数据、设置入口、事件、快捷键配置和样式，并使用带 D 标记的图标",
+          "新增 Dev 构建、安装、安装后重启和数据清理命令，正式版与 Dev 使用相同的默认设置和执行逻辑",
+          "Dev 从正式包读取更新信息和历史，缓存与检查更新偏好独立；版本比较忽略本地 -dev.local 后缀，更新 Dev 需重新安装本地源码，不会在线覆盖为正式包"
         ]
       },
       {
-        "title": "英文支持与文档",
+        "title": "并发与保存修复",
         "items": [
-          "新增完整英文 README，并在中英文文档间提供语言切换入口",
-          "英文界面新增命令时默认名称改为“New command”，切换语言时不会覆盖用户已输入的名称",
-          "补充导入导出、恢复默认配置、导入预览和弹窗提示的英文翻译"
+          "正式版与 Dev 抽屉同时打开时，Ctrl+Enter 只交给最上层抽屉处理，避免执行被遮挡抽屉中的命令",
+          "重置期间阻止读取未完成的数据状态，并使旧窗口、待保存内容、未完成的导入和更新请求失效，避免旧数据在重置后被写回",
+          "写锁改用独立标识，避免清理过期锁时误删其他窗口的新锁；执行结束后可在写锁被占用时释放自身记录，避免持续阻塞重置",
+          "设置保存失败时恢复已保存的值并显示原因；导入和恢复默认配置失败时保留确认状态，不再显示成功提示"
+        ]
+      },
+      {
+        "title": "本地安装、清理与文档",
+        "items": [
+          "本地安装登记实际插件版本并同步已有 npm 锁文件，修复 file:node_modules/... 自引用导致的卸载异常，同时备份原安装记录",
+          "Dev 清理命令支持回车确认后正常关闭、清理并重启，使用独立后台进程继续操作并记录结果；Tabby 原本已关闭时只清理，不自动启动",
+          "修复关闭过程中短暂出现新 Tabby 进程就立即报错的问题：等待其自然退出并连续确认进程为空；超时不清理，不强制关闭新进程，并补充父 PID 和进程类型诊断",
+          "同步中英文 README、Dev 使用说明、常用开发命令和 npm ci / npm install 区别，并补充数据隔离、并发、安装清理和卸载回归测试"
         ]
       }
     ],
-    "notice": "本版本采用新的固定 v1 导出格式，不兼容旧版命令库或配置备份；更新安装完成后需要重启 Tabby。"
+    "notice": "更新后请完整重启 Tabby；普通升级不会清空已有命令库。“重置插件数据”和 Dev 清理不可撤销，请先导出需要保留的命令和配置。"
   },
   "en": {
-    "title": "Unified import/export and improved dialogs",
+    "title": "Separate Dev builds, data reset, and stability improvements",
     "sections": [
       {
-        "title": "⚠️ Important",
+        "title": "Default commands and language",
         "items": [
-          "Import and export files now use the new fixed v1 format; older command-library and configuration backups cannot be imported directly"
+          "Create just one default category and an echo Hello Tabby example command on first use, favorited but not pinned",
+          "Initialize the default category, example name, and description in Tabby's current interface language without rewriting user content when the language changes later",
+          "Preserve existing command libraries during upgrades and reinstalls, including intentionally emptied libraries, without adding the example again"
         ]
       },
       {
-        "title": "Import, export, and settings",
+        "title": "Reset plugin data",
         "items": [
-          "Unify drawer command-library and Settings configuration files under a fixed v1 protocol that both import locations can recognize",
-          "Let Settings choose between importing commands and the full configuration, while drawer imports can extract commands from configuration files",
-          "Add Restore defaults to Settings, resetting plugin preferences while preserving commands, categories, output triggers, runtime logs, and usage statistics",
-          "Simplify the Settings actions to Import and Export, with content-sized buttons and clearer two-line import prompts"
+          "Add Reset plugin data to the Restore defaults dialog, showing the actual data directory and requiring a second confirmation page with an acknowledgement of permanent deletion",
+          "Clear the current plugin's commands, categories, triggers, settings, backups, logs, statistics, and caches, then recreate the default category and example command in the current language",
+          "Reset only the selected stable or Dev channel without uninstalling plugins or affecting Tabby configuration, other plugins, or exports stored elsewhere; running commands, update installation, and unsafe paths block the reset"
         ]
       },
       {
-        "title": "Interface improvements",
+        "title": "Separate Dev builds",
         "items": [
-          "Apply theme-aware styling to drawer action dialogs and Settings configuration dialogs, with clearer header and action separators and balanced spacing",
-          "Redesign the command-library import preview with compact 2-by-2 statistics, import rules, and structured conflict details",
-          "Improve move, delete-command, and delete-category confirmations by emphasizing command names and affected command counts"
+          "Add a local Dev package that can coexist with stable, with separate data, settings entries, events, shortcut configuration, and styles, plus an icon marked with D",
+          "Add commands to build, install, install and restart, and clear Dev data; stable and Dev share the same default settings and execution logic",
+          "Read Dev update information and history from the stable package while keeping caches and update check preferences separate; ignore the local -dev.local suffix in version comparisons and update Dev by reinstalling local source instead of replacing it with the stable package online"
         ]
       },
       {
-        "title": "English support and documentation",
+        "title": "Concurrency and saving fixes",
         "items": [
-          "Add a complete English README with language links between the Chinese and English documentation",
-          "Use “New command” as the default name in the English interface without overwriting names already entered when the language changes",
-          "Complete English translations for import/export, Restore defaults, import previews, and dialog prompts"
+          "Route Ctrl+Enter only to the topmost drawer when stable and Dev are both open, avoiding command execution in the covered drawer",
+          "Block reads of incomplete reset data and invalidate old windows, pending saves, unfinished imports, and update requests so that obsolete data cannot be written back after a reset",
+          "Use unique writer lock identifiers so stale lock cleanup cannot remove another window's new lock; release completed execution records even when a writer lock is held, preventing them from indefinitely blocking a reset",
+          "Restore saved settings and display the reason when saving fails; keep import and Restore defaults confirmations available after a failure instead of reporting success"
+        ]
+      },
+      {
+        "title": "Local installation, cleanup, and documentation",
+        "items": [
+          "Register actual locally installed versions and synchronize existing npm lockfiles, fixing uninstall failures caused by file:node_modules/... self-references while backing up previous installation records",
+          "Let the Dev cleanup command request normal shutdown, clear data, and restart after Enter confirmation, using a detached worker with result logs; if Tabby is already closed, only clear data without starting it",
+          "Fix immediate cleanup failure when a new Tabby process appears briefly during shutdown: wait for it to exit naturally and confirm consecutive empty process checks; preserve data on timeout, never force-close new processes, and log parent PIDs and process types",
+          "Synchronize the Chinese and English READMEs, Dev instructions, common development commands, and the npm ci / npm install comparison, with regression coverage for data isolation, concurrency, installation, cleanup, and uninstall"
         ]
       }
     ],
-    "notice": "This release uses the new fixed v1 export format and cannot import older command-library or configuration backups. Restart Tabby after installation."
+    "notice": "Fully restart Tabby after updating; normal upgrades preserve existing command libraries. Reset plugin data and Dev cleanup cannot be undone. Export any commands and configuration you need to keep first."
   }
 }
