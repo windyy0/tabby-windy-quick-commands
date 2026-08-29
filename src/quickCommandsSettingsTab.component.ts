@@ -292,7 +292,10 @@ const historyDateFormatters = {
               </div>
               <div class="wqc-muted">管理自动检查、查看历史更新和安装新版本。</div>
             </div>
-            <button class="btn btn-secondary" type="button" (click)="openUpdateHistory()">更新历史</button>
+            <div class="wqc-update-head-actions">
+              <button class="wqc-back-to-top" type="button" (click)="scrollToSettingsTop()">返回顶部 <span aria-hidden="true">↑</span></button>
+              <button class="btn btn-secondary" type="button" (click)="openUpdateHistory()">更新历史</button>
+            </div>
           </div>
 
           <div class="wqc-update-preferences">
@@ -309,7 +312,13 @@ const historyDateFormatters = {
                 </div>
               </div>
             </div>
-            <button class="btn btn-secondary wqc-back-to-top" type="button" (click)="scrollToSettingsTop()">返回顶部 <span aria-hidden="true">↑</span></button>
+            <div class="wqc-update-check-control">
+              <div class="wqc-update-check-status" *ngIf="showUpdateCheckStatus && updateStatusLabel" role="status" [class.wqc-update-error]="updateState.status === 'error'">
+                <span>{{ updateStatusLabel }}</span>
+                <button type="button" aria-label="关闭提示" (click)="dismissUpdateCheckStatus()">×</button>
+              </div>
+              <button class="btn btn-secondary wqc-check-update" type="button" [disabled]="updateState.status === 'checking' || updateState.status === 'installing'" (click)="checkForUpdatesWithStatus()">检查更新</button>
+            </div>
           </div>
 
           <p class="wqc-muted" *ngIf="!canInstallUpdate">
@@ -317,21 +326,34 @@ const historyDateFormatters = {
             <span>更新本地代码后，请在源码目录运行：</span> <code data-i18n-skip>npm run install:tabby:dev</code> <span>然后重启 Tabby。</span>
           </p>
           <div class="wqc-update-panel" *ngIf="updateState.available">
-            <button class="wqc-update-summary" type="button" [attr.aria-expanded]="updateDetailsExpanded" (click)="toggleUpdateDetails()">
-              <span class="wqc-update-summary-title">
-                <span class="wqc-update-dot" aria-hidden="true"></span>
-                发现新版本 v{{ updateState.latestVersion }}
-                <small *ngIf="updateState.ignored">已停止提醒</small>
-              </span>
-              <span class="wqc-update-expand">{{ updateDetailsExpanded ? '收起' : '展开' }}</span>
-            </button>
+            <div class="wqc-update-summary">
+              <button class="wqc-update-summary-trigger" type="button" [attr.aria-expanded]="updateDetailsExpanded" (click)="toggleUpdateDetails()">
+                <span class="wqc-update-summary-title">
+                  <span class="wqc-update-dot" aria-hidden="true"></span>
+                  发现新版本 v{{ updateState.latestVersion }}
+                  <small *ngIf="updateState.ignored">已停止提醒</small>
+                </span>
+              </button>
+              <div class="wqc-update-summary-actions">
+                <span class="wqc-update-button-hint" *ngIf="!updateDetailsExpanded" [class.wqc-disabled]="updateInstallDisabledHint" [attr.tabindex]="updateInstallDisabledHint ? 0 : null" [attr.aria-describedby]="updateInstallDisabledHint ? 'wqc-update-inline-disabled-hint' : null">
+                  <button class="btn wqc-update-now" type="button" [disabled]="!canInstallUpdate || updateState.status === 'installing' || updateState.status === 'restart'" (click)="installUpdate()">
+                    {{ updateState.status === 'installing' ? '正在更新…' : updateState.status === 'restart' ? '等待重启' : '立即更新' }}
+                  </button>
+                  <span class="wqc-help-tooltip wqc-update-disabled-tooltip" *ngIf="updateInstallDisabledHint" id="wqc-update-inline-disabled-hint" role="tooltip">{{ updateInstallDisabledHint }}</span>
+                </span>
+                <button class="wqc-update-expand" type="button" [attr.aria-expanded]="updateDetailsExpanded" (click)="toggleUpdateDetails()">{{ updateDetailsExpanded ? '收起' : '展开' }}</button>
+              </div>
+            </div>
             <div class="wqc-update-details" *ngIf="updateDetailsExpanded">
               <pre class="wqc-update-notes" data-i18n-skip *ngIf="updateState.releaseNotes">{{ updateState.releaseNotes }}</pre>
               <div class="wqc-update-empty" *ngIf="!updateState.releaseNotes">本次更新未提供更新说明。</div>
               <div class="wqc-update-actions">
-                <button class="btn btn-primary" type="button" [disabled]="!canInstallUpdate || updateState.status === 'installing' || updateState.status === 'restart'" (click)="installUpdate()">
-                  {{ updateState.status === 'installing' ? '正在更新…' : updateState.status === 'restart' ? '等待重启' : '立即更新' }}
-                </button>
+                <span class="wqc-update-button-hint" [class.wqc-disabled]="updateInstallDisabledHint" [attr.tabindex]="updateInstallDisabledHint ? 0 : null" [attr.aria-describedby]="updateInstallDisabledHint ? 'wqc-update-expanded-disabled-hint' : null">
+                  <button class="btn btn-primary wqc-update-now-expanded" type="button" [disabled]="!canInstallUpdate || updateState.status === 'installing' || updateState.status === 'restart'" (click)="installUpdate()">
+                    {{ updateState.status === 'installing' ? '正在更新…' : updateState.status === 'restart' ? '等待重启' : '立即更新' }}
+                  </button>
+                  <span class="wqc-help-tooltip wqc-update-disabled-tooltip" *ngIf="updateInstallDisabledHint" id="wqc-update-expanded-disabled-hint" role="tooltip">{{ updateInstallDisabledHint }}</span>
+                </span>
                 <button class="btn btn-secondary" type="button" [disabled]="updateState.ignored" (click)="ignoreCurrentUpdate()">{{ updateState.ignored ? '已停止提醒' : '本版本不再提醒' }}</button>
               </div>
             </div>
@@ -611,10 +633,16 @@ const historyDateFormatters = {
 
       .wqc-update-actions,
       .wqc-update-card-check,
+      .wqc-update-head-actions,
+      .wqc-update-check-control,
       .wqc-update-preferences {
         display: flex;
         align-items: center;
         gap: 8px;
+      }
+
+      .wqc-update-head-actions {
+        flex: none;
       }
 
       .wqc-update-card-check {
@@ -623,9 +651,17 @@ const historyDateFormatters = {
       }
 
       .wqc-update-preferences {
+        justify-content: space-between;
+        gap: 12px;
         width: 100%;
         min-height: 36px;
         flex-wrap: wrap;
+      }
+
+      .wqc-update-check-control {
+        justify-content: flex-end;
+        min-width: 0;
+        margin-left: auto;
       }
 
       .wqc-status-tooltip {
@@ -676,6 +712,56 @@ const historyDateFormatters = {
         overflow: hidden;
         color: var(--bs-danger, #c2410c);
         text-overflow: ellipsis;
+      }
+
+      .wqc-update-check-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+        max-width: 360px;
+        padding: 4px 6px 4px 8px;
+        color: var(--wqc-muted);
+        background: color-mix(in srgb, var(--bs-body-color) 4%, transparent);
+        border: 1px solid color-mix(in srgb, var(--wqc-control-border) 72%, transparent);
+        border-radius: 7px;
+        font-size: 11px;
+      }
+
+      .wqc-update-check-status > span {
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+
+      .wqc-update-check-status > button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        flex: none;
+        padding: 0;
+        color: currentColor;
+        background: transparent;
+        border: 0;
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 17px;
+        line-height: 1;
+      }
+
+      .wqc-update-check-status > button:hover,
+      .wqc-update-check-status > button:focus-visible {
+        outline: 0;
+        color: var(--wqc-text);
+        background: color-mix(in srgb, var(--bs-body-color) 8%, transparent);
+      }
+
+      .wqc-update-check-status.wqc-update-error {
+        color: var(--bs-danger, #c2410c);
       }
 
       .wqc-update-interval {
@@ -770,8 +856,7 @@ const historyDateFormatters = {
         flex-wrap: wrap;
       }
 
-      .wqc-update-section > .wqc-section-head > .btn,
-      .wqc-back-to-top {
+      .wqc-update-head-actions > .btn {
         min-height: 32px;
         font-size: 11px;
       }
@@ -780,8 +865,24 @@ const historyDateFormatters = {
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        margin-left: auto;
+        padding: 3px 1px;
+        color: var(--wqc-muted);
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        text-decoration: none;
+        text-underline-offset: 3px;
         white-space: nowrap;
+      }
+
+      .wqc-back-to-top:hover,
+      .wqc-back-to-top:focus-visible {
+        outline: 0;
+        color: var(--wqc-accent);
+        text-decoration: underline;
       }
 
       .wqc-back-to-top span {
@@ -793,13 +894,13 @@ const historyDateFormatters = {
 
       .wqc-update-panel {
         margin-top: 11px;
-        overflow: hidden;
+        overflow: visible;
         background: color-mix(in srgb, var(--bs-primary) 5%, var(--bs-body-bg));
         border: 1px solid color-mix(in srgb, var(--bs-primary) 24%, var(--wqc-surface-border));
         border-radius: 8px;
       }
 
-      .wqc-update-summary,
+      .wqc-update-summary-trigger,
       .wqc-update-history-summary {
         display: flex;
         align-items: center;
@@ -813,18 +914,129 @@ const historyDateFormatters = {
       }
 
       .wqc-update-summary {
+        display: flex;
+        align-items: center;
         justify-content: space-between;
         gap: 12px;
         min-height: 38px;
         padding: 8px 11px;
+        border-radius: 7px;
         font-size: 12px;
       }
 
       .wqc-update-summary:hover,
-      .wqc-update-summary:focus-visible,
       .wqc-update-history-summary:hover,
       .wqc-update-history-summary:focus-visible {
         background: color-mix(in srgb, var(--bs-primary) 7%, transparent);
+      }
+
+      .wqc-update-summary-trigger {
+        min-width: 0;
+        flex: 1 1 auto;
+        align-self: stretch;
+        padding: 0;
+      }
+
+      .wqc-update-summary-trigger:focus-visible {
+        outline: 1px solid var(--wqc-accent);
+        outline-offset: 3px;
+        border-radius: 4px;
+      }
+
+      .wqc-update-summary-actions {
+        display: flex;
+        align-items: center;
+        flex: none;
+        gap: 7px;
+      }
+
+      .wqc-update-button-hint {
+        position: relative;
+        display: inline-flex;
+        min-width: 0;
+      }
+
+      .wqc-update-button-hint.wqc-disabled {
+        cursor: not-allowed;
+      }
+
+      .wqc-update-button-hint.wqc-disabled:focus-visible {
+        outline: 2px solid var(--wqc-accent);
+        outline-offset: 2px;
+        border-radius: 7px;
+      }
+
+      .wqc-help-tooltip.wqc-update-disabled-tooltip {
+        right: 0;
+        width: max-content;
+        max-width: min(300px, calc(100vw - 48px));
+        padding: 8px 10px;
+        line-height: 1.5;
+        white-space: normal;
+      }
+
+      .wqc-update-actions .wqc-update-disabled-tooltip {
+        left: 0;
+        right: auto;
+      }
+
+      .wqc-update-actions .wqc-update-disabled-tooltip::after {
+        left: 11px;
+        right: auto;
+      }
+
+      .wqc-update-button-hint:hover .wqc-update-disabled-tooltip,
+      .wqc-update-button-hint:focus-visible .wqc-update-disabled-tooltip,
+      .wqc-update-button-hint:focus-within .wqc-update-disabled-tooltip {
+        visibility: visible;
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .wqc-update-now {
+        min-height: 28px;
+        padding: 4px 9px;
+        color: var(--wqc-accent);
+        background: color-mix(in srgb, var(--bs-primary) 10%, var(--bs-body-bg));
+        border: 1px solid color-mix(in srgb, var(--bs-primary) 34%, var(--wqc-control-border));
+        border-radius: 6px;
+        font-size: 11px;
+        white-space: nowrap;
+        transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 100ms ease;
+      }
+
+      .wqc-update-now:hover:not(:disabled),
+      .wqc-update-now:focus-visible:not(:disabled) {
+        color: color-mix(in srgb, var(--bs-primary) 82%, var(--wqc-text) 18%);
+        background: color-mix(in srgb, var(--bs-primary) 16%, var(--bs-body-bg));
+        border-color: color-mix(in srgb, var(--bs-primary) 54%, var(--wqc-control-border));
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--bs-primary) 12%, transparent);
+        transform: translateY(-1px);
+      }
+
+      .wqc-update-now:active:not(:disabled) {
+        color: color-mix(in srgb, var(--bs-primary) 88%, var(--wqc-text) 12%);
+        background: color-mix(in srgb, var(--bs-primary) 22%, var(--bs-body-bg));
+        border-color: color-mix(in srgb, var(--bs-primary) 66%, var(--wqc-control-border));
+        box-shadow: inset 0 1px 3px color-mix(in srgb, var(--bs-primary) 24%, transparent);
+        transform: translateY(0) scale(0.97);
+      }
+
+      .wqc-update-now-expanded {
+        transition: filter 140ms ease, box-shadow 140ms ease, transform 100ms ease;
+      }
+
+      .wqc-update-now-expanded:hover:not(:disabled),
+      .wqc-update-now-expanded:focus-visible:not(:disabled) {
+        filter: brightness(1.08);
+        box-shadow: 0 5px 12px color-mix(in srgb, var(--bs-primary) 24%, transparent);
+        transform: translateY(-1px);
+      }
+
+      .wqc-update-now-expanded:active:not(:disabled) {
+        filter: brightness(0.92);
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.18);
+        transform: translateY(0) scale(0.97);
       }
 
       .wqc-update-summary-title {
@@ -852,8 +1064,22 @@ const historyDateFormatters = {
 
       .wqc-update-expand {
         flex: none;
+        min-height: 28px;
+        padding: 4px 2px;
         color: var(--wqc-accent);
+        background: transparent;
+        border: 0;
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
         font-size: 11px;
+      }
+
+      .wqc-update-expand:hover,
+      .wqc-update-expand:focus-visible {
+        outline: 0;
+        text-decoration: underline;
+        text-underline-offset: 3px;
       }
 
       .wqc-update-details {
@@ -2223,8 +2449,9 @@ const historyDateFormatters = {
           flex-direction: column;
         }
 
-        .wqc-update-section .wqc-section-head > .btn {
-          align-self: flex-start;
+        .wqc-update-head-actions {
+          justify-content: flex-end;
+          align-self: stretch;
         }
 
         .wqc-plugin-footer {
@@ -2240,9 +2467,34 @@ const historyDateFormatters = {
           max-width: 100%;
         }
 
+        .wqc-update-check-control {
+          justify-content: space-between;
+          width: 100%;
+          margin-left: 0;
+        }
+
+        .wqc-update-check-status {
+          max-width: calc(100% - 88px);
+        }
+
+        .wqc-update-summary {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .wqc-update-summary-actions {
+          justify-content: flex-end;
+          width: 100%;
+        }
+
         .wqc-update-actions {
           align-items: stretch;
           flex-direction: column;
+        }
+
+        .wqc-update-actions .wqc-update-button-hint,
+        .wqc-update-actions .wqc-update-button-hint > .btn {
+          width: 100%;
         }
 
         .wqc-config-dialog-actions {
@@ -2299,12 +2551,14 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     readonly issuesUrl = 'https://github.com/windyy0/tabby-windy-quick-commands/issues'
     updateState: PluginUpdateState
     updateCheckInterval: UpdateCheckInterval
+    showUpdateCheckStatus = false
     updateDetailsExpanded = false
     updateHistoryOpen = false
     updateHistoryState: PluginUpdateHistoryState = { status: 'idle', entries: [], error: '' }
     expandedHistoryVersions = new Set<string>()
     private historyExpansionInitialized = false
     private configMessageTimer: ReturnType<typeof setTimeout> | null = null
+    private updateCheckStatusTimer: ReturnType<typeof setTimeout> | null = null
     private runtimeStore: QuickCommandsRuntimeStore
     private pluginConfigStore: QuickCommandsPluginConfigStore
     private pluginConfig: Record<string, any>
@@ -2355,6 +2609,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     ngOnDestroy (): void {
         this.dismissConfigMessage()
+        this.dismissUpdateCheckStatus()
 
         this.stopLocalizing?.()
         this.subscriptions.unsubscribe()
@@ -2607,6 +2862,31 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         void this.pluginUpdate.checkNow()
     }
 
+    checkForUpdatesWithStatus (): void {
+        this.showUpdateCheckStatus = true
+        this.clearUpdateCheckStatusTimer()
+        const scheduleStatusDismissal = (): void => {
+            if (!this.showUpdateCheckStatus) { return }
+            this.updateCheckStatusTimer = setTimeout(() => {
+                this.dismissUpdateCheckStatus()
+                this.changeDetector.detectChanges()
+            }, 30_000)
+        }
+        void this.pluginUpdate.checkNow().then(scheduleStatusDismissal, scheduleStatusDismissal)
+    }
+
+    dismissUpdateCheckStatus (): void {
+        this.clearUpdateCheckStatusTimer()
+        this.showUpdateCheckStatus = false
+    }
+
+    private clearUpdateCheckStatusTimer (): void {
+        if (this.updateCheckStatusTimer !== null) {
+            clearTimeout(this.updateCheckStatusTimer)
+        }
+        this.updateCheckStatusTimer = null
+    }
+
     scrollToUpdateSettings (): void {
         this.scrollTo('#wqc-plugin-update')
     }
@@ -2617,6 +2897,19 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     get canInstallUpdate (): boolean {
         return this.pluginUpdate.canInstallUpdate
+    }
+
+    get updateInstallDisabledHint (): string {
+        if (!this.canInstallUpdate) {
+            return this.i18n.text('Dev 版本不能在线更新，请更新本地代码后重新安装 Dev。')
+        }
+        if (this.updateState.status === 'installing') {
+            return this.i18n.text('正在安装更新，请稍候。')
+        }
+        if (this.updateState.status === 'restart') {
+            return this.i18n.text('更新已安装，请重启 Tabby。')
+        }
+        return ''
     }
 
     installUpdate (): void {

@@ -237,7 +237,7 @@ Run `npm run publish:check` to validate without publishing. Running `npm publish
 
 ```json
 {
-  "version": "1.8.1",
+  "version": "1.0.0",
   "zh-CN": {
     "title": "Update title",
     "sections": [

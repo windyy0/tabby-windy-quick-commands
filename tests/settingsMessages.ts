@@ -56,10 +56,74 @@ export async function testSettingsMessages (): Promise<void> {
     vm.runInNewContext(compiled.outputText, sandbox)
     const Settings = sandbox.exports.QuickCommandsSettingsTabComponent
     const template = Settings.testMetadata.template as string
+    const styles = (Settings.testMetadata.styles as string[]).join('\n')
     assert.ok(template.includes('class="wqc-help-tooltip wqc-config-message-tooltip"'), 'message details must reuse the shared help tooltip style')
     assert.ok(!template.includes('[attr.title]="configMessageDetail'), 'message details must not use the native browser tooltip')
     assert.ok(template.includes('[attr.tabindex]="configMessageDetail ? 0 : null"'), 'details must be reachable by keyboard only when present')
     assert.ok(template.includes('[attr.aria-describedby]="configMessageDetail ? \'wqc-config-message-detail\' : null"'), 'the detail trigger must reference its tooltip')
+    assert.ok(template.indexOf('class="wqc-back-to-top"') < template.indexOf('>更新历史</button>'), 'Back to top must sit to the left of update history')
+    assert.ok(template.indexOf('wqc-update-now') < template.indexOf('class="wqc-update-expand"'), 'Update now must sit to the left of the expand control')
+    assert.ok(template.includes('class="wqc-update-button-hint" *ngIf="!updateDetailsExpanded"'), 'the inline update action must disappear when details expand')
+    assert.ok(template.includes('<div class="wqc-update-actions">\n                <span class="wqc-update-button-hint"'), 'expanded details must retain the original primary and secondary action layout')
+    assert.ok(template.includes('<button class="btn btn-secondary" type="button" [disabled]="updateState.ignored"'), 'expanded details must retain the ignore-update action beside Update now')
+    assert.equal((template.match(/class="wqc-help-tooltip wqc-update-disabled-tooltip"/g) || []).length, 2, 'both disabled Update now buttons must reuse the shared tooltip style')
+    assert.ok(!template.includes('[attr.title]="updateInstallDisabledHint'), 'disabled Update now hints must not use inconsistent native browser tooltips')
+    assert.equal((template.match(/\[attr\.tabindex\]="updateInstallDisabledHint \? 0 : null"/g) || []).length, 2, 'disabled Update now hints must also be keyboard reachable')
+    assert.ok(styles.includes('.wqc-update-button-hint:hover .wqc-update-disabled-tooltip') && styles.includes('.wqc-update-button-hint:focus-within .wqc-update-disabled-tooltip'), 'disabled Update now hints must share hover and focus behavior')
+    assert.ok(styles.includes('.wqc-update-actions .wqc-update-disabled-tooltip {') && styles.includes('left: 0;\n        right: auto;'), 'the expanded Update now hint must open to the right instead of clipping on the left')
+    assert.ok(styles.includes('.wqc-update-now:hover:not(:disabled)') && styles.includes('.wqc-update-now:active:not(:disabled)'), 'collapsed Update now must provide hover and pressed feedback')
+    assert.ok(styles.includes('.wqc-update-now-expanded:hover:not(:disabled)') && styles.includes('.wqc-update-now-expanded:active:not(:disabled)'), 'expanded Update now must provide hover and pressed feedback')
+    assert.ok(template.includes('class="wqc-update-card-check"'), 'the original top update check and status must remain available')
+    assert.ok(template.includes('*ngIf="showUpdateCheckStatus && updateStatusLabel"'), 'manual update status must stay hidden until requested')
+    assert.ok(template.includes('(click)="dismissUpdateCheckStatus()"'), 'manual update status must provide a dismiss control')
+
+    let finishUpdateCheck: (() => void) | undefined
+    const updateCheck = new Promise<void>(resolve => { finishUpdateCheck = resolve })
+    let updateCheckChanges = 0
+    const updateStatusSettings: any = Object.create(Settings.prototype)
+    Object.assign(updateStatusSettings, {
+        showUpdateCheckStatus: false,
+        updateCheckStatusTimer: null,
+        pluginUpdate: { checkNow: () => updateCheck },
+        changeDetector: { detectChanges: () => updateCheckChanges++ },
+    })
+    updateStatusSettings.checkForUpdates()
+    assert.equal(updateStatusSettings.showUpdateCheckStatus, false, 'the original top check must not reveal the bottom temporary status')
+    assert.equal(timers.size, 0, 'the original top check must not start a temporary-status timer')
+    updateStatusSettings.checkForUpdatesWithStatus()
+    assert.equal(updateStatusSettings.showUpdateCheckStatus, true, 'manual checks must reveal their status immediately')
+    assert.equal(timers.size, 0, 'the expiry countdown must wait for the query to finish')
+    finishUpdateCheck!()
+    await updateCheck
+    await Promise.resolve()
+    assert.equal(timers.size, 1, 'a completed query must start one status expiry countdown')
+    advance(29_999)
+    assert.equal(updateStatusSettings.showUpdateCheckStatus, true, 'completed status must remain visible for 30 seconds')
+    advance(1)
+    assert.equal(updateStatusSettings.showUpdateCheckStatus, false)
+    assert.equal(updateStatusSettings.updateCheckStatusTimer, null)
+    assert.equal(updateCheckChanges, 1, 'status expiry must update the view')
+
+    updateStatusSettings.showUpdateCheckStatus = true
+    updateStatusSettings.updateCheckStatusTimer = setTimeout(() => undefined, 30_000)
+    updateStatusSettings.dismissUpdateCheckStatus()
+    assert.equal(updateStatusSettings.showUpdateCheckStatus, false)
+    assert.equal(timers.size, 0, 'manual dismissal must cancel status expiry')
+
+    const disabledHintSettings: any = Object.create(Settings.prototype)
+    Object.assign(disabledHintSettings, {
+        pluginUpdate: { canInstallUpdate: false },
+        updateState: { status: 'available' },
+        i18n: { text: (text: string) => text },
+    })
+    assert.ok(disabledHintSettings.updateInstallDisabledHint.includes('Dev'), 'Dev builds must explain why online update is disabled')
+    disabledHintSettings.pluginUpdate.canInstallUpdate = true
+    disabledHintSettings.updateState.status = 'installing'
+    assert.ok(disabledHintSettings.updateInstallDisabledHint.includes('正在安装'))
+    disabledHintSettings.updateState.status = 'restart'
+    assert.ok(disabledHintSettings.updateInstallDisabledHint.includes('重启 Tabby'))
+    disabledHintSettings.updateState.status = 'available'
+    assert.equal(disabledHintSettings.updateInstallDisabledHint, '', 'enabled update buttons must not show a disabled-state hint')
     const clone = (value: any): any => JSON.parse(JSON.stringify(value))
 
     for (const language of ['zh-CN', 'en']) {

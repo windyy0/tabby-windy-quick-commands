@@ -236,7 +236,7 @@ npm run release
 
 ```json
 {
-  "version": "1.8.1",
+  "version": "1.0.0",
   "zh-CN": {
     "title": "本次更新标题",
     "sections": [
