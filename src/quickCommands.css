@@ -1,4 +1,6 @@
 .tqc-root {
+  --tqc-window-controls-width: max(0px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
+  --tqc-window-controls-height: max(0px, calc(env(titlebar-area-y, 0px) + env(titlebar-area-height, 0px)));
   position: fixed;
   inset: 0 0 0 auto;
   z-index: 10000;
@@ -35,24 +37,45 @@
   box-shadow: -18px 0 40px rgba(15, 23, 42, 0.16);
   transform: translateX(102%);
   transition: transform 160ms ease, visibility 0s linear 160ms;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
   backdrop-filter: blur(18px);
 }
 
 .tqc-root.tqc-open .tqc-drawer {
-  pointer-events: auto;
   visibility: visible;
   transform: translateX(0);
   transition-delay: 0s;
 }
 
+.tqc-interactive-surface {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: auto;
+}
+
+.tqc-interactive-surface,
+.tqc-confirm-backdrop {
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--tqc-window-controls-width)) 0,
+    calc(100% - var(--tqc-window-controls-width)) var(--tqc-window-controls-height),
+    100% var(--tqc-window-controls-height),
+    100% 100%,
+    0 100%
+  );
+}
+
 .tqc-resize-handle {
   position: absolute;
+  z-index: 1;
   top: 0;
   bottom: 0;
   left: -5px;
   width: 10px;
+  pointer-events: auto;
   cursor: ew-resize;
 }
 

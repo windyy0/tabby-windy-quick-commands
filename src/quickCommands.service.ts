@@ -283,7 +283,8 @@ export class QuickCommandsService {
         this.root.innerHTML = `
           <aside class="tqc-drawer" aria-label="${this.escapeAttr(this.i18n.text(pluginIdentity.title))}">
             <div class="tqc-resize-handle" data-role="resize-handle" title="调整宽度"></div>
-            <header class="tqc-header">
+            <div class="tqc-interactive-surface">
+              <header class="tqc-header">
               <div class="tqc-top-row">
                 <button class="tqc-icon-button" type="button" data-action="collapse" aria-label="${this.escapeAttr(this.i18n.text('收起'))}">${icons.collapse}</button>
                 ${this.shouldShowUpdateReminder() ? `
@@ -345,9 +346,9 @@ export class QuickCommandsService {
                   </div>
                 ` : ''}
               </div>
-            </header>
+              </header>
 
-            <main class="tqc-body">
+              <main class="tqc-body">
               <div class="tqc-list-pane">
                 <section class="tqc-list">
                   ${commands.length ? commands.map(command => this.renderCommandListItem(command, selected?.id === command.id)).join('') : '<div class="tqc-empty">没有匹配的命令</div>'}
@@ -364,12 +365,13 @@ export class QuickCommandsService {
               <section class="tqc-detail">
                 ${selected ? this.renderDetail(selected, terminals.length, currentTerminal) : this.renderEmptyDetail()}
               </section>
-            </main>
+              </main>
 
-            <footer class="tqc-footer">
-              <div class="tqc-hint${danger ? ' tqc-danger' : ''}">${this.escape(hint)}</div>
-              ${this.renderFooter(selected, targetCount)}
-            </footer>
+              <footer class="tqc-footer">
+                <div class="tqc-hint${danger ? ' tqc-danger' : ''}">${this.escape(hint)}</div>
+                ${this.renderFooter(selected, targetCount)}
+              </footer>
+            </div>
           </aside>
           ${this.renderOverlays(selected)}
           <div class="tqc-tooltip" data-role="tooltip" role="tooltip"></div>
