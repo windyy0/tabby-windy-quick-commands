@@ -744,6 +744,10 @@ interface HotkeyConflictCache {
                 <span class="wqc-update-history-spinner" aria-hidden="true"></span>
                 正在加载版本记录…
               </div>
+              <div class="wqc-update-history-message" *ngIf="updateHistoryState.status === 'refreshing'">
+                <span class="wqc-update-history-spinner" aria-hidden="true"></span>
+                正在刷新版本记录，已显示本地缓存…
+              </div>
               <div class="wqc-update-history-message wqc-update-history-error" *ngIf="updateHistoryState.status === 'error'">
                 加载失败：{{ updateHistoryState.error || '请稍后重试' }}
               </div>
@@ -751,7 +755,7 @@ interface HotkeyConflictCache {
                 npm 暂无已发布版本记录。
               </div>
 
-              <div class="wqc-update-history-list" *ngIf="updateHistoryState.status === 'ready' && updateHistoryState.entries.length">
+              <div class="wqc-update-history-list" *ngIf="updateHistoryState.entries.length">
                 <article class="wqc-update-history-item" *ngFor="let entry of updateHistoryState.entries">
                   <button class="wqc-update-history-summary" type="button" [attr.aria-expanded]="isHistoryVersionExpanded(entry.version)" (click)="toggleHistoryVersion(entry.version)">
                     <span class="wqc-update-history-version">v{{ entry.version }}</span>
@@ -768,7 +772,7 @@ interface HotkeyConflictCache {
             </div>
 
             <footer class="wqc-update-history-footer">
-              <button class="btn btn-secondary" type="button" [disabled]="updateHistoryState.status === 'loading'" (click)="reloadUpdateHistory()">重新加载</button>
+              <button class="btn btn-secondary" type="button" [disabled]="updateHistoryState.status === 'loading' || updateHistoryState.status === 'refreshing'" (click)="reloadUpdateHistory()">重新加载</button>
               <button class="btn btn-primary wqc-update-history-confirm-close" type="button" (click)="closeUpdateHistory()">关闭</button>
             </footer>
           </section>

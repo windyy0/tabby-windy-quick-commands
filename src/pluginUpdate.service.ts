@@ -29,6 +29,8 @@ const packageInfo = require('../package.json') as { version?: string }
 export const quickCommandsPackageName = pluginIdentity.packageName
 export const quickCommandsUpdatePackageName = pluginIdentity.updatePackageName
 const updateNotesFileName = 'update-notes.json'
+const updateHistoryCacheFileName = 'update-history-cache.json'
+const updateHistoryMetadataCacheMs = 24 * 60 * 60 * 1000
 
 export type PluginUpdateStatus = 'idle' | 'checking' | 'current' | 'available' | 'error' | 'installing' | 'restart'
 
@@ -49,7 +51,7 @@ export interface PluginUpdateHistoryEntry {
     hasReleaseNotes: boolean
 }
 
-export type PluginUpdateHistoryStatus = 'idle' | 'loading' | 'ready' | 'error'
+export type PluginUpdateHistoryStatus = 'idle' | 'loading' | 'refreshing' | 'ready' | 'error'
 
 export interface PluginUpdateHistoryState {
     status: PluginUpdateHistoryStatus
@@ -71,6 +73,19 @@ interface PluginUpdateHistorySourceEntry {
     document: unknown
 }
 
+interface PluginUpdateHistoryCacheEntry {
+    publishedAt: string
+    document: unknown
+}
+
+interface PluginUpdateHistoryCache {
+    source: 'jsdelivr-localized-v1'
+    packageName: string
+    checkedAt: string
+    versions: string[]
+    entries: Record<string, PluginUpdateHistoryCacheEntry>
+}
+
 @Injectable({ providedIn: 'root' })
 export class QuickCommandsPluginUpdateService {
     readonly state$: BehaviorSubject<PluginUpdateState>
@@ -81,6 +96,7 @@ export class QuickCommandsPluginUpdateService {
     })
     private configStore: QuickCommandsPluginConfigStore
     private readonly cachePath: string | null
+    private readonly historyCachePath: string | null
     private checkPromise: Promise<void> | null = null
     private checkTimer: number | null = null
     private initialCheckTimer: number | null = null
@@ -91,6 +107,7 @@ export class QuickCommandsPluginUpdateService {
     private cache: PluginUpdateCache | null = null
     private historyPromise: Promise<void> | null = null
     private historySources: PluginUpdateHistorySourceEntry[] = []
+    private historyCache: PluginUpdateHistoryCache | null = null
 
     constructor (
         private platform: PlatformService,
@@ -105,7 +122,11 @@ export class QuickCommandsPluginUpdateService {
         this.cachePath = configPath
             ? path.join(path.dirname(configPath), pluginIdentity.dataDirectory, 'update-cache.json')
             : null
+        this.historyCachePath = configPath
+            ? path.join(path.dirname(configPath), pluginIdentity.dataDirectory, updateHistoryCacheFileName)
+            : null
         this.cache = this.readCache()
+        this.historyCache = this.readHistoryCache()
         this.state$ = new BehaviorSubject<PluginUpdateState>({
             currentVersion,
             latestVersion: null,
@@ -134,6 +155,7 @@ export class QuickCommandsPluginUpdateService {
             for (const request of this.requests) { request.abort() }
             this.configStore = new QuickCommandsPluginConfigStore(this.platform.getConfigPath())
             this.cache = null
+            this.historyCache = null
             this.historySources = []
             this.lastAttemptAt = 0
             this.scheduledInterval = null
@@ -169,12 +191,16 @@ export class QuickCommandsPluginUpdateService {
         if (this.historyPromise) {
             return this.historyPromise
         }
-        if (!force && this.historyState$.value.status === 'ready') {
+        if (!force && this.historyState$.value.status === 'ready' && this.isHistoryCacheFresh()) {
+            return
+        }
+        const hasCachedHistory = this.applyHistoryCache()
+        if (!force && hasCachedHistory && this.isHistoryCacheFresh()) {
             return
         }
         this.historyState$.next({
-            status: 'loading',
-            entries: force ? [] : this.historyState$.value.entries,
+            status: hasCachedHistory ? 'refreshing' : 'loading',
+            entries: hasCachedHistory ? this.historyState$.value.entries : [],
             error: '',
         })
         this.historyPromise = this.performHistoryLoad()
@@ -310,6 +336,9 @@ export class QuickCommandsPluginUpdateService {
                 .filter(Boolean)
                 .sort((left, right) => comparePluginVersions(right, left))
             const sources = new Array<PluginUpdateHistorySourceEntry>(versions.length)
+            const cachedEntries: Record<string, PluginUpdateHistoryCacheEntry> = {
+                ...(this.historyCache?.entries || {}),
+            }
             let cursor = 0
             const workerCount = Math.min(5, versions.length)
             const workers = Array.from({ length: workerCount }, async () => {
@@ -317,12 +346,33 @@ export class QuickCommandsPluginUpdateService {
                     if (!access.isCurrent()) { return }
                     const index = cursor++
                     const version = versions[index]
-                    const cachedDocument = version === this.cache?.latestVersion
+                    const historyEntry = Object.prototype.hasOwnProperty.call(cachedEntries, version)
+                        ? cachedEntries[version]
+                        : null
+                    const latestCachedDocument = version === this.cache?.latestVersion
                         ? this.cache.updateNotes
                         : undefined
-                    const document = cachedDocument !== undefined
-                        ? cachedDocument
-                        : await this.fetchUpdateNotesDocument(version)
+                    let document: unknown
+                    if (historyEntry) {
+                        document = historyEntry.document
+                    } else if (latestCachedDocument !== undefined && latestCachedDocument !== null) {
+                        document = latestCachedDocument
+                    } else {
+                        const result = await this.fetchHistoryUpdateNotesDocument(version)
+                        document = result.document
+                        if (!result.cacheable) {
+                            sources[index] = {
+                                version,
+                                publishedAt: typeof metadata.time?.[version] === 'string' ? metadata.time[version] : '',
+                                document,
+                            }
+                            continue
+                        }
+                    }
+                    cachedEntries[version] = {
+                        publishedAt: typeof metadata.time?.[version] === 'string' ? metadata.time[version] : '',
+                        document,
+                    }
                     sources[index] = {
                         version,
                         publishedAt: typeof metadata.time?.[version] === 'string' ? metadata.time[version] : '',
@@ -332,21 +382,39 @@ export class QuickCommandsPluginUpdateService {
             })
             await Promise.all(workers)
             if (!access.isCurrent()) { return }
+            this.historyCache = {
+                source: 'jsdelivr-localized-v1',
+                packageName: quickCommandsUpdatePackageName,
+                checkedAt: new Date().toISOString(),
+                versions,
+                entries: cachedEntries,
+            }
+            this.writeHistoryCache(this.historyCache)
             this.historySources = sources
             this.renderHistory()
         } catch (error) {
             if (!access.isCurrent()) { return }
             this.historyState$.next({
                 status: 'error',
-                entries: [],
+                entries: this.historyState$.value.entries,
                 error: error instanceof Error ? error.message : String(error || '加载更新历史失败。'),
             })
         }
     }
 
+    private async fetchHistoryUpdateNotesDocument (version: string): Promise<{ document: unknown; cacheable: boolean }> {
+        const url = `https://cdn.jsdelivr.net/npm/${quickCommandsUpdatePackageName}@${encodeURIComponent(version)}/${updateNotesFileName}`
+        try {
+            return { document: await this.fetchJson<unknown>(url), cacheable: true }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error || '')
+            return { document: null, cacheable: /HTTP 404/.test(message) }
+        }
+    }
+
     private renderHistory (): void {
         if (!this.historySources.length) {
-            if (this.historyState$.value.status === 'loading') {
+            if (this.historyState$.value.status === 'loading' || this.historyState$.value.status === 'refreshing') {
                 this.historyState$.next({ status: 'ready', entries: [], error: '' })
             }
             return
@@ -473,6 +541,89 @@ export class QuickCommandsPluginUpdateService {
             })
         } catch {
             // Update cache failures must not affect the plugin itself.
+        }
+    }
+
+    private applyHistoryCache (): boolean {
+        if (!this.historyCache) {
+            return false
+        }
+        this.historySources = this.historyCache.versions.map(version => {
+            const entry = this.historyCache!.entries[version]
+            return {
+                version,
+                publishedAt: entry?.publishedAt || '',
+                document: entry?.document ?? null,
+            }
+        })
+        this.historyState$.next({
+            status: 'ready',
+            entries: this.historySources.map(source => {
+                const releaseNotes = formatPluginUpdateNotes(source.document, this.i18n.language)
+                return {
+                    version: source.version,
+                    publishedAt: source.publishedAt,
+                    releaseNotes,
+                    hasReleaseNotes: Boolean(releaseNotes),
+                }
+            }),
+            error: '',
+        })
+        return true
+    }
+
+    private isHistoryCacheFresh (): boolean {
+        if (!this.historyCache) {
+            return false
+        }
+        const checkedAt = new Date(this.historyCache.checkedAt).getTime()
+        if (!Number.isFinite(checkedAt) || Date.now() - checkedAt >= updateHistoryMetadataCacheMs) {
+            return false
+        }
+        const latestVersion = this.snapshot.latestVersion
+        return !latestVersion || this.historyCache.versions.includes(latestVersion)
+    }
+
+    private readHistoryCache (): PluginUpdateHistoryCache | null {
+        if (!this.historyCachePath || !fs.existsSync(this.historyCachePath)) {
+            return null
+        }
+        try {
+            const parsed = JSON.parse(fs.readFileSync(this.historyCachePath, 'utf8')) as PluginUpdateHistoryCache
+            if (!parsed || parsed.source !== 'jsdelivr-localized-v1' || parsed.packageName !== quickCommandsUpdatePackageName ||
+                typeof parsed.checkedAt !== 'string' || !Array.isArray(parsed.versions) ||
+                parsed.versions.some(version => typeof version !== 'string') || !parsed.entries ||
+                typeof parsed.entries !== 'object' || Array.isArray(parsed.entries)) {
+                return null
+            }
+            const entries: Record<string, PluginUpdateHistoryCacheEntry> = {}
+            for (const [version, value] of Object.entries(parsed.entries)) {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                    continue
+                }
+                const entry = value as unknown as Record<string, unknown>
+                if (typeof entry.publishedAt !== 'string' || !Object.prototype.hasOwnProperty.call(entry, 'document')) {
+                    continue
+                }
+                entries[version] = { publishedAt: entry.publishedAt, document: entry.document }
+            }
+            return { ...parsed, versions: [...parsed.versions], entries }
+        } catch {
+            return null
+        }
+    }
+
+    private writeHistoryCache (cache: PluginUpdateHistoryCache): void {
+        if (!this.historyCachePath) {
+            return
+        }
+        try {
+            this.configStore.dataAccess.write(() => {
+                fs.mkdirSync(path.dirname(this.historyCachePath!), { recursive: true })
+                fs.writeFileSync(this.historyCachePath!, `${JSON.stringify(cache, null, 2)}\n`, 'utf8')
+            })
+        } catch {
+            // Update history cache failures must not affect the plugin itself.
         }
     }
 }

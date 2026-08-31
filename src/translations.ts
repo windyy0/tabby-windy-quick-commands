@@ -39,6 +39,7 @@ const englishPhrases: Record<string, string> = {
     '本次更新未提供更新说明。': 'No release notes are available for this update.',
     '记录来自 npm 已发布版本': 'Records are loaded from published npm versions',
     '正在加载版本记录…': 'Loading version history…',
+    '正在刷新版本记录，已显示本地缓存…': 'Refreshing version history. Showing the local cache…',
     'npm 暂无已发布版本记录。': 'No published npm versions were found.',
     '此版本未提供更新说明。': 'No release notes were provided for this version.',
     '当前版本': 'Current version',

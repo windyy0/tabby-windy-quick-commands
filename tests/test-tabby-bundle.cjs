@@ -17,7 +17,12 @@ function loadBundle (bundlePath, liveNetwork = false, document = { addEventListe
     const events = []
     const windowListeners = new Map()
     const networkRequests = []
-    const networkGate = { wait: null, latestVersion: '9.0.0', registryStatus: 200 }
+    const networkGate = {
+        wait: null,
+        latestVersion: '9.0.0',
+        registryStatus: 200,
+        historyVersions: { '9.0.0': '2026-08-27T00:00:00Z' },
+    }
     const core = { ConfigProvider: class {}, HotkeyProvider: class {}, ToolbarButtonProvider: class {}, HotkeysService: class {} }
     const settings = { SettingsTabProvider: class {} }
     const captureMetadata = metadata => target => { target.testMetadata = metadata; return target }
@@ -55,7 +60,10 @@ function loadBundle (bundlePath, liveNetwork = false, document = { addEventListe
             if (networkGate.registryStatus !== 200) return { ok: false, status: networkGate.registryStatus }
             const data = url.endsWith('/latest') ? { version: networkGate.latestVersion }
                 : url.includes('cdn.jsdelivr.net') ? notes
-                    : { versions: { '9.0.0': {} }, time: { '9.0.0': '2026-08-27T00:00:00Z' } }
+                    : {
+                        versions: Object.fromEntries(Object.keys(networkGate.historyVersions).map(version => [version, {}])),
+                        time: networkGate.historyVersions,
+                    }
             return { ok: true, json: async () => data }
         },
         require: name => name === '@angular/core' ? angular
@@ -421,6 +429,32 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     await update.loadHistory()
     assert.equal(update.historyState$.value.status, 'ready')
     assert.equal(update.historyState$.value.entries.length, 1)
+    const historyCachePath = path.join(profilePath, dataDirectory, 'update-history-cache.json')
+    assert.equal(fs.existsSync(historyCachePath), true, 'loaded update history must be persisted separately from the latest-version cache')
+    const historyCache = JSON.parse(fs.readFileSync(historyCachePath, 'utf8'))
+    assert.deepEqual(historyCache.versions, ['9.0.0'])
+    assert.equal(historyCache.entries['9.0.0'].document['zh-CN'].title, 'Update')
+    const cachedHistoryUpdate = new UpdateService(platform, config, i18n, bootstrap)
+    const requestsBeforeCachedHistory = host.networkRequests.length
+    await cachedHistoryUpdate.loadHistory()
+    assert.equal(host.networkRequests.length, requestsBeforeCachedHistory, 'fresh history cache must be reusable across service restarts without network requests')
+    assert.equal(cachedHistoryUpdate.historyState$.value.entries.length, 1)
+    await cachedHistoryUpdate.loadHistory(true)
+    const forcedHistoryRequests = host.networkRequests.slice(requestsBeforeCachedHistory)
+    assert.ok(forcedHistoryRequests.some(url => url === 'https://registry.npmjs.org/tabby-windy-quick-commands'), 'forced history refresh must update the npm version index')
+    assert.ok(forcedHistoryRequests.every(url => !url.includes('cdn.jsdelivr.net')), 'cached immutable release notes must not be downloaded again')
+    host.networkGate.historyVersions = {
+        '9.1.0': '2026-08-28T00:00:00Z',
+        '9.0.0': '2026-08-27T00:00:00Z',
+    }
+    const requestsBeforeIncrementalHistory = host.networkRequests.length
+    await cachedHistoryUpdate.loadHistory(true)
+    const incrementalHistoryRequests = host.networkRequests.slice(requestsBeforeIncrementalHistory)
+    assert.deepEqual(Array.from(cachedHistoryUpdate.historyState$.value.entries, entry => entry.version), ['9.1.0', '9.0.0'])
+    assert.equal(incrementalHistoryRequests.filter(url => url.includes('cdn.jsdelivr.net')).length, 1, 'history refresh must download notes only for newly published versions')
+    assert.ok(incrementalHistoryRequests.some(url => url.includes('@9.1.0/update-notes.json')))
+    assert.ok(incrementalHistoryRequests.every(url => !url.includes('@9.0.0/update-notes.json')), 'existing immutable version notes must stay cached')
+    host.networkGate.historyVersions = { '9.0.0': '2026-08-27T00:00:00Z' }
     await update.installLatest()
     assert.equal(update.canInstallUpdate, !devBuild)
     assert.deepEqual(pluginInstalls, devBuild ? [] : [[packageName, '9.0.0']], 'Dev must not install a stable or unpublished Dev package')
@@ -544,6 +578,7 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     releaseNetwork()
     await Promise.all([pendingCheck, pendingHistory])
     assert.equal(fs.existsSync(path.join(dataPath, 'update-cache.json')), false, 'in-flight update requests must not repopulate the old cache after reset')
+    assert.equal(fs.existsSync(path.join(dataPath, 'update-history-cache.json')), false, 'in-flight history requests must not repopulate the old cache after reset')
     assert.equal(update.snapshot.status, 'idle', 'obsolete update results must not reappear in the UI')
     assert.equal(update.historyState$.value.entries.length, 0)
     settingsTab.ngOnDestroy()
