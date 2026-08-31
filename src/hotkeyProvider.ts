@@ -16,6 +16,14 @@ export class QuickCommandsHotkeyProvider extends HotkeyProvider {
                 id: pluginIdentity.toggleHotkeyId,
                 name: this.i18n.text(pluginIdentity.devBuild ? '显示/隐藏快速命令（Dev）' : '显示/隐藏快速命令'),
             },
+            {
+                id: pluginIdentity.focusHotkeyId,
+                name: this.i18n.text(pluginIdentity.devBuild ? '切换快速命令焦点（Dev）' : '切换快速命令焦点'),
+            },
+            {
+                id: pluginIdentity.hintsHotkeyId,
+                name: this.i18n.text(pluginIdentity.devBuild ? '显示/隐藏快捷键提示（Dev）' : '显示/隐藏快捷键提示'),
+            },
         ]
     }
 }

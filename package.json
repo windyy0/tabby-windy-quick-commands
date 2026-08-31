@@ -16,7 +16,7 @@
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
   "scripts": {
-    "test": "tsc -p tsconfig.test.json && node dist-tests/tests/run-tests.js && node scripts/test-release-validation.js",
+    "test": "tsc -p tsconfig.test.json && node dist-tests/tests/run-tests.js && node scripts/test-angular-template.mjs && node scripts/test-release-validation.js",
     "test:tabby:install": "pwsh -NoProfile -NonInteractive -File tests/test-tabby-installation.ps1 -Install",
     "clean": "node -e \"for (const dir of ['dist', 'dist-tests']) require('fs').rmSync(dir, { recursive: true, force: true })\"",
     "build": "npm run clean && webpack --mode production --stats errors-warnings --no-color",

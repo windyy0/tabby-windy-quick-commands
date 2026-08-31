@@ -13,6 +13,12 @@ import { QuickCommandsRuntimeStore } from './runtimeStorage'
 import { migrateLegacyPluginConfig, readLegacyPluginConfig, removeLegacyPluginConfig } from './legacyConfigMigration'
 import { pluginIdentity } from './pluginIdentity'
 import { QuickCommandsI18n } from './i18n'
+import {
+    hasTabbyHotkeyConfiguration,
+    migrateLegacySettingsHotkey,
+    pluginHotkeyDefinitions,
+    writeTabbyHotkeyBindings,
+} from './pluginHotkeys'
 
 @NgModule({
     imports: [
@@ -47,6 +53,7 @@ export default class QuickCommandsModule {
         // actual interface language. Do not persist its temporary startup locale.
         this.config.ready$.subscribe(() => {
             this.migrateLegacyConfig()
+            this.ensurePluginHotkeyDefaults()
             this.pluginConfigStore.initialize(createDefaultQuickCommandsConfig(this.i18n.language))
         })
         this.config.changed$.subscribe(() => this.migrateLegacyConfig())
@@ -66,5 +73,23 @@ export default class QuickCommandsModule {
         }
         removeLegacyPluginConfig(this.configPath)
         window.setTimeout(() => removeLegacyPluginConfig(this.configPath), 1000)
+    }
+
+    private ensurePluginHotkeyDefaults (): void {
+        if (!this.config.store) { return }
+        const hotkeys = this.config.store.hotkeys || (this.config.store.hotkeys = {})
+        let changed = migrateLegacySettingsHotkey(
+            hotkeys,
+            pluginIdentity.settingsHotkeyId,
+            pluginIdentity.legacySettingsHotkeyId,
+        )
+        pluginHotkeyDefinitions.forEach(definition => {
+            if (hasTabbyHotkeyConfiguration(hotkeys, definition.id)) { return }
+            writeTabbyHotkeyBindings(hotkeys, definition.id, definition.defaults)
+            changed = true
+        })
+        if (changed) {
+            void this.config.save().catch(() => undefined)
+        }
     }
 }

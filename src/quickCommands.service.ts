@@ -1,6 +1,6 @@
-import { Injectable } from '@angular/core'
+import { Injectable, Optional } from '@angular/core'
 import { SettingsTabComponent } from 'tabby-settings'
-import { AppService, ConfigService, LogService, Logger, PlatformService } from 'tabby-core'
+import { AppService, ConfigService, HotkeysService, LogService, Logger, PlatformService } from 'tabby-core'
 import {
     AutomationLogEntry,
     ExecutionMode,
@@ -25,7 +25,9 @@ import {
 import {
     findShortcutConflict,
     flattenHotkeysConfig,
+    isValidShortcut,
     normalizeShortcut,
+    normalizeShortcutKey,
     shortcutFromKeyboardEvent,
 } from './shortcutManager'
 import { shouldHandleDelegatedAction } from './delegatedClick'
@@ -40,6 +42,14 @@ import { QuickCommandsPluginUpdateService } from './pluginUpdate.service'
 import { pluginIdentity } from './pluginIdentity'
 import { pluginDataResetEvent } from './pluginData'
 import {
+    formatPluginHotkeyBinding,
+    PluginHotkeyAction,
+    pluginHotkeyBindingId,
+    pluginHotkeyDefinitions,
+    readPluginHotkeyBindings,
+    reservedQuickCommandsShortcuts,
+} from './pluginHotkeys'
+import {
     ExecutionRunState,
     ExecutionTarget,
     QuickCommandsExecutionRunner,
@@ -48,6 +58,8 @@ import {
 require('./quickCommands.css')
 
 type TerminalTabLike = ExecutionTarget
+type DrawerFocusArea = 'drawer' | 'terminal'
+type DrawerFocusTarget = 'search' | 'surface'
 
 interface ExecutionSummary {
     modeLabel: string
@@ -69,6 +81,8 @@ export class QuickCommandsService {
     private visible = false
     private running = false
     private filter = ''
+    private focusArea: DrawerFocusArea = 'terminal'
+    private drawerFocusTarget: DrawerFocusTarget = 'search'
     private searchReturnCategory: string | null = null
     private searchReturnCommandId: string | null = null
     private message = ''
@@ -129,6 +143,7 @@ export class QuickCommandsService {
         log: LogService,
         private i18n: QuickCommandsI18n,
         private pluginUpdate: QuickCommandsPluginUpdateService,
+        @Optional() private hotkeys?: HotkeysService,
     ) {
         this.logger = log.create('quick-commands')
         this.runtimeStore = new QuickCommandsRuntimeStore(platform.getConfigPath())
@@ -166,6 +181,7 @@ export class QuickCommandsService {
         })
         document.addEventListener('keydown', event => this.handleDocumentKeyDown(event), true)
         document.addEventListener('click', event => this.handleDocumentClick(event))
+        document.addEventListener('focusin', event => this.handleDocumentFocusIn(event))
         this.i18n.localeChanged$.subscribe(() => {
             if (this.addingCommand && !this.newCommandNameEdited) {
                 this.newCommandName = this.getDefaultNewCommandName()
@@ -173,6 +189,10 @@ export class QuickCommandsService {
             this.render()
         })
         this.pluginUpdate.state$.subscribe(() => this.render())
+        const nativeHotkeys = this.hotkeys?.unfilteredHotkey$
+        if (nativeHotkeys) {
+            nativeHotkeys.subscribe(hotkey => this.handleMatchedPluginHotkey(hotkey))
+        }
     }
 
     toggle (): void {
@@ -185,7 +205,26 @@ export class QuickCommandsService {
 
     open (): void {
         this.showDrawer()
-        this.focusCurrentTerminal()
+        if (this.state.drawerInitialFocus === 'terminal' && this.focusCurrentTerminal()) {
+            return
+        }
+        this.focusDrawerSearch()
+    }
+
+    openCommand (commandId: string): void {
+        this.state = this.readConfig(true)
+        const command = this.state.commands.find(item => item.id === commandId)
+        if (!command) { return }
+        this.filter = ''
+        this.searchReturnCategory = null
+        this.searchReturnCommandId = null
+        this.updateConfig({
+            selectedCategory: command.category || '默认',
+            selectedCommandId: command.id,
+            moreSettingsCollapsed: false,
+        }, true, false)
+        this.showDrawer()
+        this.focusDrawerSearch()
     }
 
     private showDrawer (): void {
@@ -265,6 +304,7 @@ export class QuickCommandsService {
             return
         }
 
+        const shouldRestoreDrawerFocus = this.shouldRestoreDrawerFocusAfterRender()
         const detailScrollTop = this.root.querySelector<HTMLElement>('.tqc-detail')?.scrollTop || 0
         const listScrollTop = this.root.querySelector<HTMLElement>('.tqc-list')?.scrollTop || 0
         const commands = this.getFilteredCommands()
@@ -277,13 +317,15 @@ export class QuickCommandsService {
         const danger = selected ? this.getDanger(selected.command).dangerous : false
         const hint = this.message || this.getHint(selected, targetCount, danger)
         const canSort = Boolean(selected && this.canSortSelectedCategory())
+        const searching = Boolean(this.filter.trim())
 
-        this.root.className = `tqc-root${this.visible ? ' tqc-open' : ''}`
+        this.root.className = `tqc-root${this.visible ? ' tqc-open' : ''}${searching ? ' tqc-searching' : ''}${this.state.showOperationHints ? ' tqc-hints-visible' : ''} tqc-focus-${this.focusArea}`
         this.root.style.setProperty('--tqc-width', `${this.clampWidth(this.state.drawerWidth)}px`)
         this.root.innerHTML = `
           <aside class="tqc-drawer" aria-label="${this.escapeAttr(this.i18n.text(pluginIdentity.title))}">
+            ${this.state.showOperationHints ? this.renderShortcutRail() : ''}
             <div class="tqc-resize-handle" data-role="resize-handle" title="调整宽度"></div>
-            <div class="tqc-interactive-surface">
+            <div class="tqc-interactive-surface" data-role="drawer-surface" tabindex="-1">
               <header class="tqc-header">
               <div class="tqc-top-row">
                 <button class="tqc-icon-button" type="button" data-action="collapse" aria-label="${this.escapeAttr(this.i18n.text('收起'))}">${icons.collapse}</button>
@@ -382,6 +424,44 @@ export class QuickCommandsService {
         this.bindEvents()
         this.restoreScroll(detailScrollTop, listScrollTop)
         this.scrollToPendingAutomationRule()
+        this.restoreDrawerFocusAfterRender(shouldRestoreDrawerFocus)
+    }
+
+    private renderShortcutRail (): string {
+        const drawerFocused = this.focusArea === 'drawer'
+        const focusShortcut = this.getPrimaryHotkeyLabel('switchFocus')
+        const compactFocusShortcut = this.getCompactHotkeyLabel(focusShortcut)
+        const hintsShortcut = this.getPrimaryHotkeyLabel('toggleHints')
+        const hintsTooltip = `${hintsShortcut}：${this.i18n.text('隐藏/显示快捷键提示')}`
+        const focusTitle = drawerFocused ? '抽屉焦点' : '终端焦点'
+        return `
+          <aside class="tqc-shortcut-rail tqc-shortcut-rail-${drawerFocused ? 'drawer' : 'terminal'}"
+            aria-label="${this.escapeAttr(`快捷键，当前${focusTitle}`)}" aria-live="polite">
+            <div class="tqc-shortcut-rail-head">
+              <span class="tqc-shortcut-rail-icon" tabindex="0" data-tooltip="${this.escapeAttr(hintsTooltip)}">${icons.keyboard}</span>
+              <span class="tqc-shortcut-rail-head-label">快捷键</span>
+            </div>
+            <div class="tqc-shortcut-rail-items">
+              <div class="tqc-shortcut-rail-item tqc-shortcut-rail-focus" title="${this.escapeAttr(focusShortcut)}">
+                <span class="tqc-shortcut-rail-key">${this.escape(compactFocusShortcut)}</span>
+                <span class="tqc-shortcut-rail-label" data-role="shortcut-rail-focus-label">${drawerFocused ? '终端' : '搜索'}</span>
+              </div>
+              <div class="tqc-shortcut-rail-item tqc-shortcut-rail-navigation">
+                <span class="tqc-shortcut-rail-key">↑ ↓</span><span class="tqc-shortcut-rail-label">命令</span>
+              </div>
+              <div class="tqc-shortcut-rail-item tqc-shortcut-rail-navigation tqc-shortcut-rail-category">
+                <span class="tqc-shortcut-rail-key">← →</span><span class="tqc-shortcut-rail-label">分类</span>
+              </div>
+              <div class="tqc-shortcut-rail-item tqc-shortcut-rail-navigation">
+                <span class="tqc-shortcut-rail-key">Enter</span><span class="tqc-shortcut-rail-label">执行</span>
+              </div>
+              <div class="tqc-shortcut-rail-item tqc-shortcut-rail-terminal-action" title="Ctrl+Enter">
+                <span class="tqc-shortcut-rail-key tqc-shortcut-rail-key-stacked"><span>Ctrl+</span><span>Enter</span></span>
+                <span class="tqc-shortcut-rail-label">执行</span>
+              </div>
+            </div>
+          </aside>
+        `
     }
 
     private renderCommandListItem (command: QuickCommand, selected: boolean): string {
@@ -594,10 +674,10 @@ export class QuickCommandsService {
                 <label>
                   <span class="tqc-label">快捷键</span>
                   <span class="tqc-shortcut-field">
-                    <input class="tqc-input" data-field="shortcut" data-role="shortcut-input" placeholder="点击录入" readonly value="${this.escapeAttr(command.shortcut || '')}">
+                    <input class="tqc-input" data-field="shortcut" data-role="shortcut-input" aria-label="命令快捷键" aria-describedby="tqc-command-shortcut-hint" placeholder="点击录入" readonly value="${this.escapeAttr(command.shortcut || '')}">
                     <button class="tqc-icon-button" type="button" data-action="clear-shortcut" title="清空快捷键">${icons.clear}</button>
                   </span>
-                  <span class="tqc-field-hint" data-role="shortcut-hint">点击输入框后按组合键。在终端中按下即可执行；高风险命令仍需确认。</span>
+                  <span class="tqc-field-hint" id="tqc-command-shortcut-hint" data-role="shortcut-hint" aria-live="polite">设置后，在终端中按下快捷键即可执行命令。</span>
                 </label>
                 <div class="tqc-more-section">
                   <div class="tqc-card-head tqc-automation-toolbar">
@@ -1090,7 +1170,7 @@ export class QuickCommandsService {
           <div class="tqc-confirm-backdrop" data-action="execute-cancel">
             <div class="tqc-confirm" role="dialog" aria-modal="true" aria-label="确认执行" data-role="confirm-dialog">
               <div class="tqc-confirm-title">确认执行：${this.escape(command.name)}</div>
-              <div class="tqc-confirm-desc">请确认目标会话和执行方式。所有会话、多会话、生产会话和高风险命令不会静默执行。</div>
+              <div class="tqc-confirm-desc">请确认目标会话和执行方式；实际确认规则以设置为准。</div>
               ${this.renderSummary(summary)}
               ${summary.reasons.length ? `<div class="tqc-card tqc-risk" style="margin-top:10px"><span class="tqc-label">风险提示</span><strong>${this.escape(summary.reasons.join('、'))}</strong></div>` : ''}
               ${summary.requiresTypedConfirm ? `
@@ -1506,28 +1586,172 @@ export class QuickCommandsService {
         })
 
         this.root.querySelectorAll<HTMLInputElement>('[data-role="shortcut-input"]').forEach(element => {
+            const pressedKeys = new Map<string, string>()
+            const defaultHint = this.i18n.text('设置后，在终端中按下快捷键即可执行命令。')
+            const hint = element.closest('label')?.querySelector<HTMLElement>('[data-role="shortcut-hint"]') || null
+            let originalShortcut = element.value
+            let shortcutCandidate = ''
+            let shortcutAttempted = false
+            let primaryKeyId = ''
+            let recording = false
+            let captureFailureActive = false
+
+            const eventId = (event: KeyboardEvent): string => event.code || event.key
+            const isModifier = (key: string): boolean => ['Control', 'Alt', 'Shift', 'Meta'].includes(key)
+            const previewKey = (key: string): string => ({
+                Control: 'Ctrl',
+                Alt: 'Alt',
+                Shift: 'Shift',
+                Meta: 'Meta',
+            } as Record<string, string>)[key] || normalizeShortcutKey(key)
+            const currentPressedKeys = (): string[] => {
+                const order: Record<string, number> = { Ctrl: 0, Alt: 1, Shift: 2, Meta: 3 }
+                return Array.from(new Set(pressedKeys.values()))
+                    .sort((left, right) => (order[left] ?? 4) - (order[right] ?? 4))
+            }
+            const setHint = (message: string, error = false): void => {
+                if (!hint) { return }
+                hint.textContent = message
+                hint.classList.toggle('tqc-field-hint-error', error)
+            }
+            const resetPressedKeys = (): void => {
+                pressedKeys.clear()
+                shortcutCandidate = ''
+                shortcutAttempted = false
+                primaryKeyId = ''
+            }
+            const showWaitingState = (): void => {
+                element.value = ''
+                element.placeholder = this.i18n.text('等待按键…')
+                setHint(this.i18n.text('按下组合键，松开主键完成录入。'))
+            }
+            const showCaptureFailure = (reason: string): void => {
+                captureFailureActive = true
+                element.classList.add('tqc-shortcut-error')
+                setHint(`${this.i18n.text('录入失败')}：${this.i18n.text(reason)}`, true)
+            }
+            const beginRecording = (): void => {
+                originalShortcut = this.getSelectedCommand()?.shortcut || element.value
+                recording = true
+                captureFailureActive = false
+                resetPressedKeys()
+                element.classList.remove('tqc-shortcut-captured', 'tqc-shortcut-error')
+                element.classList.add('tqc-shortcut-recording')
+                showWaitingState()
+            }
+            const restoreOriginalShortcut = (): void => {
+                resetPressedKeys()
+                recording = false
+                captureFailureActive = false
+                element.value = originalShortcut
+                element.placeholder = this.i18n.text('点击录入')
+                element.classList.remove('tqc-shortcut-recording', 'tqc-shortcut-error')
+                setHint(defaultHint)
+            }
+
+            element.addEventListener('focus', beginRecording)
             element.addEventListener('keydown', event => {
                 event.preventDefault()
-                event.stopPropagation()
+                event.stopImmediatePropagation()
+                if (!recording) { beginRecording() }
+                if (event.repeat || event.isComposing) { return }
+                captureFailureActive = false
+                element.classList.remove('tqc-shortcut-error')
                 if (event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Escape') {
+                    resetPressedKeys()
+                    recording = false
+                    originalShortcut = ''
                     element.value = ''
+                    element.placeholder = this.i18n.text('点击录入')
+                    element.classList.remove('tqc-shortcut-recording', 'tqc-shortcut-error')
+                    setHint(defaultHint)
                     this.updateSelectedField(element)
+                    element.blur()
                     return
                 }
-                const shortcut = shortcutFromKeyboardEvent(event)
-                if (!shortcut) {
-                    const modifierOnly = ['Control', 'Alt', 'Shift', 'Meta'].includes(event.key)
-                    this.showShortcutHint(element, modifierOnly
-                        ? '请继续按下字母、数字或功能键。'
-                        : '快捷键需包含 Ctrl、Alt 或 Meta；也可以直接使用功能键。')
+                const keyId = eventId(event)
+                if (pressedKeys.has(keyId)) { return }
+                const key = previewKey(event.key)
+                if (!key) { return }
+                pressedKeys.set(keyId, key)
+                element.value = currentPressedKeys().join('+')
+                setHint(`${this.i18n.text('正在按下')}：${element.value}`)
+                if (!isModifier(event.key)) {
+                    if (shortcutAttempted) {
+                        shortcutCandidate = ''
+                    } else {
+                        shortcutAttempted = true
+                        primaryKeyId = keyId
+                        shortcutCandidate = shortcutFromKeyboardEvent(event)
+                    }
+                }
+            })
+            element.addEventListener('keyup', event => {
+                if (!recording || event.isComposing) { return }
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                if (captureFailureActive) { return }
+                const keyId = eventId(event)
+                const primaryKeyReleased = shortcutAttempted && keyId === primaryKeyId
+                if (!pressedKeys.delete(keyId)) {
+                    const key = previewKey(event.key)
+                    const fallback = Array.from(pressedKeys.entries()).find(([, value]) => value === key)
+                    if (fallback) { pressedKeys.delete(fallback[0]) }
+                }
+                if (!primaryKeyReleased) {
+                    const keys = currentPressedKeys()
+                    if (keys.length) {
+                        element.value = keys.join('+')
+                        setHint(`${this.i18n.text('正在按下')}：${element.value}`)
+                    } else if (!shortcutAttempted) {
+                        resetPressedKeys()
+                        showWaitingState()
+                    }
                     return
                 }
+
+                const shortcut = shortcutCandidate
+                resetPressedKeys()
+                if (!shortcut || !isValidShortcut(shortcut)) {
+                    showWaitingState()
+                    showCaptureFailure('快捷键需包含 Ctrl、Alt 或 Meta；也可以直接使用功能键。')
+                    return
+                }
+
+                const selected = this.getSelectedCommand()
+                const conflict = selected ? this.findShortcutConflict(shortcut, selected.id) : null
+                if (conflict) {
+                    showWaitingState()
+                    showCaptureFailure(conflict.kind === 'drawer'
+                        ? `快捷键与抽屉操作“${conflict.name}”冲突。`
+                        : conflict.kind === 'plugin'
+                            ? `快捷键与插件操作“${conflict.name}”冲突。`
+                            : conflict.kind === 'tabby'
+                                ? `快捷键与 Tabby 操作“${conflict.name}”冲突。`
+                                : `快捷键已被“${conflict.name}”使用。`)
+                    return
+                }
+
                 element.value = shortcut
                 this.updateSelectedField(element)
+                const savedShortcut = normalizeShortcut(this.getSelectedCommand()?.shortcut || '')
+                if (savedShortcut !== normalizeShortcut(shortcut)) { return }
+                originalShortcut = savedShortcut
+                recording = false
+                element.placeholder = this.i18n.text('点击录入')
+                element.classList.remove('tqc-shortcut-recording', 'tqc-shortcut-error')
+                element.classList.add('tqc-shortcut-captured')
+                setHint(defaultHint)
+                element.blur()
+                window.setTimeout(() => element.classList.remove('tqc-shortcut-captured'), 900)
+            })
+            element.addEventListener('blur', () => {
+                if (recording) { restoreOriginalShortcut() }
             })
         })
 
         this.bindLineSettings(this.root)
+        this.bindNumberInputWheel(this.root)
 
         this.root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('[data-rule-field]').forEach(element => {
             element.addEventListener('change', () => this.updateAutomationRule(element))
@@ -1749,6 +1973,9 @@ export class QuickCommandsService {
     }
 
     private layoutCategories (): void {
+        if (this.filter.trim()) {
+            return
+        }
         const scroll = this.root?.querySelector<HTMLElement>('.tqc-category-scroll')
         const toggle = this.root?.querySelector<HTMLElement>('[data-role="category-overflow-toggle"]')
         if (!scroll || !toggle) {
@@ -2198,9 +2425,13 @@ export class QuickCommandsService {
             value = normalizeShortcut(value)
             const conflict = this.findShortcutConflict(value, selected.id)
             if (conflict) {
-                this.showMessage(conflict.kind === 'tabby'
-                    ? `快捷键与 Tabby 内置操作“${conflict.name}”冲突。`
-                    : `快捷键已被“${conflict.name}”使用。`)
+                this.showMessage(conflict.kind === 'drawer'
+                    ? `快捷键与抽屉操作“${conflict.name}”冲突。`
+                    : conflict.kind === 'plugin'
+                        ? `快捷键与插件操作“${conflict.name}”冲突。`
+                        : conflict.kind === 'tabby'
+                            ? `快捷键与 Tabby 内置操作“${conflict.name}”冲突。`
+                            : `快捷键已被“${conflict.name}”使用。`)
                 value = selected.shortcut || ''
             }
         }
@@ -2216,6 +2447,8 @@ export class QuickCommandsService {
         if (!previousFilter && nextFilter) {
             this.searchReturnCategory = this.state.selectedCategory
             this.searchReturnCommandId = this.state.selectedCommandId
+            this.categoryOverflowOpen = false
+            this.categoryActionsOpen = false
         }
         this.filter = search.value
         if (previousFilter && !nextFilter) {
@@ -2266,16 +2499,6 @@ export class QuickCommandsService {
         scope.querySelectorAll<HTMLInputElement>('[data-line-delay]').forEach(element => {
             element.addEventListener('change', () => this.updateLineDelay(element))
             element.addEventListener('blur', () => this.persistPluginConfig())
-            element.addEventListener('wheel', event => {
-                if (document.activeElement !== element) {
-                    return
-                }
-                event.preventDefault()
-                const step = event.shiftKey ? 500 : 100
-                const direction = event.deltaY < 0 ? 1 : -1
-                element.value = String(Math.max(0, (Number(element.value) || 0) + direction * step))
-                this.updateLineDelay(element)
-            }, { passive: false })
             element.addEventListener('keydown', event => {
                 if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
                     event.preventDefault()
@@ -2301,6 +2524,12 @@ export class QuickCommandsService {
         })
     }
 
+    private bindNumberInputWheel (scope: ParentNode): void {
+        scope.querySelectorAll<HTMLInputElement>('input[type="number"]').forEach(element => {
+            element.addEventListener('wheel', () => element.blur(), { passive: true })
+        })
+    }
+
     private refreshLineSettings (commandText: string): void {
         const selected = this.getSelectedCommand()
         const current = this.root?.querySelector<HTMLElement>('[data-role="line-settings"]')
@@ -2311,6 +2540,7 @@ export class QuickCommandsService {
         const refreshed = this.root?.querySelector<HTMLElement>('[data-role="line-settings"]')
         if (refreshed) {
             this.bindLineSettings(refreshed)
+            this.bindNumberInputWheel(refreshed)
             this.bindTooltips(refreshed)
         }
     }
@@ -3028,13 +3258,17 @@ export class QuickCommandsService {
                 targetNames: summary.targetNames,
             })
             this.render()
-            const stopped = await runner.execute(
+            const execution = runner.execute(
                 selected,
                 targets,
                 this.state.executionMode,
                 this.state.failureStrategy,
                 this.state.recentOutputLimit,
             )
+            if (this.visible && this.state.focusTerminalAfterSend) {
+                this.focusCurrentTerminal()
+            }
+            const stopped = await execution
             if (stopped) {
                 this.showMessage('执行已停止。')
                 return
@@ -3143,8 +3377,123 @@ export class QuickCommandsService {
             return
         }
 
+        if (document.documentElement?.hasAttribute('data-windy-quick-commands-hotkey-recording')) {
+            return
+        }
+
+        if (this.visible && event.target instanceof HTMLElement && event.target.matches('[data-role="shortcut-input"]')) {
+            return
+        }
+
         if (this.visible && this.isCopyShortcut(event) && this.hasPluginTextSelection(event.target)) {
             event.stopImmediatePropagation()
+            return
+        }
+
+        const shortcut = shortcutFromKeyboardEvent(event)
+        const focusShortcut = shortcut || (event.key === 'Escape' ? 'Escape' : '')
+        if (
+            this.visible &&
+            this.isForegroundDrawer() &&
+            event.key === 'Escape' &&
+            this.hasBlockingOverlay()
+        ) {
+            if (this.dismissTopOverlay()) {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+            }
+            return
+        }
+        if (shortcut && this.getActionShortcuts('toggleDrawer').includes(shortcut)) {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            this.toggle()
+            return
+        }
+        if (shortcut && this.getActionShortcuts('openSettings').includes(shortcut)) {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            this.openSettings()
+            return
+        }
+        if (
+            this.visible &&
+            this.isForegroundDrawer() &&
+            shortcut &&
+            this.getActionShortcuts('toggleHints').includes(shortcut)
+        ) {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            this.toggleOperationHints()
+            return
+        }
+        if (
+            this.visible &&
+            this.isForegroundDrawer() &&
+            focusShortcut &&
+            this.getActionShortcuts('switchFocus').includes(focusShortcut)
+        ) {
+            if (this.hasBlockingOverlay()) {
+                return
+            }
+            event.preventDefault()
+            // Capture single-stroke focus switching before xterm can consume it.
+            // Stopping propagation also prevents Tabby's document hotkey listener
+            // from emitting the same action and toggling the focus twice.
+            event.stopImmediatePropagation()
+            this.toggleFocusArea()
+            return
+        }
+
+        const drawerKeyboardTarget = this.isSearchInput(event.target) || this.isDrawerSurface(event.target)
+        if (this.visible && this.isForegroundDrawer() && drawerKeyboardTarget) {
+            if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                this.moveKeyboardCommand(event.key === 'ArrowUp' ? -1 : 1)
+                return
+            }
+            const categoryArrow = event.key === 'ArrowLeft' || event.key === 'ArrowRight'
+            const categoryModifier = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+            const plainCategoryArrow = !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+            if (!this.filter.trim() && categoryArrow && (categoryModifier || plainCategoryArrow)) {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                this.moveKeyboardCategory(event.key === 'ArrowLeft' ? -1 : 1)
+                return
+            }
+            if (this.isDrawerSurface(event.target) && this.movePrintableKeyToSearch(event)) {
+                return
+            }
+            const plainEnter = event.key === 'Enter' && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey
+            const ctrlEnter = event.key === 'Enter' && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey
+            if (plainEnter || ctrlEnter) {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                if (!this.running && this.getSelectedCommand()) {
+                    void this.executeSelectedCommand()
+                }
+                return
+            }
+        }
+
+        const focusedCommandId = this.getFocusedCommandId(event.target)
+        if (
+            this.visible &&
+            this.isForegroundDrawer() &&
+            focusedCommandId &&
+            event.key === 'Enter' &&
+            !event.ctrlKey &&
+            !event.altKey &&
+            !event.metaKey &&
+            !event.shiftKey
+        ) {
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            if (!this.running) {
+                this.updateConfig({ selectedCommandId: focusedCommandId })
+                void this.executeSelectedCommand()
+            }
             return
         }
 
@@ -3155,12 +3504,15 @@ export class QuickCommandsService {
             !event.altKey &&
             !event.metaKey &&
             !event.shiftKey &&
-            (!this.isEditableElement(event.target) || this.isTerminalInput(event.target))
+            (!this.isEditableElement(event.target) || this.isTerminalInput(event.target) || this.isSearchInput(event.target))
         ) {
             if (!this.isForegroundDrawer()) { return }
             event.preventDefault()
             event.stopImmediatePropagation()
             if (this.running) { return }
+            if (focusedCommandId) {
+                this.updateConfig({ selectedCommandId: focusedCommandId })
+            }
             const selected = this.getSelectedCommand()
             if (selected) {
                 void this.executeSelectedCommand()
@@ -3168,14 +3520,7 @@ export class QuickCommandsService {
             return
         }
 
-        const shortcut = shortcutFromKeyboardEvent(event)
         if (!shortcut) {
-            return
-        }
-        if (this.getDrawerShortcuts().includes(shortcut)) {
-            event.preventDefault()
-            event.stopImmediatePropagation()
-            this.toggle()
             return
         }
         if (this.isEditableElement(event.target) && !this.isTerminalInput(event.target)) {
@@ -3183,7 +3528,7 @@ export class QuickCommandsService {
         }
 
         const command = this.state.commands.find(item => normalizeShortcut(item.shortcut) === shortcut)
-        if (!command || this.findShortcutConflict(shortcut, command.id)?.kind === 'tabby') {
+        if (!command || this.findShortcutConflict(shortcut, command.id)) {
             return
         }
 
@@ -3205,15 +3550,26 @@ export class QuickCommandsService {
     }
 
     private handleRootClick (event: MouseEvent): void {
-        if (!this.visible || this.isEditableElement(event.target)) {
+        if (!this.visible) {
+            return
+        }
+
+        if (this.isEditableElement(event.target)) {
+            return
+        }
+
+        this.focusArea = 'drawer'
+        this.drawerFocusTarget = 'surface'
+        this.updateFocusPresentation()
+        if (this.isDrawerInteractiveControl(event.target)) {
             return
         }
 
         window.requestAnimationFrame(() => {
-            if (!this.visible || this.isPluginEditableElement(document.activeElement)) {
+            if (!this.visible || this.drawerFocusTarget !== 'surface') {
                 return
             }
-            this.focusCurrentTerminal()
+            this.focusDrawerSurface()
         })
     }
 
@@ -3318,22 +3674,222 @@ export class QuickCommandsService {
         return this.root.contains(selection.anchorNode) && this.root.contains(selection.focusNode)
     }
 
-    private isPluginEditableElement (target: EventTarget | null): boolean {
-        return Boolean(this.root && target instanceof Node && this.root.contains(target) && this.isEditableElement(target))
+    private focusCurrentTerminal (): boolean {
+        const terminal = this.getCurrentTerminalTab()
+        if (!terminal?.frontend?.focus) {
+            return false
+        }
+        this.focusArea = 'terminal'
+        terminal.frontend.focus()
+        this.updateFocusPresentation()
+        return true
     }
 
-    private focusCurrentTerminal (): void {
-        this.getCurrentTerminalTab()?.frontend?.focus()
+    private focusDrawerSearch (): void {
+        this.focusArea = 'drawer'
+        this.drawerFocusTarget = 'search'
+        this.updateFocusPresentation()
+        window.requestAnimationFrame(() => {
+            if (!this.visible || this.drawerFocusTarget !== 'search') { return }
+            const search = this.root?.querySelector<HTMLInputElement>('[data-role="search"]')
+            search?.focus()
+            if (search) {
+                const cursor = search.value.length
+                search.setSelectionRange(cursor, cursor)
+            }
+        })
     }
 
-    private getDrawerShortcuts (): string[] {
-        const configured = this.config.store?.hotkeys?.[pluginIdentity.toggleHotkeyId]
-        const values = typeof configured === 'string' ? [configured] : Array.isArray(configured) ? configured : []
-        return values
-            .map(value => Array.isArray(value) && value.length === 1 ? value[0] : value)
-            .filter((value): value is string => typeof value === 'string')
-            .map(value => normalizeShortcut(value))
+    private focusDrawerSurface (): void {
+        this.focusArea = 'drawer'
+        this.drawerFocusTarget = 'surface'
+        this.updateFocusPresentation()
+        this.root?.querySelector<HTMLElement>('[data-role="drawer-surface"]')?.focus({ preventScroll: true })
+    }
+
+    private movePrintableKeyToSearch (event: KeyboardEvent): boolean {
+        if (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) {
+            return false
+        }
+        const search = this.root?.querySelector<HTMLInputElement>('[data-role="search"]')
+        if (!search) {
+            return false
+        }
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        this.focusArea = 'drawer'
+        this.drawerFocusTarget = 'search'
+        this.updateFocusPresentation()
+        search.focus()
+        const start = search.selectionStart ?? search.value.length
+        const end = search.selectionEnd ?? start
+        search.setRangeText(event.key, start, end, 'end')
+        this.updateSearch(search)
+        return true
+    }
+
+    private toggleFocusArea (): void {
+        if (this.focusArea === 'drawer') {
+            if (!this.focusCurrentTerminal()) {
+                this.focusDrawerSearch()
+                this.showMessage('当前没有活动终端，焦点保留在命令搜索。')
+            }
+            return
+        }
+        this.focusDrawerSearch()
+    }
+
+    private shouldRestoreDrawerFocusAfterRender (): boolean {
+        const active = document.activeElement
+        return Boolean(
+            this.visible &&
+            this.focusArea === 'drawer' &&
+            active &&
+            this.root?.contains(active)
+        )
+    }
+
+    private restoreDrawerFocusAfterRender (shouldRestore: boolean): void {
+        if (!shouldRestore || !this.visible || this.focusArea !== 'drawer') {
+            return
+        }
+        window.requestAnimationFrame(() => {
+            if (!this.visible || this.focusArea !== 'drawer') { return }
+            const active = document.activeElement
+            if (active instanceof Node && this.root?.contains(active)) { return }
+            if (this.drawerFocusTarget === 'surface') {
+                this.focusDrawerSurface()
+            } else {
+                this.root?.querySelector<HTMLInputElement>('[data-role="search"]')?.focus()
+            }
+        })
+    }
+
+    private updateFocusPresentation (): void {
+        if (!this.root) { return }
+        this.root.classList.toggle('tqc-focus-drawer', this.focusArea === 'drawer')
+        this.root.classList.toggle('tqc-focus-terminal', this.focusArea === 'terminal')
+        const rail = this.root.querySelector<HTMLElement>('.tqc-shortcut-rail')
+        if (!rail) { return }
+        const drawerFocused = this.focusArea === 'drawer'
+        rail.classList.toggle('tqc-shortcut-rail-drawer', drawerFocused)
+        rail.classList.toggle('tqc-shortcut-rail-terminal', !drawerFocused)
+        rail.setAttribute('aria-label', this.i18n.text(`快捷键，当前${drawerFocused ? '抽屉焦点' : '终端焦点'}`))
+        const focusLabel = rail.querySelector<HTMLElement>('[data-role="shortcut-rail-focus-label"]')
+        if (focusLabel) {
+            focusLabel.textContent = this.i18n.text(drawerFocused ? '终端' : '搜索')
+        }
+    }
+
+    private getActionShortcuts (action: PluginHotkeyAction): string[] {
+        return readPluginHotkeyBindings(this.config.store?.hotkeys, action)
+            .filter((binding): binding is string => typeof binding === 'string')
+            .map(binding => normalizeShortcut(binding))
             .filter(Boolean)
+    }
+
+    private handleMatchedPluginHotkey (hotkey: string): void {
+        if (document.documentElement?.hasAttribute('data-windy-quick-commands-hotkey-recording')) {
+            return
+        }
+        if (hotkey === pluginIdentity.toggleHotkeyId) {
+            this.toggle()
+            return
+        }
+        if (
+            hotkey === pluginIdentity.hintsHotkeyId &&
+            this.visible &&
+            this.isForegroundDrawer()
+        ) {
+            this.toggleOperationHints()
+            return
+        }
+        if (
+            hotkey === pluginIdentity.focusHotkeyId &&
+            this.visible &&
+            this.isForegroundDrawer() &&
+            !this.hasBlockingOverlay()
+        ) {
+            this.toggleFocusArea()
+        }
+    }
+
+    private toggleOperationHints (): void {
+        this.updateConfig({ showOperationHints: !this.state.showOperationHints })
+    }
+
+    private getPrimaryHotkeyLabel (action: PluginHotkeyAction): string {
+        const binding = readPluginHotkeyBindings(this.config.store?.hotkeys, action)[0]
+        return binding ? formatPluginHotkeyBinding(binding) : '未绑定'
+    }
+
+    private getCompactHotkeyLabel (binding: string): string {
+        return binding
+            .replace(/Control|Ctrl/gi, 'C')
+            .replace(/Shift/gi, 'S')
+            .replace(/Alt/gi, 'A')
+            .replace(/Meta/gi, 'M')
+            .replace(/Escape/gi, 'Esc')
+            .replace(/\s*→\s*/g, '→')
+    }
+
+    private handleDocumentFocusIn (event: FocusEvent): void {
+        if (!this.visible || !(event.target instanceof HTMLElement)) { return }
+        if (this.root?.contains(event.target) && (this.isEditableElement(event.target) || this.isDrawerSurface(event.target))) {
+            this.focusArea = 'drawer'
+            if (this.isSearchInput(event.target)) {
+                this.drawerFocusTarget = 'search'
+            } else if (this.isDrawerSurface(event.target)) {
+                this.drawerFocusTarget = 'surface'
+            }
+            this.updateFocusPresentation()
+        } else if (this.isTerminalInput(event.target)) {
+            this.focusArea = 'terminal'
+            this.updateFocusPresentation()
+        }
+    }
+
+    private isSearchInput (target: EventTarget | null): target is HTMLInputElement {
+        return target instanceof HTMLInputElement && this.root?.contains(target) === true && target.dataset.role === 'search'
+    }
+
+    private isDrawerSurface (target: EventTarget | null): target is HTMLElement {
+        return target instanceof HTMLElement && this.root?.contains(target) === true && target.dataset.role === 'drawer-surface'
+    }
+
+    private isDrawerInteractiveControl (target: EventTarget | null): boolean {
+        return target instanceof Element && Boolean(target.closest(
+            'button, input, textarea, select, label, a[href], [contenteditable="true"], [data-action]',
+        ))
+    }
+
+    private getFocusedCommandId (target: EventTarget | null): string | null {
+        if (!(target instanceof Element) || !this.root?.contains(target)) { return null }
+        return target.closest<HTMLElement>('[data-command-id]')?.dataset.commandId || null
+    }
+
+    private hasBlockingOverlay (): boolean {
+        return Boolean(
+            this.importPreview || this.pendingRuleDeleteId || this.addingCommand || this.movingCommandId ||
+            this.pendingDeleteId || this.editingCommandId || this.addingCategory || this.renamingCategory ||
+            this.deletingCategory || this.pendingFailureMessage || this.pendingExecutionId,
+        )
+    }
+
+    private dismissTopOverlay (): boolean {
+        if (this.pendingFailureMessage) { return false }
+        if (this.importPreview) { this.importPreview = null }
+        else if (this.pendingRuleDeleteId) { this.pendingRuleDeleteId = null }
+        else if (this.addingCommand) { this.addingCommand = false; this.resetNewCommandDraft() }
+        else if (this.movingCommandId) { this.movingCommandId = null; this.moveTargetCategory = ''; this.moveCategoryMenuOpen = false }
+        else if (this.pendingDeleteId) { this.pendingDeleteId = null }
+        else if (this.editingCommandId) { this.editingCommandId = null; this.editCommandName = ''; this.editCommandDescription = '' }
+        else if (this.addingCategory || this.renamingCategory) { this.addingCategory = false; this.renamingCategory = false; this.categoryInput = '' }
+        else if (this.deletingCategory) { this.deletingCategory = false }
+        else if (this.pendingExecutionId) { this.pendingExecutionId = null; this.confirmInput = '' }
+        else { return false }
+        this.render()
+        return true
     }
 
     private handleDocumentClick (event: MouseEvent): void {
@@ -3501,15 +4057,15 @@ export class QuickCommandsService {
         )
     }
 
-    private getFilteredCommands (): QuickCommand[] {
+    private getFilteredCommands (category = this.state.selectedCategory): QuickCommand[] {
         const tokens = this.filter.trim().toLowerCase().split(/\s+/).filter(Boolean)
         const filtered = this.state.commands.filter(command => {
-            const categoryMatches = this.state.selectedCategory === '全部' ||
-                (this.state.selectedCategory === '收藏'
+            const categoryMatches = category === '全部' ||
+                (category === '收藏'
                     ? command.favorite
-                    : this.state.selectedCategory === '常用'
+                    : category === '常用'
                         ? command.usageCount > 0
-                        : command.category === this.state.selectedCategory)
+                        : command.category === category)
             if (!categoryMatches) {
                 return false
             }
@@ -3518,13 +4074,59 @@ export class QuickCommandsService {
             }
             return tokens.every(token => this.commandMatchesToken(command, token))
         })
-        if (this.state.selectedCategory === '常用') {
+        if (category === '常用') {
             return filtered.sort((a, b) => (
                 b.usageCount - a.usageCount ||
                 this.getTimeValue(b.lastUsedAt) - this.getTimeValue(a.lastUsedAt)
             ))
         }
         return filtered.sort((a, b) => Number(b.pinned) - Number(a.pinned))
+    }
+
+    private moveKeyboardCommand (delta: -1 | 1): void {
+        const commands = this.getFilteredCommands()
+        if (!commands.length) { return }
+        const currentId = this.renderedCommandId || this.state.selectedCommandId
+        const matchedIndex = commands.findIndex(command => command.id === currentId)
+        const currentIndex = matchedIndex >= 0 ? matchedIndex : (delta > 0 ? -1 : commands.length)
+        const nextIndex = Math.max(0, Math.min(commands.length - 1, currentIndex + delta))
+        const next = commands[nextIndex]
+        if (!next || next.id === currentId) { return }
+        this.focusArea = 'drawer'
+        this.updateConfig({ selectedCommandId: next.id })
+        this.scrollSelectedCommandIntoView()
+    }
+
+    private moveKeyboardCategory (delta: -1 | 1): void {
+        const categories = this.getCategories()
+        const currentIndex = Math.max(0, categories.indexOf(this.state.selectedCategory))
+        const nextIndex = Math.max(0, Math.min(categories.length - 1, currentIndex + delta))
+        const category = categories[nextIndex]
+        if (!category || category === this.state.selectedCategory) { return }
+        const commands = this.getFilteredCommands(category)
+        this.focusArea = 'drawer'
+        this.updateConfig({
+            selectedCategory: category,
+            selectedCommandId: commands[0]?.id || this.state.selectedCommandId,
+        })
+        this.scrollSelectedCommandIntoView()
+        window.requestAnimationFrame(() => {
+            this.root?.querySelector<HTMLElement>(`.tqc-chip[data-category="${this.escapeCssValue(category)}"]`)
+                ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+        })
+    }
+
+    private scrollSelectedCommandIntoView (): void {
+        window.requestAnimationFrame(() => {
+            const selectedId = this.renderedCommandId || this.state.selectedCommandId
+            Array.from(this.root?.querySelectorAll<HTMLElement>('[data-command-id]') || [])
+                .find(element => element.dataset.commandId === selectedId)
+                ?.scrollIntoView({ block: 'nearest' })
+        })
+    }
+
+    private escapeCssValue (value: string): string {
+        return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
     }
 
     private commandMatchesToken (command: QuickCommand, token: string): boolean {
@@ -3581,7 +4183,9 @@ export class QuickCommandsService {
             return '先选择或新建一条命令。'
         }
         if (danger) {
-            return '命令包含删除、重启、清理或数据库高风险关键字，执行前会二次确认。'
+            return this.state.confirmHighRiskCommands !== false
+                ? '命令包含删除、重启、清理或数据库高风险关键字，执行前会二次确认。'
+                : '已检测到高风险命令；当前设置不会因此单独弹出确认。'
         }
         if (targetCount > 1) {
             return '多会话发送会在执行前二次确认。'
@@ -3599,7 +4203,8 @@ export class QuickCommandsService {
     private buildExecutionSummary (command: QuickCommand, targets: TerminalTabLike[]): ExecutionSummary {
         const danger = this.getDanger(command.command)
         const targetNames = targets.map(target => this.getTabTitle(target))
-        const requiresTypedConfirm = danger.requiresTypedConfirm
+        const confirmHighRiskCommands = this.state.confirmHighRiskCommands !== false
+        const requiresTypedConfirm = confirmHighRiskCommands && danger.requiresTypedConfirm
         const requiredText = command.name
         const allSessions = this.state.targetMode === 'all' || targets.length > 1
         return {
@@ -3615,7 +4220,7 @@ export class QuickCommandsService {
             requiresTypedConfirm,
             requiredText,
             requiresConfirm: this.state.requireConfirmBeforeExecute ||
-                danger.dangerous ||
+                (confirmHighRiskCommands && danger.dangerous) ||
                 (this.state.confirmBroadcast && allSessions),
         }
     }
@@ -3629,7 +4234,28 @@ export class QuickCommandsService {
         }
     }
 
-    private findShortcutConflict (shortcut: string, currentCommandId: string) {
+    private findShortcutConflict (
+        shortcut: string,
+        currentCommandId: string,
+    ): ReturnType<typeof findShortcutConflict> | { kind: 'plugin' | 'drawer', name: string } {
+        const bindingId = pluginHotkeyBindingId(shortcut)
+        const drawerConflict = reservedQuickCommandsShortcuts.find(item => (
+            normalizeShortcut(item.shortcut) === bindingId
+        ))
+        if (drawerConflict) {
+            return { kind: 'drawer', name: drawerConflict.name }
+        }
+        const pluginConflict = pluginHotkeyDefinitions.find(definition => (
+            readPluginHotkeyBindings(this.config.store?.hotkeys, definition.action)
+                .some(binding => pluginHotkeyBindingId(binding) === bindingId)
+        ))
+        if (pluginConflict) {
+            return { kind: 'plugin', name: pluginConflict.title }
+        }
+        const pluginIds = new Set(pluginHotkeyDefinitions.map(definition => definition.id))
+        const tabbyHotkeys = flattenHotkeysConfig(this.config.store?.hotkeys)
+            .filter(item => !pluginIds.has(item.name))
+            .map(item => ({ ...item, name: this.getTabbyHotkeyName(item.name) }))
         return findShortcutConflict(
             shortcut,
             this.state.commands.map(command => ({
@@ -3638,8 +4264,16 @@ export class QuickCommandsService {
                 shortcut: command.shortcut,
             })),
             currentCommandId,
-            flattenHotkeysConfig(this.config.store?.hotkeys),
+            tabbyHotkeys,
         )
+    }
+
+    private getTabbyHotkeyName (id: string): string {
+        try {
+            return this.hotkeys?.getHotkeyDescription(id)?.name || id
+        } catch {
+            return id
+        }
     }
 
     private updateUsage (commandId: string): void {
@@ -3715,7 +4349,11 @@ export class QuickCommandsService {
                 : 'manual',
             drawerWidth: this.clampWidth(root.drawerWidth || 560),
             showToolbarButton: root.showToolbarButton !== false,
+            drawerInitialFocus: root.drawerInitialFocus === 'terminal' ? 'terminal' : 'drawer',
+            focusTerminalAfterSend: root.focusTerminalAfterSend ?? false,
+            showOperationHints: root.showOperationHints ?? true,
             requireConfirmBeforeExecute: root.requireConfirmBeforeExecute ?? false,
+            confirmHighRiskCommands: root.confirmHighRiskCommands ?? true,
             confirmBroadcast: root.confirmBroadcast ?? true,
             exportFileName: root.exportFileName || pluginIdentity.exportFileName,
             basicInfoCollapsed: root.basicInfoCollapsed ?? true,
@@ -3770,7 +4408,11 @@ export class QuickCommandsService {
         root.failureStrategy = next.failureStrategy
         root.drawerWidth = next.drawerWidth
         root.showToolbarButton = next.showToolbarButton
+        root.drawerInitialFocus = next.drawerInitialFocus
+        root.focusTerminalAfterSend = next.focusTerminalAfterSend
+        root.showOperationHints = next.showOperationHints
         root.requireConfirmBeforeExecute = next.requireConfirmBeforeExecute
+        root.confirmHighRiskCommands = next.confirmHighRiskCommands
         root.confirmBroadcast = next.confirmBroadcast
         root.exportFileName = next.exportFileName
         root.basicInfoCollapsed = next.basicInfoCollapsed
@@ -3862,22 +4504,6 @@ export class QuickCommandsService {
             if (this.message === message) {
                 this.message = ''
                 this.render()
-            }
-        }, 2600)
-    }
-
-    private showShortcutHint (input: HTMLElement, message: string): void {
-        const hint = input.closest('label')?.querySelector<HTMLElement>('[data-role="shortcut-hint"]')
-        if (!hint) {
-            return
-        }
-        const defaultText = '点击输入框后按组合键。在终端中按下即可执行；高风险命令仍需确认。'
-        hint.textContent = message
-        hint.classList.add('tqc-field-hint-error')
-        window.setTimeout(() => {
-            if (hint.textContent === message) {
-                hint.textContent = defaultText
-                hint.classList.remove('tqc-field-hint-error')
             }
         }, 2600)
     }

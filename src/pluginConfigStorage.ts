@@ -12,6 +12,7 @@ import {
 import { QuickCommand } from './types'
 import { pluginIdentity } from './pluginIdentity'
 import { PluginDataAccess } from './pluginData'
+import { parsePluginHotkeyExport } from './pluginHotkeys'
 
 export const pluginConfigChangedEvent = pluginIdentity.configChangedEvent
 export const pluginConfigFormat = quickCommandsFileFormat
@@ -144,7 +145,8 @@ export class QuickCommandsPluginConfigStore {
         const allowedKeys = [
             'commands', 'customCategories', 'categoryOrder', 'selectedCommandId', 'selectedCategory',
             'executionMode', 'targetMode', 'failureStrategy', 'drawerWidth', 'showToolbarButton',
-            'requireConfirmBeforeExecute', 'confirmBroadcast', 'exportFileName', 'basicInfoCollapsed',
+            'drawerInitialFocus', 'focusTerminalAfterSend', 'showOperationHints', 'pluginHotkeys',
+            'requireConfirmBeforeExecute', 'confirmHighRiskCommands', 'confirmBroadcast', 'exportFileName', 'basicInfoCollapsed',
             'moreSettingsCollapsed', 'previewCollapsed', 'moveNavigateAfterMove', 'recentOutputLimit', 'logLimit',
             'updateCheckInterval', 'ignoredUpdateVersion',
         ]
@@ -169,6 +171,9 @@ export class QuickCommandsPluginConfigStore {
         normalized.drawerWidth = this.normalizeNumber(source.drawerWidth, 420, 760, 560)
         normalized.recentOutputLimit = this.normalizeNumber(source.recentOutputLimit, 1000, 50000, 8000)
         normalized.logLimit = this.normalizeNumber(source.logLimit, 20, 2000, 200)
+        if (source.pluginHotkeys !== undefined) {
+            normalized.pluginHotkeys = parsePluginHotkeyExport(source.pluginHotkeys)
+        }
         const commandIds = new Set((normalized.commands as Array<{ id: string }>).map(command => command.id))
         if (typeof normalized.selectedCommandId !== 'string' || !commandIds.has(normalized.selectedCommandId)) {
             normalized.selectedCommandId = (normalized.commands as Array<{ id: string }>)[0]?.id || null
@@ -248,8 +253,9 @@ export class QuickCommandsPluginConfigStore {
             throw new Error('配置字段 selectedCommandId 无效。')
         }
         const booleanFields = [
-            'showToolbarButton', 'requireConfirmBeforeExecute', 'confirmBroadcast', 'basicInfoCollapsed',
-            'moreSettingsCollapsed', 'previewCollapsed', 'moveNavigateAfterMove',
+            'showToolbarButton', 'requireConfirmBeforeExecute', 'confirmHighRiskCommands', 'confirmBroadcast', 'basicInfoCollapsed',
+            'moreSettingsCollapsed', 'previewCollapsed', 'moveNavigateAfterMove', 'focusTerminalAfterSend',
+            'showOperationHints',
         ]
         booleanFields.forEach(field => {
             if (config[field] !== undefined && typeof config[field] !== 'boolean') {
@@ -268,6 +274,7 @@ export class QuickCommandsPluginConfigStore {
         this.validateEnum(config, 'executionMode', ['paste', 'line', 'broadcast'])
         this.validateEnum(config, 'targetMode', ['current', 'all'])
         this.validateEnum(config, 'failureStrategy', ['continue', 'stop', 'manual'])
+        this.validateEnum(config, 'drawerInitialFocus', ['drawer', 'terminal'])
         this.validateEnum(config, 'updateCheckInterval', ['daily', 'weekly', 'never'])
         this.validateStringList(config.customCategories, 'customCategories')
         this.validateStringList(config.categoryOrder, 'categoryOrder')

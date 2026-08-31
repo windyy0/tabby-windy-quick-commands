@@ -30,7 +30,7 @@ export const reservedTabbyShortcuts: Array<{ shortcut: string, name: string }> =
 ]
 
 export function shortcutFromKeyboardEvent (event: KeyboardEvent): string {
-    const key = normalizeShortcutKey(event.key)
+    const key = normalizeShortcutEventKey(event)
     if (!key) {
         return ''
     }
@@ -58,6 +58,36 @@ export function shortcutFromKeyboardEvent (event: KeyboardEvent): string {
     return normalizeShortcut(parts.join('+'))
 }
 
+export function isValidShortcut (shortcut: string, allowPlainEscape = false): boolean {
+    const normalized = normalizeShortcut(shortcut)
+    if (!normalized) {
+        return false
+    }
+
+    const parts = normalized.split('+').filter(Boolean)
+    if (new Set(parts).size !== parts.length) {
+        return false
+    }
+    const modifiers = new Set(['Ctrl', 'Alt', 'Shift', 'Meta'])
+    const primaryKeys = parts.filter(part => !modifiers.has(part))
+    if (primaryKeys.length !== 1) {
+        return false
+    }
+
+    const primaryKey = primaryKeys[0]
+    const functionKey = /^F([1-9]|1\d|2[0-4])$/.test(primaryKey)
+    if (/^F\d+$/i.test(primaryKey) && !functionKey) {
+        return false
+    }
+    if (functionKey) {
+        return true
+    }
+    if (allowPlainEscape && primaryKey === 'Escape' && parts.length === 1) {
+        return true
+    }
+    return parts.includes('Ctrl') || parts.includes('Alt') || parts.includes('Meta')
+}
+
 export function normalizeShortcutKey (key: string): string {
     if (!key || key === 'Control' || key === 'Alt' || key === 'Shift' || key === 'Meta') {
         return ''
@@ -76,7 +106,15 @@ export function normalizeShortcutKey (key: string): string {
 }
 
 export function normalizeShortcut (shortcut: string): string {
-    return shortcut
+    let source = shortcut.trim()
+    // Tabby serializes the Minus key as the final dash in values such as
+    // "Ctrl--". Preserve it before converting dash-separated modifiers.
+    if (source === '-') {
+        source = 'Minus'
+    } else {
+        source = source.replace(/\+-(?=$)/, '+Minus').replace(/--(?=$)/, '-Minus')
+    }
+    return source
         .replace(/[－–—-]/g, '+')
         .split('+')
         .map(part => part.trim())
@@ -92,7 +130,10 @@ export function normalizeShortcut (shortcut: string): string {
             if (lower === 'shift' || lower === '⇧') {
                 return 'Shift'
             }
-            if (lower === 'meta' || lower === 'cmd' || lower === 'command' || lower === '⌘') {
+            if (
+                lower === 'meta' || lower === 'cmd' || lower === 'command' || lower === '⌘' ||
+                lower === 'win' || lower === 'windows' || lower === 'super'
+            ) {
                 return 'Meta'
             }
             if (lower === 'esc') {
@@ -136,8 +177,39 @@ function normalizeSpecialKey (key: string): string {
         insert: 'Insert',
         ins: 'Insert',
         space: 'Space',
+        '-': 'Minus',
+        _: 'Minus',
+        minus: 'Minus',
+        hyphen: 'Minus',
+        '+': '=',
+        plus: '=',
+        equal: '=',
+        equals: '=',
     }
     return aliases[lower] || ''
+}
+
+function normalizeShortcutEventKey (event: KeyboardEvent): string {
+    const codeAliases: Record<string, string> = {
+        Comma: ',',
+        Period: '.',
+        Slash: '/',
+        Backslash: '\\',
+        IntlBackslash: '`',
+        Minus: 'Minus',
+        Equal: '=',
+        Semicolon: ';',
+        Quote: "'",
+        BracketLeft: '[',
+        BracketRight: ']',
+    }
+    if (event.code && codeAliases[event.code]) {
+        return codeAliases[event.code]
+    }
+    if (event.code?.startsWith('Numpad')) {
+        return event.code
+    }
+    return normalizeShortcutKey(event.key)
 }
 
 export function flattenHotkeysConfig (hotkeys: unknown, path = ''): Array<{ shortcut: string, name: string }> {
@@ -151,9 +223,17 @@ export function flattenHotkeysConfig (hotkeys: unknown, path = ''): Array<{ shor
             return
         }
         const name = path ? `${path}.${key}` : key
+        if (typeof value === 'string') {
+            const shortcut = normalizeShortcut(value)
+            if (shortcut) {
+                result.push({ shortcut, name })
+            }
+            return
+        }
         if (Array.isArray(value)) {
             value
-                .map(item => normalizeShortcut(String(item)))
+                .filter((item): item is string => typeof item === 'string')
+                .map(item => normalizeShortcut(item))
                 .filter(Boolean)
                 .forEach(shortcut => result.push({ shortcut, name }))
             return

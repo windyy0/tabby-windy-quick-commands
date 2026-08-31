@@ -40,10 +40,138 @@
   backdrop-filter: blur(18px);
 }
 
+.tqc-root.tqc-hints-visible .tqc-drawer {
+  width: min(var(--tqc-width, 520px), calc(100vw - 62px));
+}
+
 .tqc-root.tqc-open .tqc-drawer {
   visibility: visible;
   transform: translateX(0);
   transition-delay: 0s;
+}
+
+.tqc-shortcut-rail {
+  position: absolute;
+  top: calc(16px + var(--tqc-window-control-safe));
+  right: calc(100% + 10px);
+  z-index: 3;
+  width: 52px;
+  box-sizing: border-box;
+  padding: 9px 5px 10px;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--tqc-muted);
+  background: color-mix(in srgb, var(--tqc-panel-solid) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tqc-border) 64%, var(--tqc-panel-solid));
+  border-radius: 7px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07), inset 0 1px color-mix(in srgb, var(--tqc-panel-solid) 72%, transparent);
+  backdrop-filter: blur(14px) saturate(1.05);
+}
+
+.tqc-shortcut-rail-head {
+  display: grid;
+  justify-items: center;
+  width: 100%;
+  padding: 0 0 7px;
+  color: var(--tqc-text);
+}
+
+.tqc-shortcut-rail-icon {
+  display: inline-flex;
+  width: 17px;
+  height: 17px;
+  pointer-events: auto;
+  border-radius: 3px;
+  cursor: help;
+}
+
+.tqc-shortcut-rail-icon:focus-visible {
+  outline: 1px solid var(--tqc-accent);
+  outline-offset: 2px;
+}
+
+.tqc-shortcut-rail-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.tqc-shortcut-rail-head-label {
+  margin-top: 2px;
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.tqc-shortcut-rail-items {
+  display: grid;
+  gap: 5px;
+  padding-top: 5px;
+}
+
+.tqc-shortcut-rail-item {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 2px 0;
+  transition: opacity 150ms ease;
+}
+
+.tqc-shortcut-rail-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-height: 24px;
+  min-width: 0;
+  padding: 3px 2px;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--tqc-text) 86%, transparent);
+  background: color-mix(in srgb, var(--tqc-subtle) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tqc-border) 76%, transparent);
+  border-radius: 5px;
+  font: 600 9px/1.1 "Cascadia Code", Consolas, monospace;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tqc-shortcut-rail-label {
+  overflow: hidden;
+  font-size: 9px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tqc-shortcut-rail-key-stacked {
+  flex-direction: column;
+  gap: 1px;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.tqc-shortcut-rail-terminal-action {
+  display: none;
+}
+
+.tqc-shortcut-rail-terminal .tqc-shortcut-rail-navigation {
+  display: none;
+}
+
+.tqc-shortcut-rail-terminal .tqc-shortcut-rail-terminal-action {
+  display: grid;
+}
+
+@media (max-width: 620px) {
+  .tqc-root.tqc-hints-visible .tqc-drawer {
+    width: min(var(--tqc-width, 520px), 100vw);
+  }
+
+  .tqc-shortcut-rail {
+    display: none;
+  }
 }
 
 .tqc-interactive-surface {
@@ -56,8 +184,11 @@
   pointer-events: auto;
 }
 
-.tqc-interactive-surface,
-.tqc-confirm-backdrop {
+.tqc-interactive-surface:focus {
+  outline: none;
+}
+
+.tqc-interactive-surface {
   clip-path: polygon(
     0 0,
     calc(100% - var(--tqc-window-controls-width)) 0,
@@ -397,6 +528,11 @@
   align-items: center;
   gap: 8px;
   padding-top: 10px;
+}
+
+.tqc-searching .tqc-categories,
+.tqc-searching .tqc-shortcut-rail-category {
+  display: none;
 }
 
 .tqc-category-scroll {
@@ -1219,6 +1355,48 @@
   gap: 6px;
 }
 
+.tqc-shortcut-field .tqc-input {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-weight: 600;
+}
+
+.tqc-shortcut-field .tqc-input::placeholder {
+  color: var(--tqc-muted);
+  opacity: 0.78;
+  font-family: var(--font-family, "Inter", "Segoe UI", system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.tqc-shortcut-field .tqc-input.tqc-shortcut-recording {
+  color: color-mix(in srgb, var(--tqc-accent) 78%, var(--tqc-text));
+  background: color-mix(in srgb, var(--tqc-accent) 4%, var(--tqc-subtle));
+  border-color: color-mix(in srgb, var(--tqc-accent) 42%, var(--tqc-control-border));
+  box-shadow: 0 0 0 1px var(--tqc-accent-soft);
+}
+
+.tqc-shortcut-field .tqc-input.tqc-shortcut-error {
+  color: var(--tqc-danger);
+  background: color-mix(in srgb, var(--tqc-danger) 5%, var(--tqc-subtle));
+  border-color: color-mix(in srgb, var(--tqc-danger) 55%, var(--tqc-control-border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--tqc-danger) 12%, transparent);
+}
+
+.tqc-shortcut-field .tqc-input.tqc-shortcut-captured {
+  animation: tqc-shortcut-captured 900ms ease-out;
+}
+
+@keyframes tqc-shortcut-captured {
+  0% {
+    border-color: var(--tqc-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--tqc-accent) 22%, transparent);
+  }
+  100% {
+    border-color: var(--tqc-control-border);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
 .tqc-field-hint {
   display: block;
   margin-top: 5px;
@@ -1299,11 +1477,15 @@
   height: 26px;
   font-size: 11px;
   padding: 0 5px;
-  appearance: textfield;
 }
 
-.tqc-line-delay::-webkit-inner-spin-button,
-.tqc-line-delay::-webkit-outer-spin-button {
+.tqc-input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.tqc-input[type="number"]::-webkit-inner-spin-button,
+.tqc-input[type="number"]::-webkit-outer-spin-button {
   margin: 0;
   appearance: none;
 }
@@ -1663,13 +1845,28 @@
   position: fixed;
   inset: 0 0 0 auto;
   width: min(var(--tqc-width, 520px), 100vw);
-  pointer-events: auto;
+  pointer-events: none;
   background: rgba(15, 23, 42, 0.46);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
   backdrop-filter: blur(2px);
+}
+
+.tqc-confirm-backdrop::before {
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--tqc-window-controls-width)) 0,
+    calc(100% - var(--tqc-window-controls-width)) var(--tqc-window-controls-height),
+    100% var(--tqc-window-controls-height),
+    100% 100%,
+    0 100%
+  );
+  pointer-events: auto;
+  content: '';
 }
 
 .tqc-tooltip {
@@ -1746,9 +1943,12 @@
   --tqc-control-border: var(--tqc-confirm-border);
   --tqc-subtle: var(--tqc-confirm-input);
   --tqc-accent-soft: color-mix(in srgb, var(--tqc-confirm-primary) 14%, transparent);
+  position: relative;
+  z-index: 1;
   width: min(460px, calc(100% - 32px));
   max-height: calc(100vh - 32px);
   overflow: auto;
+  pointer-events: auto;
   border: 1px solid var(--tqc-confirm-border);
   border-radius: 10px;
   background: var(--tqc-confirm-bg);

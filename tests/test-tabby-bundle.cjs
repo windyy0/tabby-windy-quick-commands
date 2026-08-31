@@ -8,21 +8,29 @@ const { ReplaySubject, Subject } = require('rxjs')
 const clone = value => JSON.parse(JSON.stringify(value))
 
 function loadBundle (bundlePath, liveNetwork = false, document = { addEventListener () {} }) {
+    class TestNode {}
+    class TestElement extends TestNode {}
+    class TestHTMLElement extends TestElement {}
+    class TestInputElement extends TestHTMLElement {}
+    class TestTextAreaElement extends TestHTMLElement {}
     const hostListeners = []
     const events = []
     const windowListeners = new Map()
     const networkRequests = []
     const networkGate = { wait: null, latestVersion: '9.0.0', registryStatus: 200 }
-    const core = { ConfigProvider: class {}, HotkeyProvider: class {}, ToolbarButtonProvider: class {} }
+    const core = { ConfigProvider: class {}, HotkeyProvider: class {}, ToolbarButtonProvider: class {}, HotkeysService: class {} }
     const settings = { SettingsTabProvider: class {} }
     const captureMetadata = metadata => target => { target.testMetadata = metadata; return target }
     const angular = {
         NgModule: captureMetadata, Component: captureMetadata, Injectable: () => target => target,
-        Inject: () => () => {}, HostListener: name => () => { hostListeners.push(name) },
+        Inject: () => () => {}, Optional: () => () => {}, HostListener: name => () => { hostListeners.push(name) },
     }
     const notes = { version: '9.0.0', 'zh-CN': { title: 'Update', sections: [{ title: 'Changes', items: ['Test update'] }] } }
     const sandbox = {
-        module: { exports: {} }, exports: {}, console, Buffer, process, AbortController, setTimeout, clearTimeout,
+        module: { exports: {} }, exports: {}, console, Buffer, process, AbortController,
+        KeyboardEvent: class {}, FocusEvent: class {}, Node: TestNode, Element: TestElement,
+        HTMLElement: TestHTMLElement, HTMLInputElement: TestInputElement,
+        HTMLTextAreaElement: TestTextAreaElement, setTimeout, clearTimeout,
         Reflect: { metadata: (key, value) => target => { target[key] = value } },
         CustomEvent: class { constructor (type) { this.type = type } },
         window: {
@@ -35,6 +43,7 @@ function loadBundle (bundlePath, liveNetwork = false, document = { addEventListe
                 for (const callback of windowListeners.get(event.type) || []) callback(event)
             },
             setTimeout: () => 1, clearTimeout: () => {},
+            requestAnimationFrame: callback => { callback(); return 1 },
         },
         fetch: async (url, options) => {
             networkRequests.push(url)
@@ -66,14 +75,19 @@ async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profi
         const roots = []
         const keyListeners = []
         const document = {
+            activeElement: null,
             addEventListener (name, callback) { if (name === 'keydown') keyListeners.push(callback) },
             createElement () {
                 const attributes = new Map()
                 return {
                     addEventListener () {},
+                    classList: { toggle () {} },
+                    querySelector () { return null },
+                    querySelectorAll () { return [] },
                     setAttribute: (name, value) => attributes.set(name, value),
                     removeAttribute: name => attributes.delete(name),
                     getAttribute: name => attributes.get(name),
+                    contains (target) { return target?.ownerRoot === this },
                 }
             },
             body: {
@@ -90,6 +104,7 @@ async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profi
         }
         const services = {}
         const executions = []
+        const focusSwitches = []
         for (const devBuild of (devFirst ? [true, false] : [false, true])) {
             const host = loadBundle(devBuild ? devBundlePath : stableBundlePath, false, document)
             const Service = host.getProvider(host.core.ToolbarButtonProvider)['design:paramtypes'][0]
@@ -98,11 +113,13 @@ async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profi
             const channel = devBuild ? 'dev' : 'stable'
             const service = new Service({}, { store: { hotkeys: {} }, ready$: stream },
                 { getConfigPath: () => path.join(profilePath, String(devFirst), 'config.yaml') },
-                { create: () => ({}) }, new I18n({ getLocale: () => 'en', localeChanged$: stream }), { state$: stream })
+                { create: () => ({}) }, new I18n({ getLocale: () => 'en', localeChanged$: stream }), { state$: stream },
+                { unfilteredHotkey$: stream })
             // Exercise real opening/closing and document event handlers without
             // rendering unrelated editor controls or sending terminal commands.
             service.render = () => {}
-            service.focusCurrentTerminal = () => {}
+            service.focusCurrentTerminal = () => true
+            service.toggleFocusArea = () => { focusSwitches.push(channel) }
             service.isEditableElement = () => false
             service.getSelectedCommand = () => ({ id: channel, command: `echo ${channel}` })
             service.executeSelectedCommand = async () => { executions.push(channel) }
@@ -123,9 +140,77 @@ async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profi
             }
             assert.deepEqual(executions, expected, `Ctrl+Enter must follow drawer stacking, regardless of registration order (devFirst=${devFirst})`)
         }
+        const pressFocusSwitch = expected => {
+            focusSwitches.length = 0
+            let stopped = false
+            const event = {
+                key: 'Escape', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
+                defaultPrevented: false, repeat: false, isComposing: false, target: null,
+                preventDefault () { this.defaultPrevented = true },
+                stopPropagation () {}, stopImmediatePropagation () { stopped = true },
+            }
+            for (const listener of keyListeners) {
+                listener(event)
+                if (stopped) break
+            }
+            assert.deepEqual(focusSwitches, expected, `focus switching must belong to the foreground drawer (devFirst=${devFirst})`)
+        }
         services.stable.open()
         services.dev.open()
+        services.dev.focusArea = 'drawer'
+        document.activeElement = { ownerRoot: null }
+        assert.equal(services.dev.shouldRestoreDrawerFocusAfterRender(), false, 'an external settings input must keep focus when drawer configuration rerenders')
+        document.activeElement = { ownerRoot: services.dev.root }
+        assert.equal(services.dev.shouldRestoreDrawerFocusAfterRender(), true, 'drawer-owned focus must still be restored after its DOM is rerendered')
+        document.activeElement = null
         pressExecute(['dev'])
+        pressFocusSwitch(['dev'])
+        const originalGetActionShortcuts = services.dev.getActionShortcuts
+        services.dev.getActionShortcuts = action => action === 'switchFocus' ? ['F6'] : originalGetActionShortcuts.call(services.dev, action)
+        services.dev.pendingDeleteId = 'pending-delete'
+        const overlayEscape = {
+            key: 'Escape', code: 'Escape', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
+            defaultPrevented: false, repeat: false, isComposing: false, target: null,
+            preventDefault () { this.defaultPrevented = true },
+            stopPropagation () {}, stopImmediatePropagation () {},
+        }
+        services.dev.handleDocumentKeyDown(overlayEscape)
+        assert.equal(services.dev.pendingDeleteId, null, 'Escape must dismiss the top overlay after focus switching is rebound')
+        assert.equal(overlayEscape.defaultPrevented, true, 'dismissed overlay Escape must not leak to Tabby')
+        services.dev.getActionShortcuts = originalGetActionShortcuts
+        const surfaceTarget = {}
+        const categoryMoves = []
+        const originalIsDrawerSurface = services.dev.isDrawerSurface
+        const originalMoveKeyboardCategory = services.dev.moveKeyboardCategory
+        services.dev.isDrawerSurface = target => target === surfaceTarget
+        services.dev.moveKeyboardCategory = direction => { categoryMoves.push(direction) }
+        services.dev.filter = ''
+        const surfaceArrow = {
+            key: 'ArrowRight', code: 'ArrowRight', target: surfaceTarget,
+            ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
+            defaultPrevented: false, repeat: false, isComposing: false,
+            preventDefault () { this.defaultPrevented = true },
+            stopPropagation () {}, stopImmediatePropagation () {},
+        }
+        services.dev.handleDocumentKeyDown(surfaceArrow)
+        assert.deepEqual(categoryMoves, [1], 'drawer surface focus must retain category keyboard navigation')
+        assert.ok(surfaceArrow.defaultPrevented)
+        services.dev.filter = 'query'
+        services.dev.handleDocumentKeyDown({ ...surfaceArrow, key: 'ArrowLeft', code: 'ArrowLeft', defaultPrevented: false })
+        assert.deepEqual(categoryMoves, [1], 'hidden categories must not react to horizontal arrows while searching')
+        services.dev.filter = ''
+        services.dev.isDrawerSurface = originalIsDrawerSurface
+        services.dev.moveKeyboardCategory = originalMoveKeyboardCategory
+
+        const originalFocusDrawerSurface = services.dev.focusDrawerSurface
+        const originalIsDrawerInteractiveControl = services.dev.isDrawerInteractiveControl
+        let blankSurfaceFocuses = 0
+        services.dev.focusDrawerSurface = () => { blankSurfaceFocuses++ }
+        services.dev.isDrawerInteractiveControl = () => false
+        services.dev.handleRootClick({ target: surfaceTarget })
+        assert.equal(blankSurfaceFocuses, 1, 'clicking drawer whitespace must focus the drawer surface instead of search')
+        services.dev.focusDrawerSurface = originalFocusDrawerSurface
+        services.dev.isDrawerInteractiveControl = originalIsDrawerInteractiveControl
         services.dev.running = true
         pressExecute([])
         services.dev.running = false
@@ -135,6 +220,29 @@ async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profi
         pressExecute(['dev'])
         services.dev.close()
         pressExecute([])
+        const originalDevCommands = services.dev.state.commands
+        const pressClosedCommand = (key, modifiers) => {
+            services.dev.handleDocumentKeyDown({
+                key, code: key === 'Enter' ? 'Enter' : `Key${key.toUpperCase()}`,
+                ctrlKey: false, altKey: false, shiftKey: false, metaKey: false,
+                defaultPrevented: false, repeat: false, isComposing: false, target: null,
+                preventDefault () { this.defaultPrevented = true },
+                stopPropagation () {}, stopImmediatePropagation () {},
+                ...modifiers,
+            })
+        }
+        executions.length = 0
+        services.dev.state.commands = [{ id: 'reserved-command', name: 'Reserved', command: 'echo reserved', shortcut: 'Ctrl+Enter' }]
+        pressClosedCommand('Enter', { ctrlKey: true })
+        assert.deepEqual(executions, [], 'an imported drawer-reserved command shortcut must remain blocked even while the drawer is closed')
+        services.dev.state.commands = [{ id: 'scalar-conflict', name: 'Scalar conflict', command: 'echo conflict', shortcut: 'Ctrl+Alt+Y' }]
+        services.dev.config.store.hotkeys.scalarTabbyAction = 'Ctrl-Alt-Y'
+        pressClosedCommand('y', { ctrlKey: true, altKey: true })
+        assert.deepEqual(executions, [], 'scalar Tabby hotkeys must block conflicting command execution at runtime')
+        delete services.dev.config.store.hotkeys.scalarTabbyAction
+        pressClosedCommand('y', { ctrlKey: true, altKey: true })
+        assert.deepEqual(executions, ['dev'], 'a non-conflicting command shortcut must remain executable')
+        services.dev.state.commands = originalDevCommands
         services.dev.open()
         await services.stable.importCommandsText(JSON.stringify({
             format: 'tabby-windy-quick-commands', version: 1, kind: 'commands',
@@ -142,6 +250,23 @@ async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profi
             commands: [{ name: 'Import preview', command: 'echo import' }],
         }))
         pressExecute(['stable'])
+        const dangerousCommand = { name: 'Danger', command: 'rm -rf /tmp/demo', autoEnter: true }
+        services.dev.state.requireConfirmBeforeExecute = false
+        services.dev.state.confirmBroadcast = false
+        services.dev.state.targetMode = 'current'
+        services.dev.state.confirmHighRiskCommands = true
+        let dangerSummary = services.dev.buildExecutionSummary(dangerousCommand, [])
+        assert.equal(dangerSummary.requiresConfirm, true, 'high-risk commands must request confirmation by default')
+        assert.equal(dangerSummary.requiresTypedConfirm, true, 'severe high-risk commands must require typed confirmation by default')
+        services.dev.state.confirmHighRiskCommands = false
+        dangerSummary = services.dev.buildExecutionSummary(dangerousCommand, [])
+        assert.equal(dangerSummary.requiresConfirm, false, 'disabling high-risk confirmation must stop danger detection from opening a dialog by itself')
+        assert.equal(dangerSummary.requiresTypedConfirm, false, 'disabling high-risk confirmation must also disable the typed command-name check')
+        assert.match(services.dev.getHint(dangerousCommand, 1, true), /不会因此单独弹出确认/, 'the drawer hint must reflect that high-risk confirmation is disabled')
+        services.dev.state.requireConfirmBeforeExecute = true
+        dangerSummary = services.dev.buildExecutionSummary(dangerousCommand, [])
+        assert.equal(dangerSummary.requiresConfirm, true, 'the global execution confirmation setting must remain independent')
+        assert.equal(dangerSummary.requiresTypedConfirm, false, 'global confirmation alone must not restore the disabled high-risk typed check')
         services.dev.getTargetTabs = () => [{}]
         services.dev.buildExecutionSummary = () => ({ requiresConfirm: true })
         await services.dev.requestConfirmation()
@@ -160,7 +285,11 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     const configPath = path.join(profilePath, 'config.yaml')
     const originalYaml = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : null
     const ConfigProvider = host.getProvider(host.core.ConfigProvider)
-    assert.deepEqual(Object.keys(new ConfigProvider().defaults.hotkeys), [devBuild ? 'windy-command-center-dev-toggle' : 'windy-command-center-toggle'])
+    const configProvider = new ConfigProvider()
+    assert.deepEqual(Object.keys(configProvider.defaults.hotkeys), devBuild
+        ? ['windy-command-center-dev-toggle', 'windy-command-center-dev-settings', 'windy-command-center-dev-focus', 'windy-command-center-dev-hints']
+        : ['windy-command-center-toggle', 'windy-command-center-settings', 'windy-command-center-focus', 'windy-command-center-hints'])
+    assert.deepEqual(clone(configProvider.defaults.hotkeys[devBuild ? 'windy-command-center-dev-hints' : 'windy-command-center-hints']), ['Ctrl-Alt-H'])
     const stream = { subscribe: () => ({ unsubscribe () {} }) }
     const ToolbarProvider = host.getProvider(host.core.ToolbarButtonProvider)
     const Service = ToolbarProvider['design:paramtypes'][0]
@@ -170,7 +299,8 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     const pluginInstalls = []
     let restartRequests = 0
     const platform = { getConfigPath: () => configPath, installPlugin: (...args) => { pluginInstalls.push(args) } }
-    const config = { store: { hotkeys: {} }, ready$: new ReplaySubject(1), changed$: stream, requestRestart: () => { restartRequests++ } }
+    const legacySettingsHotkeyId = devBuild ? 'windy-command-center-dev-settings' : 'windy-command-center-settings'
+    const config = { store: { hotkeys: { 'settings-tab': { [dataDirectory]: [] }, [legacySettingsHotkeyId]: 'Ctrl-P' } }, ready$: new ReplaySubject(1), changed$: stream, save: async () => {}, requestRestart: () => { restartRequests++ } }
     // Match LocaleService's subscription order: resolve language at config readiness.
     config.ready$.subscribe(() => {
         locale.current = language
@@ -178,9 +308,28 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     })
     if (devBuild) config.store.windyCommandCenter = { commands: [] }
     const service = new Service({}, config, platform, { create: () => ({}) }, i18n, { state$: stream })
+    const PluginHotkeyProvider = host.getProvider(host.core.HotkeyProvider)
+    const pluginHotkeyDescriptions = await new PluginHotkeyProvider(i18n).provide()
+    assert.equal(pluginHotkeyDescriptions.some(item => item.id.startsWith('settings-tab.')), false, 'the plugin must not duplicate Tabby\'s standard settings-tab hotkey description')
+    const shortcutRail = service.renderShortcutRail()
+    const normalizedShortcutRail = shortcutRail.replaceAll('tqc-dev-', 'tqc-')
+    const normalizedBundleSource = fs.readFileSync(bundlePath, 'utf8').replaceAll('tqc-dev-', 'tqc-')
+    assert.ok(normalizedShortcutRail.includes('>命令</span>') && !normalizedShortcutRail.includes('>选择</span>'), 'shortcut rail must label vertical navigation as commands')
+    assert.ok(normalizedShortcutRail.indexOf('tqc-shortcut-rail-focus') < normalizedShortcutRail.indexOf('tqc-shortcut-rail-navigation'), 'focus shortcut must remain the first shortcut row')
+    assert.ok(normalizedShortcutRail.includes('tqc-shortcut-rail-terminal-action') && normalizedShortcutRail.includes('<span>Ctrl+</span><span>Enter</span>'), 'terminal focus hints must include Ctrl+Enter execution')
+    assert.ok(normalizedShortcutRail.includes('data-tooltip="Ctrl+Alt+H：'), 'the keyboard icon tooltip must include the current shortcut hint toggle binding')
+    assert.match(normalizedBundleSource, /\.tqc-shortcut-rail-icon\s*\{[^}]*pointer-events:\s*auto/s, 'the keyboard icon must receive hover events even though the surrounding hint rail is click-through')
+    assert.match(normalizedBundleSource, /\.tqc-root\.tqc-hints-visible \.tqc-drawer\s*\{[^}]*calc\(100vw - 62px\)/s, 'the open drawer must reserve enough viewport width for the shortcut rail')
     const pluginModule = new host.Module(config, platform, i18n)
     assert.equal(pluginModule.pluginConfigStore.exists(), false, 'temporary startup locale must not be persisted before config readiness')
     config.ready$.next(true)
+    assert.deepEqual(
+        clone(config.store.hotkeys[devBuild ? 'windy-command-center-dev-hints' : 'windy-command-center-hints']),
+        ['Ctrl-Alt-H'],
+        'startup must materialize missing plugin hotkey defaults so Tabby can register them',
+    )
+    assert.deepEqual(clone(config.store.hotkeys['settings-tab'][dataDirectory]), ['Ctrl-P'], 'startup must migrate the old custom settings shortcut to Tabby\'s standard settings-tab action')
+    assert.deepEqual(clone(config.store.hotkeys[legacySettingsHotkeyId]), [], 'startup must clear the duplicate legacy settings action after migration')
     assert.equal(pluginModule.pluginConfigStore.exists(), true, 'first-use data must be saved even without user edits')
     if (devBuild) assert.ok(config.store.windyCommandCenter, 'dev must not consume stable legacy config')
 
@@ -216,6 +365,22 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     service.isEditableElement = () => false
     service.updateConfig = patch => Object.assign(service.state, patch)
     service.executeSelectedCommand = async () => { executions++ }
+    service.visible = true
+    service.isForegroundDrawer = () => true
+    service.state.showOperationHints = true
+    let hintKeyStopped = false
+    service.handleDocumentKeyDown({
+        key: 'h', code: 'KeyH', ctrlKey: true, altKey: true, shiftKey: false, metaKey: false,
+        defaultPrevented: false, repeat: false, isComposing: false, target: null,
+        preventDefault () { this.defaultPrevented = true },
+        stopPropagation () {}, stopImmediatePropagation () { hintKeyStopped = true },
+    })
+    assert.equal(service.state.showOperationHints, false, 'the document-level fallback must toggle hints even when native hotkey events are available')
+    assert.equal(hintKeyStopped, true, 'the fallback must stop Tabby from handling the same hotkey twice')
+    service.state.showOperationHints = true
+    service.handleMatchedPluginHotkey(devBuild ? 'windy-command-center-dev-hints' : 'windy-command-center-hints')
+    assert.equal(service.state.showOperationHints, false, 'the plugin hint hotkey must toggle shortcut hints while the drawer is open')
+    service.visible = false
     const event = {
         key: 'z', ctrlKey: true, altKey: true, shiftKey: false, metaKey: false,
         defaultPrevented: false, repeat: false, isComposing: false, target: null,
@@ -271,7 +436,7 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     // Exercise the real settings controller and reset operation against the temp profile.
     service.pluginUpdate = update
     const Settings = settingsProvider.getComponentType()
-    const settingsTab = new Settings(platform, { markForCheck () {}, detectChanges () {} }, {}, i18n, {}, update, service)
+    const settingsTab = new Settings(platform, { markForCheck () {}, detectChanges () {} }, {}, i18n, {}, update, service, config)
     assert.equal(settingsTab.canInstallUpdate, !devBuild, 'settings must disable online installation for local Dev builds')
     const dataPath = path.join(profilePath, dataDirectory)
     const settingsPath = path.join(dataPath, 'plugin-config.json')
@@ -280,15 +445,13 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     const lockPath = path.join(profilePath, `.${dataDirectory}.lock-${process.pid}-settings-peer`)
     fs.writeFileSync(lockPath, '')
     try {
-        const checkbox = { checked: !savedSettings.requireConfirmBeforeExecute }
-        settingsTab.setBoolean('requireConfirmBeforeExecute', { target: checkbox })
-        assert.equal(checkbox.checked, savedSettings.requireConfirmBeforeExecute, 'failed saves must restore the native checkbox as well as the model')
+        settingsTab.setBooleanValue('requireConfirmBeforeExecute', !savedSettings.requireConfirmBeforeExecute)
         assert.deepEqual(clone(settingsTab.root), savedSettings, 'failed saves must roll back the displayed settings')
         assert.match(settingsTab.configMessage, language === 'zh-CN' ? /保存失败/ : /Save failed/, 'save failure must be visible and localized')
-        const input = { value: 'unsaved-name' }
-        settingsTab.setString('exportFileName', { target: input })
-        assert.equal(input.value, savedSettings.exportFileName)
-        input.value = '740'
+        settingsTab.exportFileNameDraft = 'unsaved-name'
+        settingsTab.confirmExportPluginConfig()
+        assert.equal(settingsTab.exportFileNameDraft, savedSettings.exportFileName, 'failed export-name saves must restore the dialog draft')
+        const input = { value: '740' }
         settingsTab.setNumber('drawerWidth', { target: input }, 420, 760)
         assert.equal(input.value, String(savedSettings.drawerWidth))
         const toolbarCheckbox = { checked: !savedSettings.showToolbarButton }
@@ -298,12 +461,12 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
         assert.equal(settingsTab.updateCheckInterval, savedSettings.updateCheckInterval)
         const pending = { config: { ...savedSettings, exportFileName: 'unsaved-import' } }
         settingsTab.pendingConfigImport = pending
-        settingsTab.importPendingFullConfig()
+        await settingsTab.importPendingFullConfig()
         assert.equal(settingsTab.pendingConfigImport, pending, 'failed imports must remain available to retry')
         assert.equal(i18n.text(settingsTab.configMessage), i18n.text('导入失败'))
         assert.match(settingsTab.configMessageDetail, language === 'zh-CN' ? /保存失败/ : /Save failed/)
         settingsTab.openResetDefaultsConfirm()
-        settingsTab.restoreDefaultSettings()
+        await settingsTab.restoreDefaultSettings()
         assert.equal(settingsTab.resetDefaultsConfirmOpen, false, 'failed restore must close the dialog so the result is visible')
         assert.equal(i18n.text(settingsTab.configMessage), i18n.text('恢复失败'))
         assert.match(settingsTab.configMessageDetail, language === 'zh-CN' ? /保存失败/ : /Save failed/)
@@ -311,9 +474,9 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
         assert.deepEqual(clone(settingsTab.pluginConfigStore.load({})), savedSettings, 'failed saves must invalidate the mutated store cache')
     } finally { fs.unlinkSync(lockPath) }
     const lastMessage = settingsTab.configMessage
-    const retry = { checked: !savedSettings.requireConfirmBeforeExecute }
-    settingsTab.setBoolean('requireConfirmBeforeExecute', { target: retry })
-    assert.equal(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).requireConfirmBeforeExecute, retry.checked, 'a retry after the other writer exits must persist normally')
+    const retryValue = !savedSettings.requireConfirmBeforeExecute
+    settingsTab.setBooleanValue('requireConfirmBeforeExecute', retryValue)
+    assert.equal(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).requireConfirmBeforeExecute, retryValue, 'a retry after the other writer exits must persist normally')
     assert.equal(settingsTab.configMessage, lastMessage, 'ordinary saves must not dismiss the current notification')
     settingsTab.dismissConfigMessage()
     assert.equal(settingsTab.configMessage, '')
@@ -331,7 +494,7 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     settingsTab.closeResetDefaultsConfirm()
     assert.equal(fs.readFileSync(path.join(dataPath, 'plugin-config.json'), 'utf8'), beforeReset, 'cancel must not modify data')
     settingsTab.openResetDefaultsConfirm()
-    settingsTab.restoreDefaultSettings()
+    await settingsTab.restoreDefaultSettings()
     assert.equal(settingsTab.resetDefaultsConfirmOpen, false)
     assert.equal(i18n.text(settingsTab.configMessage), i18n.text('恢复成功'))
     assert.equal(fs.existsSync(path.join(dataPath, 'update-cache.json')), true, 'ordinary restore defaults must not clear cache or user data')

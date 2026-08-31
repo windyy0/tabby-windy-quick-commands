@@ -14,6 +14,8 @@ import {
 } from '../src/commandLibrary'
 import {
     findShortcutConflict,
+    flattenHotkeysConfig,
+    isValidShortcut,
     normalizeShortcut,
     normalizeShortcutKey,
     shortcutFromKeyboardEvent,
@@ -45,6 +47,18 @@ import { shouldHandleDelegatedAction } from '../src/delegatedClick'
 import { getPluginIdentity } from '../src/pluginIdentity'
 import { PluginDataAccess } from '../src/pluginData'
 import { testSettingsMessages } from './settingsMessages'
+import {
+    applyPluginHotkeyExport,
+    buildDefaultPluginHotkeyExport,
+    buildPluginHotkeyExport,
+    findPluginHotkeyConflict,
+    getPluginHotkeyDefinition,
+    migrateLegacySettingsHotkey,
+    parsePluginHotkeyExport,
+    pluginHotkeyBindingToTabby,
+    readPluginHotkeyBindings,
+    writeTabbyHotkeyBindings,
+} from '../src/pluginHotkeys'
 
 function testBuildIsolation (): void {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wqc-channels-'))
@@ -161,6 +175,11 @@ function testTranslations (): void {
     assert(getPluginLanguage('ja-JP') === 'en', 'unsupported locales should fall back to English')
     assert(translatePluginText('快速命令', 'zh-CN') === '快速命令', 'Chinese UI text should remain unchanged')
     assert(translatePluginText('显示/隐藏快速命令', 'en-US') === 'Show/hide Quick Commands', 'hotkey name should be translated')
+    assert(translatePluginText('快捷键与抽屉操作“执行当前选中命令”冲突。', 'en-US') === 'Conflicts with drawer action "Run the selected command".', 'drawer shortcut conflicts should be translated as a complete message')
+    assert(translatePluginText('高风险命令二次弹窗确认', 'en-US') === 'Require an extra confirmation for high-risk commands', 'high-risk confirmation setting should be translated')
+    assert(translatePluginText('查看高风险命令二次弹窗确认说明', 'en-US') === 'View high-risk command confirmation help', 'high-risk confirmation help should be translated')
+    assert(translatePluginText('操作与输入', 'en-US') === 'Operation and input', 'plain-language input settings title should be translated')
+    assert(translatePluginText('不额外确认', 'en-US') === 'No extra confirmation', 'current segmented confirmation choices should be translated')
     assert(translatePluginText('第 2 / 5 页', 'de-DE') === 'Page 2 / 5', 'dynamic page labels should be translated')
     assert(translatePluginText('2 条命令，3 条运行日志', 'en-US') === '2 commands, 3 runtime logs', 'dynamic counters should be translated as a complete sentence')
     assert(translatePluginText('确认永久删除选中的 3 条命令？运行日志将保留。', 'en-US') === 'Permanently delete the selected 3 commands? Runtime logs will be kept.', 'dynamic confirmations should be fully translated')
@@ -504,11 +523,35 @@ function testImportValidation (): void {
 
 function testShortcuts (): void {
     assert(normalizeShortcut('ctrl-shift-p') === 'Ctrl+Shift+P', 'shortcut normalization should accept hyphen separators')
+    assert(normalizeShortcut('Win-K') === 'Meta+K' && normalizeShortcut('Super-K') === 'Meta+K', 'platform-native Meta aliases must normalize consistently')
+    assert(normalizeShortcut('Ctrl--') === 'Ctrl+Minus', 'Tabby dash serialization must preserve the Minus key')
     assert(normalizeShortcut('ctrl+arrowright') === 'Ctrl+Right', 'shortcut normalization should normalize arrow aliases')
     assert(normalizeShortcutKey('ArrowLeft') === 'Left', 'keyboard event keys should normalize arrow names')
     assert(shortcutFromKeyboardEvent({ key: 'k', ctrlKey: true, altKey: false, shiftKey: true, metaKey: false } as KeyboardEvent) === 'Ctrl+Shift+K', 'keyboard events should produce executable shortcut strings')
     assert(shortcutFromKeyboardEvent({ key: 'K', ctrlKey: false, altKey: false, shiftKey: true, metaKey: false } as KeyboardEvent) === '', 'shift-only letter shortcuts should be rejected to avoid typing conflicts')
     assert(shortcutFromKeyboardEvent({ key: 'F8', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false } as KeyboardEvent) === 'F8', 'function keys should work without modifiers')
+    assert(shortcutFromKeyboardEvent({ key: 'F1', ctrlKey: false, altKey: false, shiftKey: true, metaKey: false } as KeyboardEvent) === 'Shift+F1', 'function keys should support Shift without another modifier')
+    assert(shortcutFromKeyboardEvent({ key: '-', code: 'Minus', ctrlKey: true, altKey: false, shiftKey: false, metaKey: false } as KeyboardEvent) === 'Ctrl+Minus', 'Minus must remain a primary key instead of collapsing to Ctrl')
+    assert(shortcutFromKeyboardEvent({ key: '+', code: 'Equal', ctrlKey: true, altKey: false, shiftKey: true, metaKey: false } as KeyboardEvent) === 'Ctrl+Shift+=', 'Plus must use Tabby\'s Shift+Equal representation instead of collapsing to Ctrl')
+    assert(isValidShortcut('Ctrl+Minus') && isValidShortcut('Ctrl+Shift+='), 'punctuation shortcuts with a primary key must remain valid')
+    assert(!isValidShortcut('A') && !isValidShortcut('Ctrl') && !isValidShortcut('Shift+X') && !isValidShortcut('F99'), 'unsafe or impossible shortcuts must be rejected')
+    assert(isValidShortcut('Escape', true) && !isValidShortcut('Escape'), 'plain Escape must remain exclusive to the focus-switch action')
+    const drawerSource = fs.readFileSync(path.join(process.cwd(), 'src', 'quickCommands.service.ts'), 'utf8')
+    const drawerStyles = fs.readFileSync(path.join(process.cwd(), 'src', 'quickCommands.css'), 'utf8')
+    assert(drawerSource.includes("element.addEventListener('keyup'") && drawerSource.includes('primaryKeyReleased'), 'drawer shortcut recording should finish on primary-key release')
+    assert(drawerSource.includes("this.i18n.text('正在按下')") && drawerSource.includes('currentPressedKeys().join'), 'drawer shortcut recording should expose a live pressed-key preview')
+    assert(drawerSource.includes('showCaptureFailure') && drawerSource.includes("this.i18n.text('录入失败')"), 'invalid and conflicting drawer shortcuts should expose an inline failure reason')
+    assert(drawerSource.includes('captureFailureActive') && drawerSource.includes('if (captureFailureActive) { return }'), 'remaining keyup events should not clear a drawer shortcut capture failure')
+    assert(drawerSource.includes('pluginHotkeyDefinitions.find') && drawerSource.includes('getTabbyHotkeyName'), 'drawer shortcut conflicts should distinguish plugin actions and resolve Tabby action names')
+    assert(drawerSource.includes('按下组合键，松开主键完成录入。') && !drawerSource.includes('高风险命令仍需确认。'), 'drawer shortcut hints should avoid duplicate waiting copy and unrelated execution warnings')
+    assert(!drawerSource.includes('private showShortcutHint'), 'capture failures should persist until retry or blur instead of using an auto-dismiss timer')
+    assert(drawerSource.includes("event.target.matches('[data-role=\"shortcut-input\"]')"), 'global shortcut handling must yield while the drawer recorder is focused')
+    assert(drawerSource.includes("hasAttribute('data-windy-quick-commands-hotkey-recording')"), 'global shortcut handling must yield while the settings shortcut recorder is active')
+    assert(drawerStyles.includes('.tqc-shortcut-recording') && drawerStyles.includes('.tqc-shortcut-captured') && drawerStyles.includes('.tqc-shortcut-error'), 'drawer shortcut recording should provide active, completed, and failed visual states')
+    assert(drawerStyles.includes('.tqc-input::placeholder') && drawerStyles.includes('font-weight: 400;'), 'drawer shortcut placeholder copy should use a quieter regular-weight style')
+    assert(drawerStyles.includes('calc(100vw - 62px)') && drawerStyles.includes('@media (max-width: 620px)'), 'visible shortcut hints must reserve rail space without clipping narrow viewports')
+    assert(!drawerStyles.includes('.tqc-interactive-surface,\n.tqc-confirm-backdrop'), 'modal backdrops must not inherit the window-control visual cutout')
+    assert(drawerStyles.includes('.tqc-confirm-backdrop::before') && drawerStyles.includes('pointer-events: none;') && drawerStyles.includes('pointer-events: auto;'), 'modal backdrops must remain visually complete while preserving window-control click-through')
     const commandConflict = findShortcutConflict(
         'Ctrl+Alt+K',
         [{ id: 'a', name: '已有命令', shortcut: 'Ctrl+Alt+K' }],
@@ -518,6 +561,95 @@ function testShortcuts (): void {
 
     const tabbyConflict = findShortcutConflict('Ctrl+Shift+P', [], 'a')
     assert(tabbyConflict?.kind === 'tabby', 'shortcut conflict should detect reserved Tabby shortcuts')
+    assert(JSON.stringify(flattenHotkeysConfig({ customAction: 'Win-K' })) === JSON.stringify([
+        { shortcut: 'Meta+K', name: 'customAction' },
+    ]), 'Tabby conflict scanning must include scalar hotkey values')
+    assert(flattenHotkeysConfig({ chainedAction: [['Ctrl-K', 'Ctrl-Q']] }).length === 0, 'single-stroke command conflicts must not misread multi-stroke Tabby bindings')
+
+    const defaults = buildDefaultPluginHotkeyExport()
+    assert(JSON.stringify(defaults.actions.switchFocus) === JSON.stringify(['Escape']), 'focus switching should default to Escape')
+    assert(JSON.stringify(defaults.actions.toggleDrawer) === JSON.stringify([]), 'global plugin actions should remain opt-in by default')
+    assert(JSON.stringify(defaults.actions.toggleHints) === JSON.stringify(['Ctrl+Alt+H']), 'shortcut hint toggling should default to Ctrl+Alt+H')
+    const hotkeys: Record<string, unknown> = {}
+    applyPluginHotkeyExport(hotkeys, {
+        version: 1,
+        actions: {
+            toggleDrawer: ['Ctrl+Alt+Q'],
+            openSettings: [['Ctrl+K', 'Ctrl+Q']],
+            switchFocus: ['Escape'],
+            toggleHints: ['Ctrl+Alt+H'],
+        },
+    })
+    const exported = buildPluginHotkeyExport(hotkeys)
+    const settingsIdentity = getPluginIdentity(false)
+    assert(getPluginHotkeyDefinition('openSettings').id === `settings-tab.${settingsIdentity.settingsTabId}`, 'the settings shortcut must use Tabby\'s standard settings-tab action')
+    assert(JSON.stringify((hotkeys['settings-tab'] as Record<string, unknown>)[settingsIdentity.settingsTabId]) === JSON.stringify([['Ctrl-K', 'Ctrl-Q']]), 'the settings shortcut must be stored at Tabby\'s nested settings-tab path')
+    assert(JSON.stringify(exported.actions.openSettings) === JSON.stringify([['Ctrl+K', 'Ctrl+Q']]), 'plugin hotkey export should preserve multi-stroke bindings')
+    assert(JSON.stringify(readPluginHotkeyBindings(hotkeys, 'toggleDrawer')) === JSON.stringify(['Ctrl+Alt+Q']), 'plugin hotkey export should use the configured toggle binding')
+    assert(JSON.stringify(readPluginHotkeyBindings(hotkeys, 'toggleHints')) === JSON.stringify(['Ctrl+Alt+H']), 'plugin hotkey export should include shortcut hint toggling')
+    assert(JSON.stringify(hotkeys[getPluginHotkeyDefinition('toggleHints').id]) === JSON.stringify(['Ctrl-Alt-H']), 'plugin hotkeys should be stored in Tabby native dash-separated format')
+    assert(pluginHotkeyBindingToTabby('Meta+K', 'win32') === 'Win-K', 'Windows Meta shortcuts must serialize using Tabby\'s Win token')
+    assert(pluginHotkeyBindingToTabby('Meta+Alt+K', 'darwin') === '⌘-⌥-K', 'macOS shortcuts must serialize using Tabby\'s native modifier tokens')
+    assert(pluginHotkeyBindingToTabby('Meta+K', 'linux') === 'Super-K', 'Linux Meta shortcuts must serialize using Tabby\'s Super token')
+    const scalarHotkeys: Record<string, unknown> = {
+        [getPluginHotkeyDefinition('toggleDrawer').id]: 'Win-K',
+    }
+    assert(JSON.stringify(readPluginHotkeyBindings(scalarHotkeys, 'toggleDrawer')) === JSON.stringify(['Meta+K']), 'valid scalar Tabby hotkeys must be preserved instead of falling back to defaults')
+    const scalarExport = buildPluginHotkeyExport(scalarHotkeys)
+    assert(JSON.stringify(parsePluginHotkeyExport(scalarExport)) === JSON.stringify(scalarExport), 'scalar Tabby hotkeys must survive export validation')
+    const minusHotkeys: Record<string, unknown> = {}
+    writeTabbyHotkeyBindings(minusHotkeys, getPluginHotkeyDefinition('toggleDrawer').id, ['Ctrl+Minus'])
+    assert(JSON.stringify(minusHotkeys[getPluginHotkeyDefinition('toggleDrawer').id]) === JSON.stringify(['Ctrl--']), 'Minus must serialize to Tabby\'s native trailing-dash form')
+    assert(JSON.stringify(readPluginHotkeyBindings(minusHotkeys, 'toggleDrawer')) === JSON.stringify(['Ctrl+Minus']), 'Minus bindings must round-trip through Tabby configuration')
+    assert(JSON.stringify(parsePluginHotkeyExport(exported)) === JSON.stringify(exported), 'exported plugin hotkeys should round-trip through validation')
+    const migratedHotkeys: Record<string, unknown> = {
+        [settingsIdentity.legacySettingsHotkeyId]: ['Ctrl-P'],
+    }
+    assert(migrateLegacySettingsHotkey(migratedHotkeys, settingsIdentity.settingsHotkeyId, settingsIdentity.legacySettingsHotkeyId), 'legacy custom settings shortcuts should migrate once')
+    assert(JSON.stringify(readPluginHotkeyBindings(migratedHotkeys, 'openSettings')) === JSON.stringify(['Ctrl+P']), 'migration must preserve the existing settings shortcut')
+    assert(JSON.stringify(migratedHotkeys[settingsIdentity.legacySettingsHotkeyId]) === JSON.stringify([]), 'migration must clear the legacy custom action')
+    const emptyStandardHotkeys: Record<string, unknown> = {
+        'settings-tab': { [settingsIdentity.settingsTabId]: [] },
+        [settingsIdentity.legacySettingsHotkeyId]: ['Ctrl-P'],
+    }
+    assert(migrateLegacySettingsHotkey(emptyStandardHotkeys, settingsIdentity.settingsHotkeyId, settingsIdentity.legacySettingsHotkeyId), 'an empty standard Tabby action should still accept the legacy binding')
+    assert(JSON.stringify(readPluginHotkeyBindings(emptyStandardHotkeys, 'openSettings')) === JSON.stringify(['Ctrl+P']), 'migration must replace an empty standard action with the existing legacy shortcut')
+    const preferredStandardHotkeys: Record<string, unknown> = {
+        'settings-tab': { [settingsIdentity.settingsTabId]: ['F8'] },
+        [settingsIdentity.legacySettingsHotkeyId]: ['Ctrl-P'],
+    }
+    assert(migrateLegacySettingsHotkey(preferredStandardHotkeys, settingsIdentity.settingsHotkeyId, settingsIdentity.legacySettingsHotkeyId), 'stale legacy settings shortcuts should still be cleaned up')
+    assert(JSON.stringify(readPluginHotkeyBindings(preferredStandardHotkeys, 'openSettings')) === JSON.stringify(['F8']), 'an existing standard Tabby shortcut must win over the legacy action')
+    const migratedThreeActionExport = parsePluginHotkeyExport({
+        version: 1,
+        actions: { toggleDrawer: [], openSettings: [], switchFocus: ['Escape'] },
+    })
+    assert(JSON.stringify(migratedThreeActionExport.actions.toggleHints) === JSON.stringify(['Ctrl+Alt+H']), 'old three-action exports should gain the default hint toggle')
+    let rejectedInvalidBinding = false
+    try {
+        parsePluginHotkeyExport({
+            version: 1,
+            actions: { toggleDrawer: [''], openSettings: [], switchFocus: ['Escape'] },
+        })
+    } catch {
+        rejectedInvalidBinding = true
+    }
+    assert(rejectedInvalidBinding, 'plugin hotkey import should reject empty bindings instead of silently dropping them')
+    for (const invalid of ['A', 'Ctrl', 'Shift+X', 'F99']) {
+        let rejectedUnsafeBinding = false
+        try {
+            parsePluginHotkeyExport({
+                version: 1,
+                actions: { toggleDrawer: [invalid], openSettings: [], switchFocus: ['Escape'], toggleHints: ['Ctrl+Alt+H'] },
+            })
+        } catch {
+            rejectedUnsafeBinding = true
+        }
+        assert(rejectedUnsafeBinding, `plugin hotkey import should reject unsafe binding ${invalid}`)
+    }
+    assert(findPluginHotkeyConflict(hotkeys, [], 'toggleDrawer', 'Ctrl+Shift+P').includes('Tabby'), 'plugin action shortcuts should report reserved Tabby conflicts')
+    assert(findPluginHotkeyConflict(hotkeys, [{ name: 'Deploy', shortcut: 'Ctrl+Alt+D' }], 'toggleDrawer', 'Ctrl+Alt+D').includes('Deploy'), 'plugin action shortcuts should report command conflicts')
+    assert(findPluginHotkeyConflict(hotkeys, [], 'toggleDrawer', 'Ctrl+Enter').includes('抽屉操作'), 'plugin action shortcuts must reject drawer-owned execution shortcuts')
 }
 
 function testDangerChecks (): void {
@@ -1045,12 +1177,21 @@ function testPluginConfigStorage (): void {
             assert(!freshStore.exists() && fs.readFileSync(freshStore.backupPath!, 'utf8') === backupBytes, 'a remaining backup must not be mistaken for a fresh profile')
         }
         assert(defaultQuickCommandsConfig.commands[0].name === '示例命令', 'localized defaults must not mutate shared templates')
+        assert(defaultQuickCommandsConfig.confirmHighRiskCommands === true, 'high-risk command confirmation must remain enabled by default')
         const first = { commands: [{ id: 'a', name: 'A', command: 'echo a' }], drawerWidth: 560 }
         const second = {
             commands: [{ id: 'b', name: 'B', command: 'echo b' }],
             customCategories: [],
             categoryOrder: [],
             drawerWidth: 620,
+            drawerInitialFocus: 'terminal',
+            focusTerminalAfterSend: true,
+            showOperationHints: false,
+            confirmHighRiskCommands: false,
+            pluginHotkeys: {
+                version: 1,
+                actions: { toggleDrawer: ['Ctrl+Alt+Q'], openSettings: [], switchFocus: ['F6'] },
+            },
             moveNavigateAfterMove: true,
             updateCheckInterval: 'weekly',
             ignoredUpdateVersion: '1.6.0',
@@ -1070,6 +1211,9 @@ function testPluginConfigStorage (): void {
         assert(imported.moveNavigateAfterMove === true, 'move navigation preference should be importable')
         assert(imported.updateCheckInterval === 'weekly', 'update check interval should be importable')
         assert(imported.ignoredUpdateVersion === '1.6.0', 'ignored update version should be importable')
+        assert(imported.drawerInitialFocus === 'terminal' && imported.focusTerminalAfterSend === true && imported.showOperationHints === false, 'focus preferences should be importable')
+        assert(imported.confirmHighRiskCommands === false, 'high-risk confirmation preference should be importable')
+        assert((imported.pluginHotkeys as any).actions.switchFocus[0] === 'F6', 'full config import should preserve plugin action hotkeys')
         const commandsFile = store.parseImportFile(JSON.stringify({
             format: 'tabby-windy-quick-commands',
             version: 1,

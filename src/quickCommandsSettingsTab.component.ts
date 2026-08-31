@@ -1,6 +1,6 @@
-import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, HostListener, NgZone, OnDestroy } from '@angular/core'
+import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, HostListener, NgZone, OnDestroy, Optional } from '@angular/core'
 import { Subscription } from 'rxjs'
-import { PlatformService } from 'tabby-core'
+import { ConfigService, HotkeysService, PlatformService } from 'tabby-core'
 import {
     applyImportPreview,
     buildImportPreview,
@@ -22,10 +22,40 @@ import { UpdateCheckInterval } from './pluginUpdate'
 import { pluginIdentity } from './pluginIdentity'
 import { pluginDataResetEvent } from './pluginData'
 import { QuickCommandsService } from './quickCommands.service'
+import {
+    flattenHotkeysConfig,
+    isValidShortcut,
+    normalizeShortcut,
+    normalizeShortcutKey,
+    reservedTabbyShortcuts,
+    shortcutFromKeyboardEvent,
+} from './shortcutManager'
+import {
+    applyPluginHotkeyExport,
+    buildDefaultPluginHotkeyExport,
+    buildPluginHotkeyExport,
+    findPluginHotkeyConflict,
+    formatPluginHotkeyBinding,
+    parsePluginHotkeyExport,
+    PluginHotkeyAction,
+    PluginHotkeyBinding,
+    PluginHotkeyDefinition,
+    pluginHotkeyBindingId,
+    pluginHotkeyDefinitions,
+    PluginHotkeyExport,
+    readPluginHotkeyBindings,
+    reservedQuickCommandsShortcuts,
+} from './pluginHotkeys'
 
 const historyDateFormatters = {
     'zh-CN': new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }),
     en: new Intl.DateTimeFormat('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }),
+}
+
+interface HotkeyConflictCache {
+    pluginActions: Map<PluginHotkeyAction, string>
+    pluginBindings: Map<string, string>
+    commands: Map<string, string>
 }
 
 @Component({
@@ -76,7 +106,7 @@ const historyDateFormatters = {
           </div>
           <div class="wqc-config-actions">
             <div class="wqc-config-transfer">
-              <button class="btn btn-secondary" type="button" (click)="exportPluginConfig()">导出</button>
+              <button class="btn btn-secondary" type="button" aria-haspopup="dialog" [attr.aria-expanded]="exportConfigDialogOpen" (click)="openExportPluginConfig()">导出</button>
               <button class="btn btn-secondary" type="button" (click)="pluginConfigFile.click()">导入</button>
             </div>
             <div class="wqc-config-feedback">
@@ -95,52 +125,313 @@ const historyDateFormatters = {
           </div>
         </section>
 
+        <section class="wqc-section wqc-hotkey-section">
+          <div class="wqc-hotkey-summary-row">
+            <div class="wqc-hotkey-summary-copy">
+              <h4>快捷键</h4>
+              <div class="wqc-hotkey-summary-meta">
+                <span>{{ configuredPluginHotkeyActionCount }} / {{ pluginHotkeyDefinitions.length }} 插件操作</span>
+                <span aria-hidden="true">·</span>
+                <span>{{ configuredCommandHotkeyCount }} / {{ commandCount }} 命令已绑定</span>
+                <span aria-hidden="true">·</span>
+                <span *ngIf="!hotkeyConflictCount">无冲突</span>
+                <span class="wqc-hotkey-summary-warning" *ngIf="hotkeyConflictCount">{{ hotkeyConflictCount }} 项冲突</span>
+              </div>
+            </div>
+            <button class="wqc-hotkey-manage" type="button" aria-label="管理快捷键" aria-haspopup="dialog" [attr.aria-expanded]="pluginHotkeyDialogOpen" (click)="openPluginHotkeyDialog()">
+              <span class="wqc-hotkey-manage-label">
+                <svg class="wqc-hotkey-manage-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="2.25" y="3.5" width="11.5" height="9" rx="1.5"></rect>
+                  <path d="M4.5 6h.01M7 6h.01M9.5 6h.01M12 6h.01M4.5 8.5h.01M7 8.5h.01M9.5 8.5H12"></path>
+                </svg>
+                <span>管理</span>
+              </span>
+              <svg class="wqc-hotkey-manage-chevron" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="m6 3.75 4.25 4.25L6 12.25"></path>
+              </svg>
+            </button>
+          </div>
+        </section>
+
+        <div class="wqc-config-dialog-backdrop wqc-hotkey-dialog-backdrop" *ngIf="pluginHotkeyDialogOpen" (click)="closePluginHotkeyDialog()">
+          <section class="wqc-config-dialog wqc-hotkey-dialog" role="dialog" aria-modal="true" aria-labelledby="wqc-hotkey-dialog-title" (click)="$event.stopPropagation()">
+            <header class="wqc-hotkey-dialog-header">
+              <h4 id="wqc-hotkey-dialog-title">快捷键设置</h4>
+              <div class="wqc-hotkey-dialog-header-actions">
+                <span class="wqc-help wqc-hotkey-rules" tabindex="0" aria-label="查看快捷键规则" aria-describedby="wqc-hotkey-rules-tooltip">
+                  <span class="wqc-help-icon" aria-hidden="true">?</span>
+                  <span class="wqc-help-tooltip wqc-hotkey-rules-tooltip" id="wqc-hotkey-rules-tooltip" role="tooltip">
+                    <strong>快捷键规则</strong>
+                    <span>F1–F24 可以单独绑定，也可以与 Shift、Ctrl、Alt 或 Meta 组合。</span>
+                    <span>字母、数字、方向键等必须包含 Ctrl、Alt 或 Meta；不支持仅用 Shift 与普通键组合。</span>
+                    <span>切换焦点还可以单独使用 Escape。</span>
+                  </span>
+                </span>
+                <button class="wqc-hotkey-dialog-close" type="button" aria-label="关闭快捷键设置" [disabled]="pluginHotkeySaving" (click)="closePluginHotkeyDialog()">×</button>
+              </div>
+            </header>
+
+            <div class="wqc-hotkey-search" role="search">
+              <div class="wqc-hotkey-search-field">
+                <svg class="wqc-hotkey-search-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <circle cx="7" cy="7" r="4.25"></circle>
+                  <path d="m10.25 10.25 3 3"></path>
+                </svg>
+                <input class="form-control wqc-hotkey-search-input" type="search" placeholder="搜索功能、范围或快捷键" aria-label="搜索快捷键设置" [value]="pluginHotkeySearchQuery" (input)="setPluginHotkeySearch($event)">
+                <button class="wqc-hotkey-search-clear" type="button" aria-label="清空快捷键搜索" *ngIf="pluginHotkeySearchQuery" (click)="clearPluginHotkeySearch()">×</button>
+              </div>
+              <button class="btn btn-secondary wqc-hotkey-restore-all" type="button" [disabled]="pluginHotkeySaving || pluginHotkeyDraftIsDefault" (click)="resetAllPluginHotkeys()">恢复默认</button>
+            </div>
+
+            <div class="wqc-hotkey-table-wrap" (scroll)="hideHotkeyCommandTooltip()">
+              <table class="wqc-hotkey-table">
+                <thead>
+                  <tr>
+                    <th scope="col">功能</th>
+                    <th scope="col">生效范围</th>
+                    <th scope="col">当前快捷键</th>
+                    <th scope="col">状态</th>
+                    <th scope="col" class="wqc-hotkey-action-column">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="wqc-hotkey-group-row" *ngIf="filteredPluginHotkeyDefinitions.length || !pluginHotkeySearchQuery">
+                    <th colspan="5" scope="rowgroup">
+                      <span>插件操作</span>
+                      <small>{{ filteredPluginHotkeyDefinitions.length }}</small>
+                    </th>
+                  </tr>
+                  <tr *ngFor="let item of filteredPluginHotkeyDefinitions" [class.wqc-hotkey-row-recording]="recordingHotkeyAction === item.action">
+                    <td class="wqc-hotkey-function-cell">
+                      <div class="wqc-hotkey-function-content">
+                        <strong>{{ item.title }}</strong>
+                        <small>{{ item.description }}</small>
+                      </div>
+                    </td>
+                    <td><span class="wqc-hotkey-scope">{{ item.scope }}</span></td>
+                    <td>
+                      <div class="wqc-hotkey-capture-preview" role="status" aria-live="polite" *ngIf="recordingHotkeyAction === item.action">
+                        <span class="wqc-hotkey-capture-waiting" *ngIf="!recordingPressedKeys.length">等待按键…</span>
+                        <ng-container *ngFor="let key of recordingPressedKeys; index as keyIndex">
+                          <span class="wqc-hotkey-capture-plus" aria-hidden="true" *ngIf="keyIndex">+</span>
+                          <kbd class="wqc-hotkey-capture-key">{{ key }}</kbd>
+                        </ng-container>
+                      </div>
+                      <ng-container *ngIf="recordingHotkeyAction !== item.action">
+                        <div class="wqc-hotkey-bindings" *ngIf="getPluginHotkeys(item.action).length; else noPluginHotkey">
+                          <span class="wqc-hotkey-binding" *ngFor="let binding of getPluginHotkeys(item.action); index as bindingIndex" [class.wqc-hotkey-binding-conflict]="getPluginHotkeyConflict(item.action, binding)" [class.wqc-hotkey-binding-captured]="isRecentlyCapturedPluginHotkey(item.action, binding)">
+                            <kbd>{{ formatPluginHotkey(binding) }}</kbd>
+                            <button type="button" aria-label="删除快捷键" [disabled]="pluginHotkeySaving" (click)="removePluginHotkey(item.action, bindingIndex)">×</button>
+                          </span>
+                        </div>
+                        <ng-template #noPluginHotkey><span class="wqc-hotkey-empty">未绑定</span></ng-template>
+                      </ng-container>
+                    </td>
+                    <td class="wqc-hotkey-status-cell">
+                      <span class="wqc-hotkey-conflict-state" *ngIf="getPluginHotkeyStatus(item.action) as conflict">
+                        <span class="wqc-hotkey-conflict">冲突</span>
+                        <button class="wqc-hotkey-conflict-detail" type="button" [attr.aria-label]="'冲突详情：' + conflict">
+                          详情
+                          <span class="wqc-help-tooltip wqc-hotkey-conflict-tooltip" role="tooltip">{{ conflict }}</span>
+                        </button>
+                      </span>
+                      <span class="wqc-hotkey-status-ok" *ngIf="!getPluginHotkeyStatus(item.action) && getPluginHotkeys(item.action).length">正常</span>
+                      <span class="wqc-hotkey-empty" *ngIf="!getPluginHotkeys(item.action).length">未绑定</span>
+                    </td>
+                    <td class="wqc-hotkey-action-cell">
+                      <div class="wqc-hotkey-row-actions">
+                        <button class="btn btn-secondary" type="button" [disabled]="pluginHotkeySaving" [class.wqc-hotkey-recording]="recordingHotkeyAction === item.action" (click)="startPluginHotkeyCapture(item.action, $event)">
+                          {{ recordingHotkeyAction === item.action ? '录制中…' : '添加' }}
+                        </button>
+                        <button class="wqc-hotkey-clear" type="button" [disabled]="pluginHotkeySaving || !getPluginHotkeys(item.action).length" (click)="clearPluginHotkey(item.action)">清除</button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr class="wqc-hotkey-group-row wqc-command-hotkey-group" *ngIf="filteredCommandHotkeyCommands.length || !pluginHotkeySearchQuery">
+                    <th colspan="5" scope="rowgroup">
+                      <button class="wqc-hotkey-group-toggle" type="button" [attr.aria-expanded]="commandHotkeyRowsVisible" (click)="toggleCommandHotkeySection()">
+                        <span class="wqc-hotkey-group-label">
+                          <span>命令快捷键</span>
+                          <small>{{ filteredCommandHotkeyCommands.length }}</small>
+                        </span>
+                        <span class="wqc-hotkey-group-toggle-action">
+                          <span>{{ commandHotkeySectionExpanded ? '收起' : '展开' }}</span>
+                          <svg class="wqc-hotkey-group-chevron" [class.wqc-expanded]="commandHotkeySectionExpanded" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="m4 6 4 4 4-4"></path>
+                          </svg>
+                        </span>
+                      </button>
+                    </th>
+                  </tr>
+                  <ng-container *ngIf="commandHotkeyRowsVisible">
+                    <tr *ngFor="let command of filteredCommandHotkeyCommands" [class.wqc-hotkey-row-recording]="recordingCommandHotkeyId === command.id">
+                      <td class="wqc-hotkey-function-cell">
+                        <div class="wqc-hotkey-function-content">
+                          <strong data-i18n-skip>{{ command.name }}</strong>
+                          <small data-i18n-skip>{{ command.description || command.command }}</small>
+                        </div>
+                      </td>
+                      <td><span class="wqc-hotkey-scope">Tabby全局</span></td>
+                      <td>
+                        <div class="wqc-hotkey-capture-preview" role="status" aria-live="polite" *ngIf="recordingCommandHotkeyId === command.id">
+                          <span class="wqc-hotkey-capture-waiting" *ngIf="!recordingPressedKeys.length">等待按键…</span>
+                          <ng-container *ngFor="let key of recordingPressedKeys; index as keyIndex">
+                            <span class="wqc-hotkey-capture-plus" aria-hidden="true" *ngIf="keyIndex">+</span>
+                            <kbd class="wqc-hotkey-capture-key">{{ key }}</kbd>
+                          </ng-container>
+                        </div>
+                        <ng-container *ngIf="recordingCommandHotkeyId !== command.id">
+                          <span class="wqc-hotkey-binding wqc-command-hotkey-binding" *ngIf="getCommandHotkey(command.id) as shortcut; else noCommandHotkey" [class.wqc-hotkey-binding-captured]="isRecentlyCapturedCommandHotkey(command.id, shortcut)">
+                            <kbd>{{ shortcut }}</kbd>
+                          </span>
+                          <ng-template #noCommandHotkey><span class="wqc-hotkey-empty">未绑定</span></ng-template>
+                        </ng-container>
+                      </td>
+                      <td class="wqc-hotkey-status-cell">
+                        <span class="wqc-hotkey-conflict-state" *ngIf="getCommandHotkeyConflict(command.id) as conflict">
+                          <span class="wqc-hotkey-conflict">冲突</span>
+                          <button class="wqc-hotkey-conflict-detail" type="button" [attr.aria-label]="'冲突详情：' + conflict">
+                            详情
+                            <span class="wqc-help-tooltip wqc-hotkey-conflict-tooltip" role="tooltip">{{ conflict }}</span>
+                          </button>
+                        </span>
+                        <span class="wqc-hotkey-status-ok" *ngIf="!getCommandHotkeyConflict(command.id) && getCommandHotkey(command.id)">正常</span>
+                        <span class="wqc-hotkey-empty" *ngIf="!getCommandHotkey(command.id)">未绑定</span>
+                      </td>
+                      <td class="wqc-hotkey-action-cell">
+                        <div class="wqc-hotkey-row-actions">
+                          <button class="btn btn-secondary" type="button" [disabled]="pluginHotkeySaving" [class.wqc-hotkey-recording]="recordingCommandHotkeyId === command.id" (click)="startCommandHotkeyCapture(command.id, $event)">
+                            {{ recordingCommandHotkeyId === command.id ? '录制中…' : (getCommandHotkey(command.id) ? '修改' : '添加') }}
+                          </button>
+                          <button class="wqc-hotkey-clear" type="button" [disabled]="pluginHotkeySaving || !getCommandHotkey(command.id)" (click)="clearCommandHotkey(command.id)">清除</button>
+                          <button class="wqc-hotkey-command-open" type="button" [disabled]="pluginHotkeySaving" [attr.aria-label]="'打开命令：' + command.name" aria-describedby="wqc-hotkey-command-floating-tooltip" (mouseenter)="showHotkeyCommandTooltip($event)" (mouseleave)="hideHotkeyCommandTooltip()" (focus)="showHotkeyCommandTooltip($event)" (blur)="hideHotkeyCommandTooltip()" (click)="openCommandFromHotkeyDialog(command.id)">
+                            <span aria-hidden="true">↗</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </ng-container>
+                  <tr *ngIf="!filteredPluginHotkeyDefinitions.length && !filteredCommandHotkeyCommands.length">
+                    <td class="wqc-hotkey-no-results" colspan="5">没有匹配的快捷键</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="wqc-hotkey-dialog-message" role="alert" *ngIf="pluginHotkeyDialogError">{{ pluginHotkeyDialogError }}</div>
+            <div class="wqc-hotkey-note">冲突检测覆盖本插件、命令快捷键和 Tabby 已配置操作，不包含操作系统或其他应用的全局快捷键。</div>
+          </section>
+          <div class="wqc-hotkey-command-floating-tooltip" id="wqc-hotkey-command-floating-tooltip" role="tooltip" *ngIf="hotkeyCommandTooltip" [style.left.px]="hotkeyCommandTooltip.left" [style.top.px]="hotkeyCommandTooltip.top">
+            {{ hotkeyCommandTooltip.text }}
+          </div>
+        </div>
+
+        <section class="wqc-section">
+          <h4>操作与输入</h4>
+          <div class="wqc-settings-list">
+            <div class="wqc-setting-row">
+              <span class="wqc-setting-label">打开抽屉后输入位置</span>
+              <div class="wqc-segmented" role="radiogroup" aria-label="打开抽屉后键盘输入位置">
+                <button type="button" role="radio" [attr.aria-checked]="root.drawerInitialFocus !== 'terminal'" [class.wqc-selected]="root.drawerInitialFocus !== 'terminal'" (click)="setInitialFocusValue('drawer')">命令搜索</button>
+                <button type="button" role="radio" [attr.aria-checked]="root.drawerInitialFocus === 'terminal'" [class.wqc-selected]="root.drawerInitialFocus === 'terminal'" (click)="setInitialFocusValue('terminal')">当前终端</button>
+              </div>
+            </div>
+            <div class="wqc-setting-row">
+              <span class="wqc-setting-label">发送命令后输入位置</span>
+              <div class="wqc-segmented" role="radiogroup" aria-label="发送命令后键盘输入位置">
+                <button type="button" role="radio" [attr.aria-checked]="root.focusTerminalAfterSend !== true" [class.wqc-selected]="root.focusTerminalAfterSend !== true" (click)="setBooleanValue('focusTerminalAfterSend', false)">保持原位</button>
+                <button type="button" role="radio" [attr.aria-checked]="root.focusTerminalAfterSend === true" [class.wqc-selected]="root.focusTerminalAfterSend === true" (click)="setBooleanValue('focusTerminalAfterSend', true)">返回终端</button>
+              </div>
+            </div>
+            <div class="wqc-setting-row">
+              <span class="wqc-setting-label">快捷键提示</span>
+              <div class="wqc-segmented" role="radiogroup" aria-label="键盘操作与输入位置提示">
+                <button type="button" role="radio" [attr.aria-checked]="root.showOperationHints === false" [class.wqc-selected]="root.showOperationHints === false" (click)="setBooleanValue('showOperationHints', false)">隐藏</button>
+                <button type="button" role="radio" [attr.aria-checked]="root.showOperationHints !== false" [class.wqc-selected]="root.showOperationHints !== false" (click)="setBooleanValue('showOperationHints', true)">显示</button>
+              </div>
+            </div>
+          </div>
+          <h5 class="wqc-settings-group-title">抽屉显示</h5>
+          <div class="wqc-settings-list">
+            <div class="wqc-setting-row">
+              <span class="wqc-setting-label">面板宽度</span>
+              <input class="form-control wqc-setting-control wqc-setting-number wqc-number-input" type="number" min="420" max="760" step="20" title="" [value]="root.drawerWidth || 560" (wheel)="releaseNumberWheel($event)" (change)="setNumber('drawerWidth', $event, 420, 760)">
+            </div>
+          </div>
+        </section>
+
         <section class="wqc-section">
           <h4>执行</h4>
-          <div class="wqc-grid">
-            <label class="wqc-check">
-              <input class="wqc-command-check" type="checkbox" [checked]="root.requireConfirmBeforeExecute" (change)="setBoolean('requireConfirmBeforeExecute', $event)">
-              <span>每次执行前确认</span>
-            </label>
-            <label class="wqc-check">
-              <input class="wqc-command-check" type="checkbox" [checked]="root.confirmBroadcast !== false" (change)="setBoolean('confirmBroadcast', $event)">
-              <span>发送到所有会话时必须确认</span>
-            </label>
+          <h5 class="wqc-settings-group-title wqc-settings-group-title-first">确认与安全</h5>
+          <div class="wqc-settings-list">
+            <div class="wqc-setting-row">
+              <span class="wqc-field-label wqc-setting-label">
+                执行前确认
+                <span class="wqc-help wqc-setting-help" tabindex="0" aria-label="查看按需确认说明">
+                  <span class="wqc-help-icon" aria-hidden="true">?</span>
+                  <span class="wqc-help-tooltip" role="tooltip">选择“按需”时，依旧会触发“高风险命令保护”和“发送到所有会话”规则。</span>
+                </span>
+              </span>
+              <div class="wqc-segmented" role="radiogroup" aria-label="执行前确认">
+                <button type="button" role="radio" [attr.aria-checked]="!root.requireConfirmBeforeExecute" [class.wqc-selected]="!root.requireConfirmBeforeExecute" (click)="setBooleanValue('requireConfirmBeforeExecute', false)">按需</button>
+                <button type="button" role="radio" [attr.aria-checked]="root.requireConfirmBeforeExecute" [class.wqc-selected]="root.requireConfirmBeforeExecute" (click)="setBooleanValue('requireConfirmBeforeExecute', true)">每次</button>
+              </div>
+            </div>
+            <div class="wqc-setting-row">
+              <span class="wqc-field-label wqc-setting-label">
+                高风险命令保护
+                <span class="wqc-help wqc-setting-help" tabindex="0" aria-label="查看高风险命令二次弹窗确认说明">
+                  <span class="wqc-help-icon" aria-hidden="true">?</span>
+                  <span class="wqc-help-tooltip" role="tooltip">开启时，检测到删除、磁盘写入、强制清理等高风险命令，会弹出确认框；其中严重风险还需输入命令名称。关闭后，高风险命令不再单独触发确认，但“执行前确认：每次”和“发送到所有会话：始终确认”仍各自生效。关闭会降低误操作保护；自动化中的高风险命令仍会被跳过。</span>
+                </span>
+              </span>
+              <div class="wqc-segmented" role="radiogroup" aria-label="高风险命令保护">
+                <button type="button" role="radio" [attr.aria-checked]="root.confirmHighRiskCommands === false" [class.wqc-selected]="root.confirmHighRiskCommands === false" (click)="setBooleanValue('confirmHighRiskCommands', false)">关闭</button>
+                <button type="button" role="radio" [attr.aria-checked]="root.confirmHighRiskCommands !== false" [class.wqc-selected]="root.confirmHighRiskCommands !== false" (click)="setBooleanValue('confirmHighRiskCommands', true)">二次确认</button>
+              </div>
+            </div>
+            <div class="wqc-setting-row">
+              <span class="wqc-setting-label">发送到所有会话</span>
+              <div class="wqc-segmented" role="radiogroup" aria-label="发送到所有会话确认规则">
+                <button type="button" role="radio" [attr.aria-checked]="root.confirmBroadcast === false" [class.wqc-selected]="root.confirmBroadcast === false" (click)="setBooleanValue('confirmBroadcast', false)">不额外确认</button>
+                <button type="button" role="radio" [attr.aria-checked]="root.confirmBroadcast !== false" [class.wqc-selected]="root.confirmBroadcast !== false" (click)="setBooleanValue('confirmBroadcast', true)">始终确认</button>
+              </div>
+            </div>
           </div>
-          <div class="wqc-grid">
-            <div class="wqc-field">
-              <span>逐行发送失败后</span>
-              <div class="wqc-select-shell" [class.wqc-open]="failureMenuOpen" (click)="$event.stopPropagation()">
-                <button class="form-control wqc-select" type="button" aria-haspopup="listbox" [attr.aria-expanded]="failureMenuOpen" (click)="toggleFailureMenu()">
-                  <span>{{ failureStrategyLabel }}</span>
-                </button>
-                <div class="wqc-select-menu" role="listbox" *ngIf="failureMenuOpen">
-                  <button type="button" role="option" [attr.aria-selected]="root.failureStrategy === 'continue'" [class.wqc-selected]="root.failureStrategy === 'continue'" (click)="setFailureStrategy('continue')">继续执行</button>
-                  <button type="button" role="option" [attr.aria-selected]="root.failureStrategy === 'stop'" [class.wqc-selected]="root.failureStrategy === 'stop'" (click)="setFailureStrategy('stop')">停止执行</button>
-                  <button type="button" role="option" [attr.aria-selected]="!root.failureStrategy || root.failureStrategy === 'manual'" [class.wqc-selected]="!root.failureStrategy || root.failureStrategy === 'manual'" (click)="setFailureStrategy('manual')">手动确认</button>
+          <div class="wqc-settings-subgrid">
+            <div class="wqc-settings-subgroup">
+              <h5 class="wqc-settings-group-title">逐行执行</h5>
+              <div class="wqc-settings-list">
+                <div class="wqc-setting-row">
+                  <span class="wqc-setting-label">发送失败后</span>
+                  <div class="wqc-select-shell wqc-setting-control" [class.wqc-open]="failureMenuOpen" (click)="$event.stopPropagation()">
+                    <button class="form-control wqc-select" type="button" aria-haspopup="listbox" [attr.aria-expanded]="failureMenuOpen" (click)="toggleFailureMenu()">
+                      <span>{{ failureStrategyLabel }}</span>
+                    </button>
+                    <div class="wqc-select-menu" role="listbox" *ngIf="failureMenuOpen">
+                      <button type="button" role="option" [attr.aria-selected]="root.failureStrategy === 'continue'" [class.wqc-selected]="root.failureStrategy === 'continue'" (click)="setFailureStrategy('continue')">继续执行</button>
+                      <button type="button" role="option" [attr.aria-selected]="root.failureStrategy === 'stop'" [class.wqc-selected]="root.failureStrategy === 'stop'" (click)="setFailureStrategy('stop')">停止执行</button>
+                      <button type="button" role="option" [attr.aria-selected]="!root.failureStrategy || root.failureStrategy === 'manual'" [class.wqc-selected]="!root.failureStrategy || root.failureStrategy === 'manual'" (click)="setFailureStrategy('manual')">手动确认</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-            <label>
-              <span>导出文件名</span>
-              <input class="form-control" [value]="root.exportFileName || defaultExportFileName" (change)="setString('exportFileName', $event)">
-            </label>
-            <label>
-              <span>面板宽度</span>
-              <input class="form-control" type="number" min="420" max="760" step="20" [value]="root.drawerWidth || 560" (change)="setNumber('drawerWidth', $event, 420, 760)">
-            </label>
-            <label>
-              <span class="wqc-field-label">
-                输出匹配缓冲区
-                <span class="wqc-help" tabindex="0" aria-label="查看输出匹配缓冲区说明">
-                  <span class="wqc-help-icon" aria-hidden="true">?</span>
-                  <span class="wqc-help-tooltip" role="tooltip">
-                    用于输出触发器。插件会保留终端最近输出的这些字符，并在其中查找成功或错误关键词。这里按字符数计算，不是行数。数值太小可能让较早的输出被覆盖，导致匹配不到；数值越大则会多占用少量内存。一般保持默认 8000，只有大量连续输出把目标文字冲掉时才需要调大。
+            <div class="wqc-settings-subgroup">
+              <h5 class="wqc-settings-group-title">高级</h5>
+              <div class="wqc-settings-list">
+                <div class="wqc-setting-row">
+                  <span class="wqc-field-label wqc-setting-label">
+                    输出匹配缓冲区
+                    <span class="wqc-help wqc-setting-help" tabindex="0" aria-label="查看输出匹配缓冲区说明">
+                      <span class="wqc-help-icon" aria-hidden="true">?</span>
+                      <span class="wqc-help-tooltip" role="tooltip">用于输出触发器。插件会保留终端最近输出的这些字符，并在其中查找成功或错误关键词。这里按字符数计算，不是行数。数值太小可能让较早的输出被覆盖，导致匹配不到；数值越大则会多占用少量内存。一般保持默认 8000，只有大量连续输出把目标文字冲掉时才需要调大。</span>
+                    </span>
                   </span>
-                </span>
-              </span>
-              <input class="form-control" type="number" min="1000" step="1000" [value]="root.recentOutputLimit || 8000" (change)="setNumber('recentOutputLimit', $event, 1000, 50000)">
-            </label>
+                  <input class="form-control wqc-setting-control wqc-setting-number wqc-number-input" type="number" min="1000" step="1000" [value]="root.recentOutputLimit || 8000" (wheel)="releaseNumberWheel($event)" (change)="setNumber('recentOutputLimit', $event, 1000, 50000)">
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -242,7 +533,7 @@ const historyDateFormatters = {
           <div class="wqc-grid">
             <label>
               <span>日志保留条数</span>
-              <input class="form-control" type="number" min="20" max="2000" step="20" [value]="root.logLimit || 200" (change)="setNumber('logLimit', $event, 20, 2000)">
+              <input class="form-control wqc-number-input" type="number" min="20" max="2000" step="20" [value]="root.logLimit || 200" (wheel)="releaseNumberWheel($event)" (change)="setNumber('logLimit', $event, 20, 2000)">
             </label>
             <div class="wqc-actions">
               <button class="btn btn-secondary" type="button" (click)="clearLogs()">清空运行日志</button>
@@ -360,6 +651,21 @@ const historyDateFormatters = {
           </div>
         </section>
 
+        <div class="wqc-config-dialog-backdrop" *ngIf="exportConfigDialogOpen" (click)="closeExportPluginConfig()">
+          <section class="wqc-config-dialog wqc-export-dialog" role="dialog" aria-modal="true" aria-labelledby="wqc-config-export-title" (click)="$event.stopPropagation()">
+            <h4 id="wqc-config-export-title">导出配置</h4>
+            <p><span>设置导出文件名，日期占位符</span> <code data-i18n-skip>{{ '{date}' }}</code> <span>会在导出时替换为当前日期。</span></p>
+            <label class="wqc-export-field">
+              <span>导出文件名</span>
+              <input class="form-control wqc-export-file-name" type="text" autocomplete="off" [value]="exportFileNameDraft" (input)="setExportFileNameDraft($event)" (keydown.enter)="confirmExportPluginConfig($event)">
+            </label>
+            <div class="wqc-config-dialog-actions">
+              <button class="btn btn-secondary" type="button" (click)="closeExportPluginConfig()">取消</button>
+              <button class="btn btn-primary" type="button" [disabled]="!exportFileNameDraft.trim()" (click)="confirmExportPluginConfig()">导出</button>
+            </div>
+          </section>
+        </div>
+
         <div class="wqc-config-dialog-backdrop" *ngIf="pendingConfigImport" (click)="cancelPendingConfigImport()">
           <section class="wqc-config-dialog" role="dialog" aria-modal="true" aria-labelledby="wqc-config-import-title" (click)="$event.stopPropagation()">
             <h4 id="wqc-config-import-title">{{ pendingConfigImport.kind === 'commands' ? '导入命令' : '选择导入内容' }}</h4>
@@ -370,6 +676,9 @@ const historyDateFormatters = {
             <p *ngIf="pendingConfigImport.kind === 'config'">
               <span class="wqc-config-dialog-line">该文件包含命令和插件配置，请选择要导入的内容。</span>
               <span class="wqc-config-dialog-line">导入完整配置会替换当前命令和设置。</span>
+            </p>
+            <p class="wqc-muted" *ngIf="pendingConfigImport.kind === 'config' && pendingConfigImport.config?.pluginHotkeys">
+              完整配置包含插件操作快捷键；导入后会同步更新 Tabby 快捷键设置。
             </p>
             <div class="wqc-config-dialog-actions">
               <button class="btn btn-secondary" type="button" (click)="cancelPendingConfigImport()">取消</button>
@@ -1323,6 +1632,739 @@ const historyDateFormatters = {
         width: 100%;
       }
 
+      .wqc-hotkey-summary-row,
+      .wqc-hotkey-summary-copy,
+      .wqc-hotkey-summary-meta,
+      .wqc-hotkey-dialog-header,
+      .wqc-hotkey-bindings,
+      .wqc-hotkey-row-actions {
+        display: flex;
+        align-items: center;
+      }
+
+      .wqc-hotkey-summary-row {
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 42px;
+      }
+
+      .wqc-hotkey-summary-copy {
+        gap: 14px;
+        min-width: 0;
+      }
+
+      .wqc-hotkey-section .wqc-hotkey-summary-copy h4 {
+        flex: none;
+        margin: 0;
+        line-height: 1.35;
+      }
+
+      .wqc-hotkey-summary-meta {
+        gap: 7px;
+        color: var(--wqc-muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .wqc-hotkey-summary-warning {
+        color: color-mix(in srgb, var(--bs-warning) 78%, var(--bs-body-color));
+      }
+
+      .wqc-hotkey-manage {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-width: 80px;
+        min-height: 34px;
+        padding: 6px 7px;
+        color: var(--bs-body-color);
+        background: color-mix(in srgb, var(--bs-body-color) 2.5%, transparent);
+        border: 1px solid color-mix(in srgb, var(--wqc-surface-border) 88%, transparent);
+        border-radius: 8px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1;
+        transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+      }
+
+      .wqc-hotkey-manage-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .wqc-hotkey-manage-icon,
+      .wqc-hotkey-manage-chevron {
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .wqc-hotkey-manage-icon {
+        width: 15px;
+        height: 15px;
+        color: var(--wqc-muted);
+        stroke-width: 1.35;
+      }
+
+      .wqc-hotkey-manage-chevron {
+        width: 11px;
+        height: 11px;
+        color: var(--wqc-muted);
+        stroke-width: 1.5;
+      }
+
+      .wqc-hotkey-manage:hover {
+        color: var(--bs-primary);
+        background: color-mix(in srgb, var(--bs-primary) 6%, transparent);
+        border-color: color-mix(in srgb, var(--bs-primary) 28%, var(--wqc-surface-border));
+      }
+
+      .wqc-hotkey-manage:hover .wqc-hotkey-manage-icon,
+      .wqc-hotkey-manage:hover .wqc-hotkey-manage-chevron {
+        color: var(--bs-primary);
+      }
+
+      .wqc-hotkey-manage:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--bs-primary) 62%, transparent);
+        outline-offset: 2px;
+      }
+
+      .wqc-config-dialog-backdrop.wqc-hotkey-dialog-backdrop {
+        z-index: 1080;
+      }
+
+      .wqc-config-dialog.wqc-hotkey-dialog {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
+        width: min(820px, 100%);
+        max-height: min(680px, calc(100vh - 40px));
+        overflow: hidden;
+        padding: 0;
+      }
+
+      .wqc-hotkey-dialog-header {
+        justify-content: space-between;
+        gap: 16px;
+        padding: 16px 18px 14px;
+        border-bottom: 1px solid var(--wqc-surface-border);
+      }
+
+      .wqc-config-dialog .wqc-hotkey-dialog-header h4 {
+        margin: 0;
+        padding: 0;
+        border: 0;
+      }
+
+      .wqc-hotkey-dialog-header-actions {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .wqc-hotkey-rules .wqc-help-icon {
+        width: 14px;
+        height: 14px;
+        font-size: 10px;
+      }
+
+      .wqc-help-tooltip.wqc-hotkey-rules-tooltip {
+        top: calc(100% + 8px);
+        bottom: auto;
+        right: -2px;
+        width: min(390px, calc(100vw - 48px));
+        text-align: left;
+      }
+
+      .wqc-hotkey-rules-tooltip > strong,
+      .wqc-hotkey-rules-tooltip > span {
+        display: block;
+      }
+
+      .wqc-hotkey-rules-tooltip > strong {
+        margin-bottom: 5px;
+        font-size: 12px;
+      }
+
+      .wqc-hotkey-rules-tooltip > span + span {
+        margin-top: 3px;
+      }
+
+      .wqc-help-tooltip.wqc-hotkey-rules-tooltip::after {
+        top: auto;
+        bottom: 100%;
+        right: 10px;
+        transform: translateY(4px) rotate(225deg);
+      }
+
+      .wqc-hotkey-dialog-close {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        color: var(--wqc-muted);
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        cursor: pointer;
+        font-size: 20px;
+        line-height: 1;
+      }
+
+      .wqc-hotkey-dialog-close:hover:not(:disabled) {
+        color: var(--bs-body-color);
+        background: color-mix(in srgb, var(--bs-body-color) 6%, transparent);
+        border-color: var(--wqc-surface-border);
+      }
+
+      .wqc-hotkey-search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 18px;
+        border-bottom: 1px solid color-mix(in srgb, var(--wqc-surface-border) 72%, transparent);
+      }
+
+      .wqc-hotkey-search-field {
+        position: relative;
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .wqc-hotkey-search-icon {
+        position: absolute;
+        left: 11px;
+        top: 10px;
+        width: 14px;
+        height: 14px;
+        color: var(--wqc-muted);
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.35;
+        pointer-events: none;
+      }
+
+      .wqc-hotkey-search-input {
+        width: 100%;
+        height: 34px;
+        padding: 6px 34px 6px 32px;
+        font-size: 12px;
+      }
+
+      .wqc-hotkey-search-clear {
+        position: absolute;
+        top: 5px;
+        right: 7px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        color: var(--wqc-muted);
+        background: transparent;
+        border: 0;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+      }
+
+      .wqc-hotkey-search-clear:hover,
+      .wqc-hotkey-search-clear:focus-visible {
+        color: var(--bs-body-color);
+        background: color-mix(in srgb, var(--bs-body-color) 6%, transparent);
+      }
+
+      .wqc-hotkey-restore-all {
+        flex: 0 0 auto;
+        height: 34px;
+        white-space: nowrap;
+      }
+
+      .wqc-hotkey-table-wrap {
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .wqc-hotkey-table {
+        width: 100%;
+        min-width: 720px;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      .wqc-hotkey-table th,
+      .wqc-hotkey-table td {
+        padding: 11px 10px;
+        vertical-align: middle;
+        border-bottom: 1px solid color-mix(in srgb, var(--wqc-surface-border) 76%, transparent);
+        text-align: center;
+      }
+
+      .wqc-hotkey-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        color: var(--wqc-muted);
+        background: var(--bs-body-bg);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .wqc-hotkey-table thead th:nth-child(1) { width: 30%; }
+      .wqc-hotkey-table thead th:nth-child(2) { width: 14%; }
+      .wqc-hotkey-table thead th:nth-child(3) { width: 20%; }
+      .wqc-hotkey-table thead th:nth-child(4) { width: 12%; }
+      .wqc-hotkey-table thead th:nth-child(5) { width: 24%; }
+
+      .wqc-hotkey-table th:nth-child(2),
+      .wqc-hotkey-table td:nth-child(2),
+      .wqc-hotkey-table th:nth-child(4),
+      .wqc-hotkey-table td:nth-child(4),
+      .wqc-hotkey-table th:nth-child(5),
+      .wqc-hotkey-table td:nth-child(5) {
+        white-space: nowrap;
+      }
+
+      .wqc-hotkey-table th.wqc-hotkey-action-column {
+        text-align: center;
+      }
+
+      .wqc-hotkey-group-row th {
+        padding: 8px 10px;
+        color: var(--bs-body-color);
+        background: color-mix(in srgb, var(--bs-body-color) 3.5%, var(--bs-body-bg));
+        border-bottom-color: var(--wqc-surface-border);
+        text-align: left;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .wqc-hotkey-group-row th > span,
+      .wqc-hotkey-group-row th > small {
+        vertical-align: middle;
+      }
+
+      .wqc-hotkey-group-row th > small {
+        margin-left: 7px;
+        color: var(--wqc-muted);
+        font-size: 10px;
+        font-weight: 400;
+      }
+
+      .wqc-command-hotkey-group th {
+        padding: 0;
+        border-top: 1px solid var(--wqc-surface-border);
+      }
+
+      .wqc-hotkey-group-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding: 8px 10px;
+        color: inherit;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        cursor: pointer;
+        font: inherit;
+        text-align: left;
+      }
+
+      .wqc-hotkey-group-toggle:hover,
+      .wqc-hotkey-group-toggle:focus-visible {
+        background: color-mix(in srgb, var(--bs-primary) 6%, transparent);
+      }
+
+      .wqc-hotkey-group-toggle:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--bs-primary) 42%, transparent);
+        outline-offset: -2px;
+      }
+
+      .wqc-hotkey-group-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .wqc-hotkey-group-label > small {
+        color: var(--wqc-muted);
+        font-size: 10px;
+        font-weight: 400;
+      }
+
+      .wqc-hotkey-group-toggle-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        color: var(--wqc-muted);
+        font-size: 10px;
+        font-weight: 400;
+      }
+
+      .wqc-hotkey-group-chevron {
+        width: 14px;
+        height: 14px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.5;
+        transition: transform 0.16s ease;
+      }
+
+      .wqc-hotkey-group-chevron.wqc-expanded {
+        transform: rotate(180deg);
+      }
+
+      .wqc-hotkey-action-cell {
+        text-align: center;
+      }
+
+      .wqc-hotkey-status-cell {
+        white-space: nowrap;
+      }
+
+      .wqc-hotkey-table tbody tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .wqc-hotkey-no-results {
+        padding: 30px 16px !important;
+        color: var(--wqc-muted);
+        text-align: center !important;
+      }
+
+      .wqc-hotkey-row-recording td {
+        background: color-mix(in srgb, var(--bs-primary) 5%, transparent);
+      }
+
+      .wqc-hotkey-function-cell strong,
+      .wqc-hotkey-function-cell small {
+        display: block;
+      }
+
+      .wqc-hotkey-function-content {
+        width: fit-content;
+        max-width: calc(100% - 16px);
+        margin: 0 auto;
+        text-align: left;
+      }
+
+      .wqc-hotkey-function-cell strong {
+        font-size: 12px;
+      }
+
+      .wqc-hotkey-function-cell small {
+        margin-top: 3px;
+        color: var(--wqc-muted);
+        font-size: 10px;
+        line-height: 1.35;
+      }
+
+      .wqc-hotkey-scope {
+        display: inline-block;
+        padding: 2px 7px;
+        color: var(--bs-primary);
+        background: color-mix(in srgb, var(--bs-primary) 9%, transparent);
+        border: 1px solid color-mix(in srgb, var(--bs-primary) 25%, var(--bs-border-color));
+        border-radius: 999px;
+        font-size: 9px;
+        line-height: 1.35;
+      }
+
+      .wqc-hotkey-bindings {
+        justify-content: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .wqc-hotkey-capture-preview {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 30px;
+        padding: 3px 7px;
+        color: var(--bs-primary);
+        background: color-mix(in srgb, var(--bs-primary) 7%, var(--bs-body-bg));
+        border: 1px solid color-mix(in srgb, var(--bs-primary) 38%, var(--bs-border-color));
+        border-radius: 7px;
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bs-primary) 5%, transparent);
+      }
+
+      .wqc-hotkey-capture-waiting {
+        color: var(--wqc-muted);
+        font-size: 10px;
+      }
+
+      .wqc-hotkey-capture-key {
+        min-width: 24px;
+        padding: 3px 6px;
+        color: var(--bs-body-color);
+        background: var(--bs-body-bg);
+        border: 1px solid color-mix(in srgb, var(--bs-primary) 28%, var(--bs-border-color));
+        border-radius: 5px;
+        box-shadow: 0 1px 0 color-mix(in srgb, var(--bs-body-color) 15%, transparent);
+        font: 600 10px "Cascadia Code", Consolas, monospace;
+        text-align: center;
+      }
+
+      .wqc-hotkey-capture-plus {
+        margin: 0 3px;
+        color: var(--wqc-muted);
+        font-size: 9px;
+      }
+
+      .wqc-hotkey-binding {
+        display: inline-flex;
+        align-items: center;
+        overflow: hidden;
+        background: var(--bs-body-bg);
+        border: 1px solid var(--bs-border-color);
+        border-radius: 6px;
+      }
+
+      .wqc-hotkey-binding kbd {
+        padding: 4px 7px;
+        color: var(--bs-body-color);
+        background: transparent;
+        font: 600 11px "Cascadia Code", Consolas, monospace;
+      }
+
+      .wqc-hotkey-binding button {
+        align-self: stretch;
+        width: 26px;
+        padding: 0;
+        color: var(--wqc-muted);
+        background: transparent;
+        border: 0;
+        border-left: 1px solid var(--bs-border-color);
+        cursor: pointer;
+      }
+
+      .wqc-hotkey-binding button:hover {
+        color: var(--bs-danger);
+        background: color-mix(in srgb, var(--bs-danger) 9%, transparent);
+      }
+
+      .wqc-hotkey-binding button:disabled {
+        cursor: default;
+        opacity: 0.45;
+      }
+
+      .wqc-command-hotkey-binding kbd {
+        padding-right: 7px;
+      }
+
+      .wqc-hotkey-binding-conflict {
+        border-color: color-mix(in srgb, var(--bs-warning) 64%, var(--bs-border-color));
+      }
+
+      .wqc-hotkey-binding-captured {
+        animation: wqc-hotkey-captured 900ms ease-out;
+      }
+
+      @keyframes wqc-hotkey-captured {
+        0% {
+          border-color: var(--bs-primary);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--bs-primary) 22%, transparent);
+        }
+        100% {
+          border-color: var(--bs-border-color);
+          box-shadow: 0 0 0 0 transparent;
+        }
+      }
+
+      .wqc-hotkey-empty,
+      .wqc-hotkey-note {
+        color: var(--wqc-muted);
+        font-size: 11px;
+      }
+
+      .wqc-hotkey-conflict {
+        color: color-mix(in srgb, var(--bs-warning) 78%, var(--bs-body-color));
+        font-size: 10px;
+        line-height: 1.35;
+      }
+
+      .wqc-hotkey-conflict-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+      }
+
+      .wqc-hotkey-conflict-detail {
+        position: relative;
+        padding: 1px 3px;
+        color: var(--bs-primary);
+        background: transparent;
+        border: 0;
+        border-radius: 4px;
+        cursor: help;
+        font: inherit;
+        font-size: 9px;
+        line-height: 1.35;
+        text-decoration: underline dotted;
+        text-underline-offset: 2px;
+      }
+
+      .wqc-hotkey-conflict-detail:hover,
+      .wqc-hotkey-conflict-detail:focus-visible {
+        outline: 0;
+        background: color-mix(in srgb, var(--bs-primary) 8%, transparent);
+      }
+
+      .wqc-help-tooltip.wqc-hotkey-conflict-tooltip {
+        top: 50%;
+        right: calc(100% + 7px);
+        bottom: auto;
+        width: max-content;
+        max-width: 270px;
+        padding: 7px 9px;
+        text-align: left;
+        white-space: normal;
+        transform: translate(4px, -50%);
+      }
+
+      .wqc-hotkey-conflict-tooltip::after {
+        display: none;
+      }
+
+      .wqc-hotkey-conflict-detail:hover .wqc-hotkey-conflict-tooltip,
+      .wqc-hotkey-conflict-detail:focus-visible .wqc-hotkey-conflict-tooltip {
+        visibility: visible;
+        opacity: 1;
+        transform: translate(0, -50%);
+      }
+
+      .wqc-hotkey-status-ok {
+        color: var(--wqc-muted);
+        font-size: 10px;
+      }
+
+      .wqc-hotkey-row-actions {
+        justify-content: center;
+        gap: 6px;
+      }
+
+      .wqc-hotkey-row-actions .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 58px;
+        min-height: 28px;
+        padding: 4px 7px;
+        font-size: 10px;
+        text-align: center;
+        white-space: nowrap;
+      }
+
+      .wqc-hotkey-row-actions .wqc-hotkey-recording {
+        color: var(--bs-primary);
+        border-color: var(--bs-primary);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--bs-primary) 13%, transparent);
+      }
+
+      .wqc-hotkey-clear {
+        padding: 3px 2px;
+        color: var(--wqc-muted);
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        font-size: 10px;
+      }
+
+      .wqc-hotkey-clear:hover:not(:disabled) {
+        color: var(--bs-danger);
+      }
+
+      .wqc-hotkey-clear:disabled {
+        cursor: default;
+        opacity: 0.42;
+      }
+
+      .wqc-hotkey-command-open {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 28px;
+        flex: none;
+        padding: 0;
+        color: var(--wqc-muted);
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 14px;
+        line-height: 1;
+      }
+
+      .wqc-hotkey-command-open:hover:not(:disabled),
+      .wqc-hotkey-command-open:focus-visible:not(:disabled) {
+        z-index: 50;
+        outline: 0;
+        color: var(--bs-primary);
+        background: color-mix(in srgb, var(--bs-primary) 7%, transparent);
+        border-color: color-mix(in srgb, var(--bs-primary) 24%, transparent);
+      }
+
+      .wqc-hotkey-command-open:disabled {
+        cursor: default;
+        opacity: 0.42;
+      }
+
+      .wqc-hotkey-command-floating-tooltip {
+        position: fixed;
+        z-index: 1100;
+        width: max-content;
+        max-width: 210px;
+        padding: 7px 9px;
+        color: var(--bs-body-color);
+        background: var(--bs-body-bg);
+        border: 1px solid var(--bs-border-color);
+        border-radius: 7px;
+        box-shadow: 0 9px 24px rgba(0, 0, 0, 0.18);
+        font-size: 11px;
+        font-weight: 400;
+        line-height: 1.45;
+        pointer-events: none;
+        text-align: left;
+        white-space: normal;
+        transform: translate(-100%, -100%);
+      }
+
+      .wqc-hotkey-note {
+        padding: 9px 18px 14px;
+        border-top: 1px solid color-mix(in srgb, var(--wqc-surface-border) 65%, transparent);
+      }
+
+      .wqc-hotkey-dialog-message {
+        margin: 9px 18px 0;
+        padding: 8px 10px;
+        color: color-mix(in srgb, var(--bs-warning) 82%, var(--bs-body-color));
+        background: color-mix(in srgb, var(--bs-warning) 8%, transparent);
+        border: 1px solid color-mix(in srgb, var(--bs-warning) 34%, var(--wqc-surface-border));
+        border-radius: 7px;
+        font-size: 11px;
+      }
+
       .wqc-config-transfer {
         display: flex;
         flex: 0 0 auto;
@@ -1430,6 +2472,133 @@ const historyDateFormatters = {
         margin-bottom: 0;
       }
 
+      .wqc-settings-group-title {
+        margin: 14px 0 5px;
+        color: var(--wqc-muted);
+        font-size: 11px;
+        font-weight: 650;
+        letter-spacing: 0.04em;
+      }
+
+      .wqc-settings-group-title-first {
+        margin-top: 0;
+      }
+
+      .wqc-settings-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        overflow: visible;
+      }
+
+      .wqc-settings-subgrid {
+        display: block;
+      }
+
+      .wqc-settings-subgroup {
+        min-width: 0;
+      }
+
+      .wqc-settings-subgroup + .wqc-settings-subgroup {
+        margin-top: 14px;
+      }
+
+      .wqc-setting-row {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(190px, 240px) minmax(280px, 420px);
+        align-items: center;
+        column-gap: 18px;
+        min-width: 0;
+        min-height: 44px;
+        margin: 0 -8px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        transition: background-color 120ms ease;
+      }
+
+      .wqc-setting-row:hover {
+        background: color-mix(in srgb, var(--bs-body-color) 4%, transparent);
+      }
+
+      .wqc-setting-row:focus-within {
+        background: color-mix(in srgb, var(--wqc-accent) 7%, transparent);
+      }
+
+      .wqc-setting-label {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        min-height: 20px;
+        color: var(--wqc-text);
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.4;
+      }
+
+      .wqc-setting-control {
+        width: 100%;
+      }
+
+      .wqc-setting-number {
+        width: 100%;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .wqc-number-input {
+        appearance: textfield;
+        -moz-appearance: textfield;
+      }
+
+      .wqc-number-input::-webkit-inner-spin-button,
+      .wqc-number-input::-webkit-outer-spin-button {
+        margin: 0;
+        appearance: none;
+      }
+
+      .wqc-segmented {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+        width: 100%;
+        padding: 3px;
+        background: color-mix(in srgb, var(--bs-body-color) 5%, var(--bs-body-bg));
+        border: 1px solid var(--wqc-control-border);
+        border-radius: 8px;
+      }
+
+      .wqc-segmented button {
+        min-height: 28px;
+        padding: 4px 8px;
+        color: var(--wqc-muted);
+        text-align: center;
+        white-space: nowrap;
+        background: transparent;
+        border: 0;
+        border-radius: 6px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        transition: color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+      }
+
+      .wqc-segmented button:hover:not(.wqc-selected) {
+        color: var(--wqc-text);
+        background: color-mix(in srgb, var(--bs-body-color) 5%, transparent);
+      }
+
+      .wqc-segmented button.wqc-selected {
+        color: var(--wqc-accent);
+        background: var(--bs-body-bg);
+        box-shadow: 0 1px 3px color-mix(in srgb, var(--bs-body-color) 15%, transparent);
+        font-weight: 650;
+      }
+
+      .wqc-segmented button:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--wqc-accent) 55%, transparent);
+        outline-offset: 1px;
+      }
+
       label,
       .wqc-field {
         display: grid;
@@ -1506,6 +2675,21 @@ const historyDateFormatters = {
         border-right: 1px solid var(--bs-border-color);
         border-bottom: 1px solid var(--bs-border-color);
         transform: translateY(-4px) rotate(45deg);
+      }
+
+      .wqc-setting-help {
+        position: static;
+      }
+
+      .wqc-setting-help .wqc-help-tooltip {
+        left: 8px;
+        right: auto;
+        width: min(420px, calc(100vw - 64px));
+        overflow-wrap: anywhere;
+      }
+
+      .wqc-setting-help .wqc-help-tooltip::after {
+        display: none;
       }
 
       .wqc-help-tooltip.wqc-status-tooltip-content {
@@ -1600,6 +2784,18 @@ const historyDateFormatters = {
         min-height: 36px;
         cursor: pointer;
         transition: color 150ms ease;
+      }
+
+      .wqc-check-with-help {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 36px;
+      }
+
+      .wqc-check-with-help .wqc-check {
+        flex: 1;
+        min-height: 0;
       }
 
       .wqc-check:hover {
@@ -1900,6 +3096,19 @@ const historyDateFormatters = {
 
       .wqc-config-dialog-line {
         display: block;
+      }
+
+      .wqc-config-dialog.wqc-export-dialog {
+        width: min(460px, 100%);
+      }
+
+      .wqc-export-field {
+        display: grid;
+        gap: 7px;
+        margin-top: 16px;
+        color: var(--wqc-text);
+        font-size: 13px;
+        font-weight: 500;
       }
 
       .wqc-config-dialog-actions {
@@ -2364,6 +3573,10 @@ const historyDateFormatters = {
           grid-template-columns: 1fr;
         }
 
+        .wqc-setting-row {
+          grid-template-columns: minmax(150px, 200px) minmax(0, 1fr);
+        }
+
         .wqc-plugin-footer {
           align-items: flex-start;
         }
@@ -2415,6 +3628,42 @@ const historyDateFormatters = {
       }
 
       @media (max-width: 520px) {
+        .wqc-setting-row {
+          grid-template-columns: minmax(0, 1fr);
+          row-gap: 6px;
+        }
+
+        .wqc-hotkey-summary-row {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .wqc-hotkey-summary-copy {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 5px;
+        }
+
+        .wqc-hotkey-manage {
+          width: 100%;
+        }
+
+        .wqc-hotkey-dialog-backdrop {
+          padding: 10px;
+        }
+
+        .wqc-config-dialog.wqc-hotkey-dialog {
+          max-height: calc(100vh - 20px);
+        }
+
+        .wqc-hotkey-search {
+          flex-wrap: wrap;
+        }
+
+        .wqc-hotkey-search-field {
+          flex-basis: 240px;
+        }
+
         .wqc-update-history-backdrop {
           padding: 10px;
         }
@@ -2520,6 +3769,16 @@ const historyDateFormatters = {
 export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestroy {
     readonly pluginTitle = pluginIdentity.title
     readonly defaultExportFileName = pluginIdentity.exportFileName
+    readonly pluginHotkeyDefinitions = pluginHotkeyDefinitions
+    recordingHotkeyAction: PluginHotkeyAction | null = null
+    recordingCommandHotkeyId: string | null = null
+    recordingPressedKeys: string[] = []
+    pluginHotkeyDialogOpen = false
+    pluginHotkeySaving = false
+    pluginHotkeyDialogError = ''
+    pluginHotkeySearchQuery = ''
+    commandHotkeySectionExpanded = false
+    hotkeyCommandTooltip: { text: string, left: number, top: number } | null = null
     failureMenuOpen = false
     updateIntervalMenuOpen = false
     commandCategoryMenuOpen = false
@@ -2536,6 +3795,8 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     batchMoveOpen = false
     batchMoveCategoryMenuOpen = false
     batchMoveCategory = ''
+    exportConfigDialogOpen = false
+    exportFileNameDraft = ''
     pendingConfigImport: PluginConfigImportFile | null = null
     resetDefaultsConfirmOpen = false
     resetInitialConfirmOpen = false
@@ -2559,10 +3820,20 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     private historyExpansionInitialized = false
     private configMessageTimer: ReturnType<typeof setTimeout> | null = null
     private updateCheckStatusTimer: ReturnType<typeof setTimeout> | null = null
+    private capturedHotkeyTimer: ReturnType<typeof setTimeout> | null = null
+    private recordingPressedKeyMap = new Map<string, string>()
+    private recordingShortcutCandidate = ''
+    private recordingShortcutAttempted = false
+    private recordingPrimaryKeyId = ''
+    private recentlyCapturedHotkey: { kind: 'plugin' | 'command', targetId: string, shortcut: string } | null = null
     private runtimeStore: QuickCommandsRuntimeStore
     private pluginConfigStore: QuickCommandsPluginConfigStore
     private pluginConfig: Record<string, any>
     private savedConfigSnapshot: string
+    private pluginHotkeyDraft: PluginHotkeyExport | null = null
+    private commandHotkeyDraft: Record<string, string> | null = null
+    private hotkeyConflictCache: HotkeyConflictCache | null = null
+    private tabbyHotkeysDisabledForCapture = false
     private stopLocalizing: (() => void) | null = null
     private readonly subscriptions = new Subscription()
 
@@ -2574,6 +3845,8 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         private zone: NgZone,
         private pluginUpdate: QuickCommandsPluginUpdateService,
         private quickCommands: QuickCommandsService,
+        private tabbyConfig: ConfigService,
+        @Optional() private hotkeys?: HotkeysService,
     ) {
         this.runtimeStore = new QuickCommandsRuntimeStore(this.platform.getConfigPath())
         this.pluginConfigStore = new QuickCommandsPluginConfigStore(this.platform.getConfigPath())
@@ -2594,6 +3867,14 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
             }
             this.changeDetector.markForCheck()
         }))
+        this.subscriptions.add(this.tabbyConfig.changed$.subscribe(() => {
+            this.invalidateHotkeyConflictCache()
+            if (this.pluginHotkeyDialogOpen && !this.pluginHotkeySaving && this.pluginHotkeyDraftDirty) {
+                this.stopHotkeyCapture()
+                this.reloadPluginHotkeyDraft()
+            }
+            this.changeDetector.markForCheck()
+        }))
         this.refreshRuntimeData()
     }
 
@@ -2610,6 +3891,8 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     ngOnDestroy (): void {
         this.dismissConfigMessage()
         this.dismissUpdateCheckStatus()
+        this.clearCapturedHotkeyFeedback()
+        this.stopHotkeyCapture()
 
         this.stopLocalizing?.()
         this.subscriptions.unsubscribe()
@@ -2788,8 +4071,17 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.batchMoveCategoryMenuOpen = false
     }
 
-    @HostListener('document:keydown.escape')
-    closeFailureMenuOnEscape (): void {
+    @HostListener('document:keydown.escape', ['$event'])
+    closeFailureMenuOnEscape (event?: KeyboardEvent): void {
+        if (this.recordingHotkeyAction || this.recordingCommandHotkeyId || (this.pluginHotkeyDialogOpen && event?.defaultPrevented)) { return }
+        if (this.pluginHotkeyDialogOpen) {
+            this.closePluginHotkeyDialog()
+            return
+        }
+        if (this.exportConfigDialogOpen) {
+            this.closeExportPluginConfig()
+            return
+        }
         this.failureMenuOpen = false
         this.updateIntervalMenuOpen = false
         this.commandCategoryMenuOpen = false
@@ -2814,6 +4106,132 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.pluginConfig = this.pluginConfigStore.load(createDefaultQuickCommandsConfig(this.i18n.language), true)
         this.savedConfigSnapshot = JSON.stringify(this.pluginConfig)
         this.updateCheckInterval = this.pluginUpdate.checkInterval
+        this.invalidateHotkeyConflictCache()
+        if (this.pluginHotkeyDialogOpen && !this.pluginHotkeySaving && this.commandHotkeyDraftDirty) {
+            this.stopHotkeyCapture()
+            this.reloadCommandHotkeyDraft()
+        }
+    }
+
+    @HostListener('document:keydown', ['$event'])
+    capturePluginHotkey (event: KeyboardEvent): void {
+        const action = this.recordingHotkeyAction
+        const commandId = this.recordingCommandHotkeyId
+        if ((!action && !commandId) || !this.pluginHotkeyDialogOpen || !this.pluginHotkeyDraft || event.isComposing) { return }
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        if (event.repeat) {
+            return
+        }
+        const keyId = this.hotkeyEventId(event)
+        if (this.recordingPressedKeyMap.has(keyId)) { return }
+        const previewKey = this.hotkeyPreviewKey(event.key)
+        if (!previewKey) { return }
+        this.recordingPressedKeyMap.set(keyId, previewKey)
+        this.syncRecordingPressedKeys()
+        if (!this.isHotkeyModifier(event.key)) {
+            if (this.recordingShortcutAttempted) {
+                this.recordingShortcutCandidate = ''
+            } else {
+                this.recordingShortcutAttempted = true
+                this.recordingPrimaryKeyId = keyId
+                this.recordingShortcutCandidate = shortcutFromKeyboardEvent(event) || (
+                    action === 'switchFocus' && event.key === 'Escape' ? 'Escape' : ''
+                )
+            }
+        }
+        this.changeDetector.markForCheck()
+    }
+
+    @HostListener('document:keyup', ['$event'])
+    async finishPluginHotkeyKey (event: KeyboardEvent): Promise<void> {
+        if (!this.isCapturingHotkey || event.isComposing) { return }
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        const primaryKeyReleased = this.recordingShortcutAttempted && this.hotkeyEventId(event) === this.recordingPrimaryKeyId
+        this.releaseRecordedHotkeyKey(event)
+        this.syncRecordingPressedKeys()
+        if (primaryKeyReleased) {
+            await this.finishHotkeyCaptureAttempt()
+            return
+        }
+        if (this.recordingPressedKeyMap.size || this.recordingShortcutAttempted) {
+            this.changeDetector.markForCheck()
+            return
+        }
+        await this.finishHotkeyCaptureAttempt()
+    }
+
+    @HostListener('window:blur')
+    resetPressedHotkeysOnBlur (): void {
+        if (!this.isCapturingHotkey) { return }
+        this.resetHotkeyPressState()
+        this.changeDetector.markForCheck()
+    }
+
+    private async finishHotkeyCaptureAttempt (): Promise<void> {
+        const action = this.recordingHotkeyAction
+        const commandId = this.recordingCommandHotkeyId
+        const shortcut = this.recordingShortcutCandidate
+        const attempted = this.recordingShortcutAttempted
+        this.resetHotkeyPressState()
+        if (!attempted) {
+            this.changeDetector.markForCheck()
+            return
+        }
+        if (!shortcut || !isValidShortcut(shortcut, action === 'switchFocus')) {
+            this.pluginHotkeyDialogError = this.i18n.text(action === 'switchFocus'
+                ? '焦点切换可使用 Escape、功能键或包含 Ctrl、Alt、Meta 的组合键。'
+                : '快捷键需包含 Ctrl、Alt、Meta，或直接使用功能键。')
+            this.changeDetector.markForCheck()
+            return
+        }
+        if (commandId) {
+            const previousShortcut = this.getCommandHotkey(commandId)
+            this.setCommandHotkeyDraft(commandId, shortcut)
+            const conflict = this.getCommandHotkeyConflict(commandId)
+            if (conflict) {
+                this.setCommandHotkeyDraft(commandId, previousShortcut)
+                this.stopHotkeyCapture()
+                this.pluginHotkeyDialogError = this.i18n.text(conflict)
+                this.changeDetector.markForCheck()
+                return
+            }
+            this.pluginHotkeyDialogError = ''
+            this.markCapturedHotkey('command', commandId, shortcut)
+            this.stopHotkeyCapture()
+            await this.persistHotkeyDialogChanges()
+            this.changeDetector.markForCheck()
+            return
+        }
+        const bindingId = pluginHotkeyBindingId(shortcut)
+        const duplicate = pluginHotkeyDefinitions.find(definition => (
+            this.getPluginHotkeys(definition.action)
+                .some(binding => pluginHotkeyBindingId(binding) === bindingId)
+        ))
+        if (duplicate) {
+            this.stopHotkeyCapture()
+            this.pluginHotkeyDialogError = this.i18n.text(`该快捷键已绑定到“${duplicate.title}”。`)
+            this.changeDetector.markForCheck()
+            return
+        }
+        const previousBindings = this.getPluginHotkeys(action!).map(binding => (
+            Array.isArray(binding) ? [...binding] : binding
+        ))
+        this.setPluginHotkeyDraftBindings(action!, [...previousBindings, normalizeShortcut(shortcut)])
+        const conflict = this.getPluginHotkeyConflict(action!, shortcut)
+        if (conflict) {
+            this.setPluginHotkeyDraftBindings(action!, previousBindings)
+            this.stopHotkeyCapture()
+            this.pluginHotkeyDialogError = this.i18n.text(conflict)
+            this.changeDetector.markForCheck()
+            return
+        }
+        this.pluginHotkeyDialogError = ''
+        this.markCapturedHotkey('plugin', action!, shortcut)
+        this.stopHotkeyCapture()
+        await this.persistHotkeyDialogChanges()
+        this.changeDetector.markForCheck()
     }
 
     @HostListener(`window:${pluginDataResetEvent}`)
@@ -2827,6 +4245,12 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.pendingConfigImport = null
         this.batchDeleteConfirmOpen = false
         this.closeBatchMove()
+        this.pluginHotkeyDialogOpen = false
+        this.pluginHotkeyDraft = null
+        this.commandHotkeyDraft = null
+        this.pluginHotkeyDialogError = ''
+        this.stopHotkeyCapture()
+        this.clearCapturedHotkeyFeedback()
         this.expandedHistoryVersions.clear()
         this.historyExpansionInitialized = false
         this.updateHistoryOpen = false
@@ -3207,16 +4631,56 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.platform.openExternal(url)
     }
 
-    exportPluginConfig (): void {
-        const payload = this.pluginConfigStore.exportPayload(this.root)
+    openExportPluginConfig (): void {
+        this.exportFileNameDraft = String(this.root.exportFileName || this.defaultExportFileName)
+        this.exportConfigDialogOpen = true
+        window.setTimeout(() => {
+            this.element.nativeElement.querySelector<HTMLInputElement>('.wqc-export-file-name')?.focus()
+        })
+    }
+
+    closeExportPluginConfig (): void {
+        this.exportConfigDialogOpen = false
+        this.exportFileNameDraft = ''
+    }
+
+    setExportFileNameDraft (event: Event): void {
+        this.exportFileNameDraft = (event.target as HTMLInputElement).value
+    }
+
+    confirmExportPluginConfig (event?: Event): void {
+        event?.preventDefault()
+        const fileNamePattern = this.exportFileNameDraft.trim()
+        if (!fileNamePattern) {
+            return
+        }
+        if (fileNamePattern !== this.root.exportFileName) {
+            this.root.exportFileName = fileNamePattern
+            if (!this.save()) {
+                this.exportFileNameDraft = String(this.root.exportFileName || this.defaultExportFileName)
+                return
+            }
+        }
+        const payload = this.pluginConfigStore.exportPayload({
+            ...this.root,
+            pluginHotkeys: buildPluginHotkeyExport(this.tabbyConfig.store?.hotkeys),
+        })
         const text = JSON.stringify(payload, null, 2)
-        const date = new Date().toISOString().slice(0, 10)
+        const fileName = this.renderExportConfigFileName(fileNamePattern)
+        this.closeExportPluginConfig()
         try {
-            this.downloadJson(text, `${pluginIdentity.packageName}-config-${date}.json`)
+            this.downloadJson(text, fileName)
             this.showConfigMessage('已触发插件配置文件下载，请检查下载目录。')
         } catch {
             this.showConfigMessage('无法触发配置文件下载，请重试。')
         }
+    }
+
+    private renderExportConfigFileName (pattern: string): string {
+        const date = new Date().toISOString().slice(0, 10)
+        const rendered = pattern.replace(/\{date\}/g, date)
+        const name = rendered.replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').trim() || `${pluginIdentity.packageName}-config-${date}.json`
+        return /\.json$/i.test(name) ? name : `${name}.json`
     }
 
     async importPluginConfig (event: Event): Promise<void> {
@@ -3293,12 +4757,28 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.showConfigMessage('导入成功')
     }
 
-    importPendingFullConfig (): void {
+    async importPendingFullConfig (): Promise<void> {
         const imported = this.pendingConfigImport?.config
         if (!imported) {
             return
         }
-        if (!this.applyImportedConfig(imported, '导入失败')) { return }
+        const previousHotkeys = buildPluginHotkeyExport(this.tabbyConfig.store?.hotkeys)
+        if (imported.pluginHotkeys !== undefined) {
+            let hotkeys: PluginHotkeyExport
+            try {
+                hotkeys = parsePluginHotkeyExport(imported.pluginHotkeys)
+            } catch (error) {
+                this.showConfigMessage('导入失败', error instanceof Error ? error.message : '插件快捷键配置无效。')
+                return
+            }
+            if (!await this.persistPluginHotkeyExport(hotkeys, '导入失败')) { return }
+        }
+        if (!this.applyImportedConfig(imported, '导入失败')) {
+            if (imported.pluginHotkeys !== undefined) {
+                await this.persistPluginHotkeyExport(previousHotkeys, '快捷键回滚失败')
+            }
+            return
+        }
         this.pendingConfigImport = null
         this.showConfigMessage('导入成功')
     }
@@ -3358,19 +4838,397 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         }
     }
 
-    restoreDefaultSettings (): void {
+    async restoreDefaultSettings (): Promise<void> {
         if (!this.resetDefaultsConfirmOpen || this.resetInitialConfirmOpen) { return }
         const restored = buildDefaultSettingsConfig(this.root, defaultQuickCommandsConfig)
-        const success = this.applyImportedConfig(restored, '恢复失败')
+        const previousHotkeys = buildPluginHotkeyExport(this.tabbyConfig.store?.hotkeys)
+        const hotkeysRestored = await this.persistPluginHotkeyExport(buildDefaultPluginHotkeyExport(), '恢复失败')
+        const success = hotkeysRestored && this.applyImportedConfig(restored, '恢复失败')
+        if (hotkeysRestored && !success) {
+            await this.persistPluginHotkeyExport(previousHotkeys, '快捷键回滚失败')
+        }
         this.closeResetDefaultsConfirm()
         if (success) {
             this.showConfigMessage('恢复成功', '已恢复默认配置，现有命令、分类和输出触发器已保留。按钮显示设置将在重启 Tabby 后生效。')
         }
     }
 
-    setBoolean (field: string, event: Event): void {
-        this.root[field] = (event.target as HTMLInputElement).checked
-        if (!this.save()) { (event.target as HTMLInputElement).checked = Boolean(this.root[field]) }
+    setInitialFocusValue (value: 'drawer' | 'terminal'): void {
+        this.root.drawerInitialFocus = value
+        this.save()
+    }
+
+    getPluginHotkeys (action: PluginHotkeyAction): PluginHotkeyBinding[] {
+        if (this.pluginHotkeyDraft) {
+            return this.pluginHotkeyDraft.actions[action]
+        }
+        return readPluginHotkeyBindings(this.tabbyConfig.store?.hotkeys, action)
+    }
+
+    get configuredPluginHotkeyActionCount (): number {
+        return pluginHotkeyDefinitions.filter(item => this.getPluginHotkeys(item.action).length > 0).length
+    }
+
+    get pluginHotkeyConflictCount (): number {
+        return pluginHotkeyDefinitions.filter(item => Boolean(this.getPluginHotkeyStatus(item.action))).length
+    }
+
+    get configuredCommandHotkeyCount (): number {
+        return this.commandHotkeyCommands.filter(command => Boolean(this.getCommandHotkey(command.id))).length
+    }
+
+    get commandHotkeyConflictCount (): number {
+        return this.commandHotkeyCommands.filter(command => Boolean(this.getCommandHotkeyConflict(command.id))).length
+    }
+
+    get hotkeyConflictCount (): number {
+        return this.pluginHotkeyConflictCount + this.commandHotkeyConflictCount
+    }
+
+    get filteredPluginHotkeyDefinitions (): PluginHotkeyDefinition[] {
+        const query = this.pluginHotkeySearchQuery.trim().toLocaleLowerCase()
+        if (!query) { return pluginHotkeyDefinitions }
+        return pluginHotkeyDefinitions.filter(item => {
+            const bindings = this.getPluginHotkeys(item.action)
+            const status = this.getPluginHotkeyStatus(item.action) || (bindings.length ? '正常' : '未绑定')
+            const searchable = [
+                item.title,
+                item.description,
+                item.scope,
+                status,
+                ...bindings.map(binding => formatPluginHotkeyBinding(binding)),
+            ]
+            return searchable.some(value => (
+                value.toLocaleLowerCase().includes(query) ||
+                this.i18n.text(value).toLocaleLowerCase().includes(query)
+            ))
+        })
+    }
+
+    get commandHotkeyCommands (): QuickCommand[] {
+        return Array.isArray(this.root.commands) ? this.root.commands : []
+    }
+
+    get filteredCommandHotkeyCommands (): QuickCommand[] {
+        const query = this.pluginHotkeySearchQuery.trim().toLocaleLowerCase()
+        if (!query) { return this.commandHotkeyCommands }
+        return this.commandHotkeyCommands.filter(command => {
+            const shortcut = this.getCommandHotkey(command.id)
+            const status = this.getCommandHotkeyConflict(command.id) || (shortcut ? '正常' : '未绑定')
+            return [
+                command.name,
+                command.description,
+                command.command,
+                command.category,
+                shortcut,
+                status,
+                'Tabby全局',
+            ].filter(Boolean).some(value => String(value).toLocaleLowerCase().includes(query))
+        })
+    }
+
+    get commandHotkeyRowsVisible (): boolean {
+        return this.commandHotkeySectionExpanded || Boolean(this.pluginHotkeySearchQuery.trim())
+    }
+
+    get pluginHotkeyDraftDirty (): boolean {
+        return Boolean(this.pluginHotkeyDraft) &&
+            this.pluginHotkeyExportId(this.pluginHotkeyDraft!) !== this.pluginHotkeyExportId(
+                buildPluginHotkeyExport(this.tabbyConfig.store?.hotkeys),
+            )
+    }
+
+    get commandHotkeyDraftDirty (): boolean {
+        if (!this.commandHotkeyDraft) { return false }
+        return this.commandHotkeyCommands.some(command => (
+            this.getCommandHotkey(command.id) !== normalizeShortcut(command.shortcut || '')
+        ))
+    }
+
+    get hotkeyDialogDirty (): boolean {
+        return this.pluginHotkeyDraftDirty || this.commandHotkeyDraftDirty
+    }
+
+    get pluginHotkeyDraftIsDefault (): boolean {
+        return Boolean(this.pluginHotkeyDraft) &&
+            this.pluginHotkeyExportId(this.pluginHotkeyDraft!) === this.pluginHotkeyExportId(buildDefaultPluginHotkeyExport())
+    }
+
+    formatPluginHotkey (binding: PluginHotkeyBinding): string {
+        return formatPluginHotkeyBinding(binding)
+    }
+
+    getPluginHotkeyConflict (action: PluginHotkeyAction, binding: PluginHotkeyBinding): string {
+        return this.getHotkeyConflictCache().pluginBindings.get(
+            this.pluginBindingConflictKey(action, binding),
+        ) || ''
+    }
+
+    getPluginHotkeyStatus (action: PluginHotkeyAction): string {
+        return this.getHotkeyConflictCache().pluginActions.get(action) || ''
+    }
+
+    getCommandHotkey (commandId: string): string {
+        if (this.commandHotkeyDraft && Object.prototype.hasOwnProperty.call(this.commandHotkeyDraft, commandId)) {
+            return this.commandHotkeyDraft[commandId]
+        }
+        const command = this.commandHotkeyCommands.find(item => item.id === commandId)
+        return normalizeShortcut(command?.shortcut || '')
+    }
+
+    getCommandHotkeyConflict (commandId: string): string {
+        return this.getHotkeyConflictCache().commands.get(commandId) || ''
+    }
+
+    get isCapturingHotkey (): boolean {
+        return Boolean(this.recordingHotkeyAction || this.recordingCommandHotkeyId)
+    }
+
+    isRecentlyCapturedPluginHotkey (action: PluginHotkeyAction, binding: PluginHotkeyBinding): boolean {
+        return this.recentlyCapturedHotkey?.kind === 'plugin' &&
+            this.recentlyCapturedHotkey.targetId === action &&
+            pluginHotkeyBindingId(binding) === pluginHotkeyBindingId(this.recentlyCapturedHotkey.shortcut)
+    }
+
+    isRecentlyCapturedCommandHotkey (commandId: string, shortcut: string): boolean {
+        return this.recentlyCapturedHotkey?.kind === 'command' &&
+            this.recentlyCapturedHotkey.targetId === commandId &&
+            normalizeShortcut(shortcut) === normalizeShortcut(this.recentlyCapturedHotkey.shortcut)
+    }
+
+    openPluginHotkeyDialog (): void {
+        this.reloadPluginHotkeyDraft()
+        this.reloadCommandHotkeyDraft()
+        this.pluginHotkeyDialogError = ''
+        this.pluginHotkeySearchQuery = ''
+        this.stopHotkeyCapture()
+        this.clearCapturedHotkeyFeedback()
+        this.commandHotkeySectionExpanded = false
+        this.hotkeyCommandTooltip = null
+        this.invalidateHotkeyConflictCache()
+        this.pluginHotkeyDialogOpen = true
+        window.setTimeout(() => {
+            this.element.nativeElement.querySelector<HTMLElement>('.wqc-hotkey-search-input')?.focus()
+        })
+    }
+
+    closePluginHotkeyDialog (restoreFocus = true): void {
+        if (this.pluginHotkeySaving) { return }
+        this.pluginHotkeyDialogOpen = false
+        this.stopHotkeyCapture()
+        this.clearCapturedHotkeyFeedback()
+        this.pluginHotkeyDialogError = ''
+        this.pluginHotkeySearchQuery = ''
+        this.commandHotkeySectionExpanded = false
+        this.hotkeyCommandTooltip = null
+        this.pluginHotkeyDraft = null
+        this.commandHotkeyDraft = null
+        this.invalidateHotkeyConflictCache()
+        if (restoreFocus) {
+            window.setTimeout(() => {
+                this.element.nativeElement.querySelector<HTMLElement>('.wqc-hotkey-manage')?.focus()
+            })
+        }
+    }
+
+    setPluginHotkeySearch (event: Event): void {
+        this.pluginHotkeySearchQuery = (event.target as HTMLInputElement).value
+        if (
+            this.recordingHotkeyAction &&
+            !this.filteredPluginHotkeyDefinitions.some(item => item.action === this.recordingHotkeyAction)
+        ) {
+            this.stopHotkeyCapture()
+        }
+        if (
+            this.recordingCommandHotkeyId &&
+            !this.filteredCommandHotkeyCommands.some(command => command.id === this.recordingCommandHotkeyId)
+        ) {
+            this.stopHotkeyCapture()
+        }
+    }
+
+    clearPluginHotkeySearch (): void {
+        this.pluginHotkeySearchQuery = ''
+        window.setTimeout(() => {
+            this.element.nativeElement.querySelector<HTMLInputElement>('.wqc-hotkey-search-input')?.focus()
+        })
+    }
+
+    toggleCommandHotkeySection (): void {
+        this.commandHotkeySectionExpanded = !this.commandHotkeySectionExpanded
+        if (!this.commandHotkeySectionExpanded) {
+            this.stopHotkeyCapture()
+        }
+    }
+
+    startPluginHotkeyCapture (action: PluginHotkeyAction, event: Event): void {
+        event.stopPropagation()
+        if (!this.pluginHotkeyDialogOpen || !this.pluginHotkeyDraft || this.pluginHotkeySaving) { return }
+        const cancelCapture = this.recordingHotkeyAction === action
+        this.stopHotkeyCapture()
+        this.clearCapturedHotkeyFeedback()
+        this.pluginHotkeyDialogError = ''
+        if (!cancelCapture) {
+            this.recordingHotkeyAction = action
+            this.suspendTabbyHotkeysForCapture()
+        }
+    }
+
+    startCommandHotkeyCapture (commandId: string, event: Event): void {
+        event.stopPropagation()
+        if (!this.pluginHotkeyDialogOpen || !this.commandHotkeyDraft || this.pluginHotkeySaving) { return }
+        const cancelCapture = this.recordingCommandHotkeyId === commandId
+        this.stopHotkeyCapture()
+        this.clearCapturedHotkeyFeedback()
+        this.pluginHotkeyDialogError = ''
+        if (!cancelCapture) {
+            this.recordingCommandHotkeyId = commandId
+            this.suspendTabbyHotkeysForCapture()
+        }
+    }
+
+    private hotkeyEventId (event: KeyboardEvent): string {
+        return event.code || event.key
+    }
+
+    private hotkeyPreviewKey (key: string): string {
+        const modifiers: Record<string, string> = {
+            Control: 'Ctrl',
+            Alt: 'Alt',
+            Shift: 'Shift',
+            Meta: 'Meta',
+        }
+        return modifiers[key] || normalizeShortcutKey(key)
+    }
+
+    private isHotkeyModifier (key: string): boolean {
+        return ['Control', 'Alt', 'Shift', 'Meta'].includes(key)
+    }
+
+    private releaseRecordedHotkeyKey (event: KeyboardEvent): void {
+        if (this.recordingPressedKeyMap.delete(this.hotkeyEventId(event))) { return }
+        const previewKey = this.hotkeyPreviewKey(event.key)
+        const fallback = Array.from(this.recordingPressedKeyMap.entries()).find(([, key]) => key === previewKey)
+        if (fallback) {
+            this.recordingPressedKeyMap.delete(fallback[0])
+        }
+    }
+
+    private syncRecordingPressedKeys (): void {
+        const order: Record<string, number> = { Ctrl: 0, Alt: 1, Shift: 2, Meta: 3 }
+        this.recordingPressedKeys = Array.from(new Set(this.recordingPressedKeyMap.values()))
+            .sort((left, right) => (order[left] ?? 4) - (order[right] ?? 4))
+    }
+
+    private resetHotkeyPressState (): void {
+        this.recordingPressedKeyMap.clear()
+        this.recordingPressedKeys = []
+        this.recordingShortcutCandidate = ''
+        this.recordingShortcutAttempted = false
+        this.recordingPrimaryKeyId = ''
+    }
+
+    private stopHotkeyCapture (): void {
+        this.recordingHotkeyAction = null
+        this.recordingCommandHotkeyId = null
+        this.resetHotkeyPressState()
+        this.resumeTabbyHotkeysAfterCapture()
+    }
+
+    private suspendTabbyHotkeysForCapture (): void {
+        if (this.tabbyHotkeysDisabledForCapture) { return }
+        this.hotkeys?.disable()
+        this.tabbyHotkeysDisabledForCapture = true
+        if (typeof document !== 'undefined') {
+            document.documentElement?.setAttribute('data-windy-quick-commands-hotkey-recording', 'true')
+        }
+    }
+
+    private resumeTabbyHotkeysAfterCapture (): void {
+        if (!this.tabbyHotkeysDisabledForCapture) { return }
+        this.hotkeys?.enable()
+        this.tabbyHotkeysDisabledForCapture = false
+        if (typeof document !== 'undefined') {
+            document.documentElement?.removeAttribute('data-windy-quick-commands-hotkey-recording')
+        }
+    }
+
+    private markCapturedHotkey (kind: 'plugin' | 'command', targetId: string, shortcut: string): void {
+        this.clearCapturedHotkeyFeedback()
+        this.recentlyCapturedHotkey = { kind, targetId, shortcut: normalizeShortcut(shortcut) }
+        this.capturedHotkeyTimer = setTimeout(() => {
+            this.capturedHotkeyTimer = null
+            this.recentlyCapturedHotkey = null
+            this.changeDetector.markForCheck()
+        }, 900)
+    }
+
+    private clearCapturedHotkeyFeedback (): void {
+        if (this.capturedHotkeyTimer !== null) {
+            clearTimeout(this.capturedHotkeyTimer)
+        }
+        this.capturedHotkeyTimer = null
+        this.recentlyCapturedHotkey = null
+    }
+
+    async removePluginHotkey (action: PluginHotkeyAction, index: number): Promise<void> {
+        if (!this.pluginHotkeyDraft || this.pluginHotkeySaving) { return }
+        const bindings = this.getPluginHotkeys(action).filter((_binding, bindingIndex) => bindingIndex !== index)
+        this.setPluginHotkeyDraftBindings(action, bindings)
+        await this.persistHotkeyDialogChanges()
+    }
+
+    async clearPluginHotkey (action: PluginHotkeyAction): Promise<void> {
+        if (!this.pluginHotkeyDraft || this.pluginHotkeySaving) { return }
+        if (this.recordingHotkeyAction === action) { this.stopHotkeyCapture() }
+        this.setPluginHotkeyDraftBindings(action, [])
+        await this.persistHotkeyDialogChanges()
+    }
+
+    async clearCommandHotkey (commandId: string): Promise<void> {
+        if (!this.commandHotkeyDraft || this.pluginHotkeySaving) { return }
+        if (this.recordingCommandHotkeyId === commandId) { this.stopHotkeyCapture() }
+        this.setCommandHotkeyDraft(commandId, '')
+        await this.persistHotkeyDialogChanges()
+    }
+
+    showHotkeyCommandTooltip (event: Event): void {
+        const target = event.currentTarget
+        if (!(target instanceof HTMLElement)) { return }
+        const bounds = target.getBoundingClientRect()
+        this.hotkeyCommandTooltip = {
+            text: this.i18n.text('打开命令'),
+            left: bounds.right,
+            top: bounds.top - 7,
+        }
+        this.changeDetector.markForCheck()
+    }
+
+    hideHotkeyCommandTooltip (): void {
+        if (!this.hotkeyCommandTooltip) { return }
+        this.hotkeyCommandTooltip = null
+        this.changeDetector.markForCheck()
+    }
+
+    async openCommandFromHotkeyDialog (commandId: string): Promise<void> {
+        if (this.pluginHotkeySaving) { return }
+        this.closePluginHotkeyDialog(false)
+        this.quickCommands.openCommand(commandId)
+    }
+
+    async resetAllPluginHotkeys (): Promise<void> {
+        if (!this.pluginHotkeyDraft || this.pluginHotkeySaving) { return }
+        this.pluginHotkeyDraft = buildDefaultPluginHotkeyExport()
+        this.invalidateHotkeyConflictCache()
+        this.stopHotkeyCapture()
+        this.clearCapturedHotkeyFeedback()
+        this.pluginHotkeyDialogError = ''
+        await this.persistHotkeyDialogChanges()
+    }
+
+    setBooleanValue (field: string, value: boolean): void {
+        this.root[field] = value
+        this.save()
     }
 
     setToolbarButtonVisibility (event: Event): void {
@@ -3378,15 +5236,14 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         if (!this.save()) { (event.target as HTMLInputElement).checked = this.root.showToolbarButton !== false }
     }
 
-    setString (field: string, event: Event): void {
-        this.root[field] = (event.target as HTMLInputElement).value
-        if (!this.save()) { (event.target as HTMLInputElement).value = String(this.root[field] ?? '') }
-    }
-
     setNumber (field: string, event: Event, min: number, max: number): void {
         const raw = Number((event.target as HTMLInputElement).value)
         this.root[field] = Math.max(min, Math.min(max, Number.isFinite(raw) ? raw : min))
         if (!this.save()) { (event.target as HTMLInputElement).value = String(this.root[field] ?? '') }
+    }
+
+    releaseNumberWheel (event: WheelEvent): void {
+        (event.currentTarget as HTMLInputElement | null)?.blur()
     }
 
     clearLogs (): void {
@@ -3472,7 +5329,9 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     }
 
     private applyImportedConfig (config: Record<string, unknown>, failureMessage?: string): boolean {
-        this.pluginConfig = config
+        const storedConfig = { ...config }
+        delete storedConfig.pluginHotkeys
+        this.pluginConfig = storedConfig
         if (!this.save(failureMessage)) { return false }
         this.selectedCommandIds = new Set<string>()
         this.commandPage = 1
@@ -3483,6 +5342,237 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.batchDeleteConfirmOpen = false
         this.updateCheckInterval = this.pluginUpdate.checkInterval
         return true
+    }
+
+    private setPluginHotkeyDraftBindings (
+        action: PluginHotkeyAction,
+        bindings: PluginHotkeyBinding[],
+    ): void {
+        if (!this.pluginHotkeyDraft) { return }
+        this.pluginHotkeyDraft.actions[action] = bindings.map(binding => Array.isArray(binding) ? [...binding] : binding)
+        this.invalidateHotkeyConflictCache()
+    }
+
+    private setCommandHotkeyDraft (commandId: string, shortcut: string): void {
+        if (!this.commandHotkeyDraft || !this.commandHotkeyCommands.some(command => command.id === commandId)) { return }
+        this.commandHotkeyDraft[commandId] = normalizeShortcut(shortcut)
+        this.invalidateHotkeyConflictCache()
+    }
+
+    private getCommandHotkeyDraftCommands (): QuickCommand[] {
+        return this.commandHotkeyCommands.map(command => ({
+            ...command,
+            shortcut: this.getCommandHotkey(command.id),
+        }))
+    }
+
+    private getHotkeyConflictCache (): HotkeyConflictCache {
+        if (this.hotkeyConflictCache) {
+            return this.hotkeyConflictCache
+        }
+
+        const commands = this.getCommandHotkeyDraftCommands()
+        const hotkeys = this.getPluginHotkeyConflictSource()
+        const pluginActions = new Map<PluginHotkeyAction, string>()
+        const pluginBindings = new Map<string, string>()
+        const pluginByBinding = new Map<string, PluginHotkeyDefinition>()
+        pluginHotkeyDefinitions.forEach(definition => {
+            this.getPluginHotkeys(definition.action).forEach(binding => {
+                const bindingId = pluginHotkeyBindingId(binding)
+                if (bindingId && !pluginByBinding.has(bindingId)) {
+                    pluginByBinding.set(bindingId, definition)
+                }
+                const conflict = findPluginHotkeyConflict(
+                    hotkeys,
+                    commands,
+                    definition.action,
+                    binding,
+                )
+                if (!conflict) { return }
+                pluginBindings.set(this.pluginBindingConflictKey(definition.action, binding), conflict)
+                if (!pluginActions.has(definition.action)) {
+                    pluginActions.set(definition.action, conflict)
+                }
+            })
+        })
+
+        const commandsByShortcut = new Map<string, QuickCommand[]>()
+        commands.forEach(command => {
+            const shortcut = normalizeShortcut(command.shortcut || '')
+            if (!shortcut) { return }
+            const matches = commandsByShortcut.get(shortcut) || []
+            matches.push(command)
+            commandsByShortcut.set(shortcut, matches)
+        })
+
+        const pluginIds = new Set(pluginHotkeyDefinitions.map(definition => definition.id))
+        const drawerByShortcut = new Map(reservedQuickCommandsShortcuts.map(item => (
+            [normalizeShortcut(item.shortcut), item.name]
+        )))
+        const tabbyByShortcut = new Map<string, string>()
+        const configuredTabbyHotkeys = [
+            ...reservedTabbyShortcuts,
+            ...flattenHotkeysConfig(hotkeys)
+                .filter(item => !pluginIds.has(item.name))
+                .map(item => ({ shortcut: item.shortcut, name: item.name })),
+        ]
+        configuredTabbyHotkeys.forEach(item => {
+            const shortcut = normalizeShortcut(item.shortcut)
+            if (shortcut && !tabbyByShortcut.has(shortcut)) {
+                tabbyByShortcut.set(shortcut, item.name)
+            }
+        })
+
+        const commandConflicts = new Map<string, string>()
+        commands.forEach(command => {
+            const shortcut = normalizeShortcut(command.shortcut || '')
+            if (!shortcut) { return }
+            const pluginConflict = pluginByBinding.get(pluginHotkeyBindingId(shortcut))
+            if (pluginConflict) {
+                commandConflicts.set(command.id, `与插件操作“${pluginConflict.title}”冲突`)
+                return
+            }
+            const drawerConflict = drawerByShortcut.get(shortcut)
+            if (drawerConflict) {
+                commandConflicts.set(command.id, `与抽屉操作“${drawerConflict}”冲突`)
+                return
+            }
+            const commandConflict = commandsByShortcut.get(shortcut)?.find(item => item.id !== command.id)
+            if (commandConflict) {
+                commandConflicts.set(command.id, `快捷键已被“${commandConflict.name}”使用。`)
+                return
+            }
+            const tabbyConflict = tabbyByShortcut.get(shortcut)
+            if (tabbyConflict) {
+                commandConflicts.set(command.id, `与 Tabby 操作“${tabbyConflict}”冲突`)
+            }
+        })
+
+        this.hotkeyConflictCache = {
+            pluginActions,
+            pluginBindings,
+            commands: commandConflicts,
+        }
+        return this.hotkeyConflictCache
+    }
+
+    private pluginBindingConflictKey (action: PluginHotkeyAction, binding: PluginHotkeyBinding): string {
+        return `${action}\u0000${pluginHotkeyBindingId(binding)}`
+    }
+
+    private invalidateHotkeyConflictCache (): void {
+        this.hotkeyConflictCache = null
+    }
+
+    private reloadPluginHotkeyDraft (): void {
+        this.pluginHotkeyDraft = this.clonePluginHotkeyExport(buildPluginHotkeyExport(this.tabbyConfig.store?.hotkeys))
+        this.invalidateHotkeyConflictCache()
+    }
+
+    private reloadCommandHotkeyDraft (): void {
+        this.commandHotkeyDraft = Object.fromEntries(this.commandHotkeyCommands.map(command => (
+            [command.id, normalizeShortcut(command.shortcut || '')]
+        )))
+        this.invalidateHotkeyConflictCache()
+    }
+
+    private async commitHotkeyDialogChanges (): Promise<boolean> {
+        if (!this.pluginHotkeyDraft || !this.commandHotkeyDraft) { return false }
+        const pluginChanged = this.pluginHotkeyDraftDirty
+        const commandsChanged = this.commandHotkeyDraftDirty
+        const previousPluginHotkeys = buildPluginHotkeyExport(this.tabbyConfig.store?.hotkeys)
+        if (pluginChanged) {
+            const pluginSaved = await this.persistPluginHotkeyExport(this.clonePluginHotkeyExport(this.pluginHotkeyDraft))
+            if (!pluginSaved) { return false }
+        }
+        if (commandsChanged) {
+            this.root.commands = this.getCommandHotkeyDraftCommands()
+            if (!this.save('快捷键保存失败')) {
+                if (pluginChanged) {
+                    await this.persistPluginHotkeyExport(previousPluginHotkeys, '快捷键回滚失败')
+                }
+                return false
+            }
+        }
+        return true
+    }
+
+    private async persistHotkeyDialogChanges (): Promise<boolean> {
+        if (!this.pluginHotkeyDraft || !this.commandHotkeyDraft || this.pluginHotkeySaving) { return false }
+        if (!this.hotkeyDialogDirty) { return true }
+        this.pluginHotkeyDialogError = ''
+        this.pluginHotkeySaving = true
+        const success = await this.commitHotkeyDialogChanges()
+        this.pluginHotkeySaving = false
+        this.reloadPluginHotkeyDraft()
+        this.reloadCommandHotkeyDraft()
+        if (!success) {
+            this.pluginHotkeyDialogError = this.i18n.text('快捷键保存失败')
+        }
+        this.changeDetector.markForCheck()
+        return success
+    }
+
+    private getPluginHotkeyConflictSource (): Record<string, unknown> {
+        const source = this.cloneHotkeyConfig(this.tabbyConfig.store?.hotkeys || {})
+        if (this.pluginHotkeyDraft) {
+            applyPluginHotkeyExport(source, this.pluginHotkeyDraft)
+        }
+        return source
+    }
+
+    private cloneHotkeyConfig (value: Record<string, unknown>): Record<string, unknown> {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+            if (Array.isArray(item)) {
+                return [key, item.map(binding => Array.isArray(binding) ? [...binding] : binding)]
+            }
+            if (item && typeof item === 'object') {
+                return [key, this.cloneHotkeyConfig(item as Record<string, unknown>)]
+            }
+            return [key, item]
+        }))
+    }
+
+    private clonePluginHotkeyExport (value: PluginHotkeyExport): PluginHotkeyExport {
+        return {
+            version: 1,
+            actions: {
+                toggleDrawer: value.actions.toggleDrawer.map(binding => Array.isArray(binding) ? [...binding] : binding),
+                openSettings: value.actions.openSettings.map(binding => Array.isArray(binding) ? [...binding] : binding),
+                switchFocus: value.actions.switchFocus.map(binding => Array.isArray(binding) ? [...binding] : binding),
+                toggleHints: value.actions.toggleHints.map(binding => Array.isArray(binding) ? [...binding] : binding),
+            },
+        }
+    }
+
+    private pluginHotkeyExportId (value: PluginHotkeyExport): string {
+        return pluginHotkeyDefinitions.map(definition => (
+            value.actions[definition.action].map(pluginHotkeyBindingId)
+        )).map(bindings => bindings.join('|')).join('::')
+    }
+
+    private async persistPluginHotkeyExport (
+        value: PluginHotkeyExport,
+        failureMessage = '快捷键保存失败',
+    ): Promise<boolean> {
+        if (!this.tabbyConfig.store.hotkeys || typeof this.tabbyConfig.store.hotkeys !== 'object') {
+            this.tabbyConfig.store.hotkeys = {}
+        }
+        const previous = buildPluginHotkeyExport(this.tabbyConfig.store.hotkeys)
+        applyPluginHotkeyExport(this.tabbyConfig.store.hotkeys, value)
+        this.invalidateHotkeyConflictCache()
+        try {
+            await this.tabbyConfig.save()
+            this.changeDetector.markForCheck()
+            return true
+        } catch (error) {
+            applyPluginHotkeyExport(this.tabbyConfig.store.hotkeys, previous)
+            this.invalidateHotkeyConflictCache()
+            const detail = this.i18n.text(error instanceof Error ? error.message : String(error))
+            this.showConfigMessage(failureMessage, detail)
+            this.changeDetector.markForCheck()
+            return false
+        }
     }
 
     private createImportIdFactory (): () => string {
@@ -3497,6 +5587,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     }
 
     private save (failureMessage?: string): boolean {
+        this.invalidateHotkeyConflictCache()
         try {
             this.pluginConfigStore.set(this.root)
             this.savedConfigSnapshot = JSON.stringify(this.root)

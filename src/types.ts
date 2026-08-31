@@ -6,6 +6,7 @@ export type FailureStrategy = 'continue' | 'stop' | 'manual'
 export type ImportMode = 'merge' | 'replace'
 export type OutputMatchMode = 'literal' | 'regex'
 export type OutputPatternLogic = 'single' | 'any' | 'all'
+export type DrawerInitialFocus = 'drawer' | 'terminal'
 export type AutomationCommandAction = 'none' | 'stop' | 'custom' | 'command'
 export type AutomationMatchFlow = 'continue' | 'nextLine' | 'stop'
 export type AutomationTimeoutAction = 'continue' | 'stop' | 'custom' | 'command'
@@ -67,7 +68,11 @@ export interface QuickCommandsConfig {
     failureStrategy: FailureStrategy
     drawerWidth: number
     showToolbarButton: boolean
+    drawerInitialFocus: DrawerInitialFocus
+    focusTerminalAfterSend: boolean
+    showOperationHints: boolean
     requireConfirmBeforeExecute: boolean
+    confirmHighRiskCommands: boolean
     confirmBroadcast: boolean
     exportFileName: string
     basicInfoCollapsed: boolean
