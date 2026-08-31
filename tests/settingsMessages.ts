@@ -110,7 +110,7 @@ export async function testSettingsMessages (): Promise<void> {
     assert.ok(styles.includes('.wqc-hotkey-table th.wqc-hotkey-action-column {') && styles.includes('.wqc-hotkey-row-actions {\n        justify-content: center;'), 'the shortcut action header and controls must be centered')
     assert.ok(styles.includes('.wqc-hotkey-table th,\n      .wqc-hotkey-table td {') && styles.includes('text-align: center;'), 'shortcut table headers and cells must be centered')
     assert.equal((template.match(/class="wqc-hotkey-function-content"/g) || []).length, 2, 'plugin and command function text must share the centered alignment container')
-    assert.ok(styles.includes('.wqc-hotkey-function-content {') && styles.includes('width: fit-content;') && styles.includes('max-width: calc(100% - 16px);') && styles.includes('margin: 0 auto;') && styles.includes('text-align: left;'), 'function text groups must remain centered and inset while their name and description share a left edge')
+    assert.ok(styles.includes('.wqc-hotkey-function-content {') && styles.includes('width: calc(100% - 16px);') && styles.includes('margin: 0 auto;') && styles.includes('text-align: left;'), 'function text groups must use one centered inset width so every row shares the same left edge')
     assert.ok(styles.includes('.wqc-hotkey-bindings {\n        justify-content: center;'), 'multiple shortcut bindings must remain centered within the shortcut column')
     assert.ok(styles.includes('.wqc-hotkey-capture-preview {') && styles.includes('.wqc-hotkey-binding-captured {'), 'shortcut capture must provide live and completed visual feedback')
     assert.ok(!styles.includes('.wqc-hotkey-debug-columns'), 'temporary shortcut column guides must be removed after spacing review')

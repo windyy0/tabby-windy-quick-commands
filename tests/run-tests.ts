@@ -46,6 +46,7 @@ import {
 import { shouldHandleDelegatedAction } from '../src/delegatedClick'
 import { getPluginIdentity } from '../src/pluginIdentity'
 import { PluginDataAccess } from '../src/pluginData'
+import { fitCategoryPrefix } from '../src/categoryLayout'
 import { testSettingsMessages } from './settingsMessages'
 import {
     applyPluginHotkeyExport,
@@ -542,6 +543,7 @@ function testShortcuts (): void {
     assert(drawerSource.includes("this.i18n.text('正在按下')") && drawerSource.includes('currentPressedKeys().join'), 'drawer shortcut recording should expose a live pressed-key preview')
     assert(drawerSource.includes('showCaptureFailure') && drawerSource.includes("this.i18n.text('录入失败')"), 'invalid and conflicting drawer shortcuts should expose an inline failure reason')
     assert(drawerSource.includes('captureFailureActive') && drawerSource.includes('if (captureFailureActive) { return }'), 'remaining keyup events should not clear a drawer shortcut capture failure')
+    assert(drawerSource.includes('categoryInput.setSelectionRange(cursor, cursor)'), 'rename-category focus must place the cursor at the end of the existing name')
     assert(drawerSource.includes('pluginHotkeyDefinitions.find') && drawerSource.includes('getTabbyHotkeyName'), 'drawer shortcut conflicts should distinguish plugin actions and resolve Tabby action names')
     assert(drawerSource.includes('按下组合键，松开主键完成录入。') && !drawerSource.includes('高风险命令仍需确认。'), 'drawer shortcut hints should avoid duplicate waiting copy and unrelated execution warnings')
     assert(!drawerSource.includes('private showShortcutHint'), 'capture failures should persist until retry or blur instead of using an auto-dismiss timer')
@@ -650,6 +652,32 @@ function testShortcuts (): void {
     assert(findPluginHotkeyConflict(hotkeys, [], 'toggleDrawer', 'Ctrl+Shift+P').includes('Tabby'), 'plugin action shortcuts should report reserved Tabby conflicts')
     assert(findPluginHotkeyConflict(hotkeys, [{ name: 'Deploy', shortcut: 'Ctrl+Alt+D' }], 'toggleDrawer', 'Ctrl+Alt+D').includes('Deploy'), 'plugin action shortcuts should report command conflicts')
     assert(findPluginHotkeyConflict(hotkeys, [], 'toggleDrawer', 'Ctrl+Enter').includes('抽屉操作'), 'plugin action shortcuts must reject drawer-owned execution shortcuts')
+}
+
+function testCategoryLayout (): void {
+    const categories = [
+        { category: '全部', width: 40 },
+        { category: '常用', width: 40 },
+        { category: '超长分类', width: 100 },
+        { category: '短', width: 20 },
+    ]
+    assert(
+        JSON.stringify(fitCategoryPrefix(categories, 88, 8)) === JSON.stringify(['全部', '常用']),
+        'category layout should keep a stable ordered prefix when two chips fit exactly',
+    )
+    assert(
+        JSON.stringify(fitCategoryPrefix(categories, 155, 8)) === JSON.stringify(['全部', '常用']),
+        'category layout must not skip a hidden category to backfill a later short category',
+    )
+    assert(fitCategoryPrefix(categories, -1, 8).length === 0, 'category layout should handle unavailable width safely')
+
+    const drawerSource = fs.readFileSync(path.join(process.cwd(), 'src', 'quickCommands.service.ts'), 'utf8')
+    const drawerStyles = fs.readFileSync(path.join(process.cwd(), 'src', 'quickCommands.css'), 'utf8')
+    assert(drawerSource.includes('tqc-category-overflow-selected'), 'hidden selected categories should use the overflow button as a visible proxy')
+    assert(drawerSource.includes('focusSelectedOverflowCategory()'), 'opening category overflow should focus and reveal its current item')
+    assert(drawerSource.includes('delete toggle.dataset.tooltip'), 'an open category overflow menu should suppress the redundant toggle tooltip')
+    assert(drawerStyles.includes('.tqc-category-overflow-label'), 'the overflow proxy should render a compact category label')
+    assert(drawerStyles.includes('.tqc-category-overflow-toggle.tqc-active svg'), 'the open category overflow toggle should point upward')
 }
 
 function testDangerChecks (): void {
@@ -1487,6 +1515,7 @@ const tests: Array<[string, () => void | Promise<void>]> = [
     ['命令导入预览', testImportPreview],
     ['导入数据校验', testImportValidation],
     ['快捷键处理', testShortcuts],
+    ['分类栏布局', testCategoryLayout],
     ['危险命令检查', testDangerChecks],
     ['逐行脚本解析', testScriptParser],
     ['工具栏按钮显示', testToolbarButtonVisibility],

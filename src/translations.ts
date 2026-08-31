@@ -359,6 +359,7 @@ const englishPhrases: Record<string, string> = {
     '搜索命令': 'Search commands',
     '清空搜索': 'Clear search',
     '更多分类': 'More categories',
+    '收起更多分类': 'Collapse more categories',
     '添加分类': 'Add category',
     '分类操作': 'Category actions',
     '删除分类': 'Delete category',

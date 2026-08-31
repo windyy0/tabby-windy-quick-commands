@@ -2059,8 +2059,7 @@ interface HotkeyConflictCache {
       }
 
       .wqc-hotkey-function-content {
-        width: fit-content;
-        max-width: calc(100% - 16px);
+        width: calc(100% - 16px);
         margin: 0 auto;
         text-align: left;
       }

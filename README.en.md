@@ -27,7 +27,7 @@ The plugin adds a Quick Commands button to the upper-right corner of Tabby and o
 ## Features
 
 - Toggle the drawer from the toolbar or with a keyboard shortcut
-- Configure the drawer's initial focus and switch between command search and the active terminal with a shortcut
+- Use keyboard shortcuts and switch focus between the drawer and terminal
 - Search, create, edit, delete, duplicate, favorite, and pin commands
 - Assign a keyboard shortcut to an individual command
 - Choose between whole-command paste and line-by-line execution
@@ -65,16 +65,15 @@ npm run install:tabby
 
 ## Usage
 
-Click the Quick Commands button in the upper-right corner of Tabby to open the drawer. The Quick Commands settings page manages four action shortcuts: show/hide the drawer, open Quick Commands settings, switch drawer/terminal focus, and show/hide shortcut hints. These use the same configuration shown in Tabby's `Settings -> Hotkeys` page.
-
-While command search is focused, use `Up` / `Down` to select a command, `Left` / `Right` to switch categories, and `Enter` or `Ctrl+Enter` to run the selected command. `Escape` switches focus between command search and the active terminal by default, while `Ctrl+Alt+H` shows or hides the shortcut hints on the left. If no active terminal exists, focus remains in search.
+Click the Quick Commands button in the upper-right corner of Tabby to open the drawer.
+By default, press `Escape` to switch focus between drawer search and the active terminal, and press `Ctrl+Alt+H` to show or hide the shortcut hints on the left.
 
 > On first use, an example category and command are created in Tabby's current interface language.
 
 ### Import and Export
 
 - **Export commands** in the drawer exports commands, categories, and output triggers only.
-- **Export** on the Settings page exports the command library, all plugin settings, and the four plugin action shortcuts, but excludes runtime logs and usage statistics. Per-command shortcuts remain part of their command records.
+- **Export** on the Settings page exports the command library and all plugin settings, but excludes runtime logs and usage statistics.
 - Both files use the unified v1 format and can be recognized from either the drawer or the Settings page. Importing a configuration file from the drawer extracts its commands only. Importing from Settings lets you choose between importing commands and importing the full configuration.
 - **Restore defaults** resets plugin settings while keeping existing commands, categories, output triggers, runtime logs, and usage statistics.
 
@@ -82,7 +81,7 @@ While command search is focused, use `Up` / `Down` to select a command, `Left` /
 
 ### Output Triggers
 
-In short: match condition -> successful match -> rule action -> after-match flow. A separate action can run when the rule times out.
+In short: match condition -> successful match -> rule -> success action -> after-match action -> timeout action.
 
 An output trigger waits for specified terminal output before deciding how execution should continue. It is useful for workflows that must wait for terminal feedback, such as login prompts, successful builds, or deployment results.
 
@@ -264,7 +263,7 @@ Run `npm run publish:check` to validate without publishing. Running `npm publish
 }
 ```
 
-The sample text above is translated into English for reference. For an actual release, write the `zh-CN` values in Chinese and the `en` values in English.
+The sample text above is shown entirely in English for readability. For an actual release, write the `zh-CN` values in Chinese and the `en` values in English.
 
 The `version` must match `package.json` and `package-lock.json`. Both languages require a `title`, `sections`, and at least one item; `notice` is optional. Other interface languages fall back to English.
 

@@ -41,6 +41,7 @@ import { quickCommandIcons as icons } from './quickCommandsIcons'
 import { QuickCommandsPluginUpdateService } from './pluginUpdate.service'
 import { pluginIdentity } from './pluginIdentity'
 import { pluginDataResetEvent } from './pluginData'
+import { fitCategoryPrefix } from './categoryLayout'
 import {
     formatPluginHotkeyBinding,
     PluginHotkeyAction,
@@ -363,7 +364,7 @@ export class QuickCommandsService {
                   `).join('')}
                 </div>
                 <div class="tqc-category-actions">
-                  <button class="tqc-icon-button${this.categoryOverflowOpen ? ' tqc-active' : ''}" type="button" data-action="toggle-category-overflow" data-role="category-overflow-toggle" ${this.categoryOverflowOpen ? 'aria-label="更多分类"' : 'title="更多分类"'} aria-haspopup="menu" aria-expanded="${this.categoryOverflowOpen}">${icons.chevron}</button>
+                  <button class="tqc-icon-button tqc-category-overflow-toggle${this.categoryOverflowOpen ? ' tqc-active' : ''}" type="button" data-action="toggle-category-overflow" data-role="category-overflow-toggle" ${this.categoryOverflowOpen ? '' : 'data-tooltip="更多分类"'} aria-label="${this.categoryOverflowOpen ? '收起更多分类' : '更多分类'}" aria-haspopup="menu" aria-expanded="${this.categoryOverflowOpen}"><span class="tqc-category-overflow-label" data-role="category-overflow-label" data-i18n-skip hidden></span>${icons.chevron}</button>
                   <button class="tqc-icon-button" type="button" data-action="add-category" title="添加分类">${icons.plus}</button>
                   <div class="tqc-category-action-menu-shell">
                     <button class="tqc-icon-button${this.categoryActionsOpen ? ' tqc-active' : ''}" type="button" data-action="toggle-category-actions" ${this.categoryActionsOpen ? 'aria-label="分类操作"' : 'title="分类操作"'} aria-haspopup="menu" aria-expanded="${this.categoryActionsOpen}">${icons.more}</button>
@@ -424,6 +425,7 @@ export class QuickCommandsService {
         this.bindEvents()
         this.restoreScroll(detailScrollTop, listScrollTop)
         this.scrollToPendingAutomationRule()
+        this.focusSelectedOverflowCategory()
         this.restoreDrawerFocusAfterRender(shouldRestoreDrawerFocus)
     }
 
@@ -1573,7 +1575,14 @@ export class QuickCommandsService {
             }
         })
         if (categoryInput) {
-            window.requestAnimationFrame(() => categoryInput.focus())
+            window.requestAnimationFrame(() => {
+                if (!this.root?.contains(categoryInput)) { return }
+                categoryInput.focus()
+                if (this.renamingCategory) {
+                    const cursor = categoryInput.value.length
+                    categoryInput.setSelectionRange(cursor, cursor)
+                }
+            })
         }
 
         const importFile = this.root.querySelector<HTMLInputElement>('[data-role="import-file"]')
@@ -1892,11 +1901,12 @@ export class QuickCommandsService {
             if (!text) {
                 return
             }
+            element.dataset.tooltip = text
             element.removeAttribute('title')
             if (!element.hasAttribute('aria-label')) {
                 element.setAttribute('aria-label', text)
             }
-            const show = () => this.showTooltip(tooltip, element, text)
+            const show = () => this.showTooltip(tooltip, element, element.dataset.tooltip || text)
             const hide = () => this.hideTooltip(tooltip)
             element.addEventListener('mouseenter', show)
             element.addEventListener('mouseleave', hide)
@@ -1983,33 +1993,48 @@ export class QuickCommandsService {
         }
 
         const chips = Array.from(scroll.querySelectorAll<HTMLElement>('[data-category]'))
-        const widths = new Map(chips.map(chip => [chip, chip.getBoundingClientRect().width]))
-        const style = window.getComputedStyle(scroll)
-        const available = Math.max(0, scroll.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0))
-        const gap = parseFloat(style.columnGap || style.gap) || 8
-        const chipByCategory = new Map(chips.map(chip => [chip.dataset.category || '', chip]))
-        const priority = Array.from(new Set([
-            '全部',
-            this.state.selectedCategory,
-            '常用',
-            '收藏',
-            ...chips.map(chip => chip.dataset.category || ''),
-        ].filter(Boolean)))
-        const visible = new Set<string>()
-        let used = 0
+        const label = toggle.querySelector<HTMLElement>('[data-role="category-overflow-label"]')
+        const measurements = chips.map(chip => ({
+            category: chip.dataset.category || '',
+            width: chip.getBoundingClientRect().width,
+        }))
+        const getVisibleCategories = (): Set<string> => {
+            const style = window.getComputedStyle(scroll)
+            const available = Math.max(0, scroll.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0))
+            const gap = parseFloat(style.columnGap || style.gap) || 8
+            return new Set(fitCategoryPrefix(measurements, available, gap))
+        }
 
-        priority.forEach(category => {
-            const chip = chipByCategory.get(category)
-            if (!chip) {
-                return
+        toggle.classList.remove('tqc-category-overflow-selected')
+        const overflowAction = this.i18n.text(this.categoryOverflowOpen ? '收起更多分类' : '更多分类')
+        if (this.categoryOverflowOpen) {
+            delete toggle.dataset.tooltip
+        } else {
+            toggle.dataset.tooltip = overflowAction
+        }
+        toggle.setAttribute('aria-label', overflowAction)
+        if (label) {
+            label.hidden = true
+            label.textContent = ''
+        }
+
+        let visible = getVisibleCategories()
+        if (measurements.some(item => item.category === this.state.selectedCategory) && !visible.has(this.state.selectedCategory)) {
+            const selectedLabel = this.getCategoryLabel(this.state.selectedCategory)
+            const proxyDescription = `${selectedLabel} · ${overflowAction}`
+            toggle.classList.add('tqc-category-overflow-selected')
+            if (!this.categoryOverflowOpen) {
+                toggle.dataset.tooltip = proxyDescription
             }
-            const width = widths.get(chip) || 0
-            const nextUsed = used + (visible.size ? gap : 0) + width
-            if (nextUsed <= available) {
-                visible.add(category)
-                used = nextUsed
+            toggle.setAttribute('aria-label', proxyDescription)
+            if (label) {
+                label.hidden = false
+                label.textContent = selectedLabel
             }
-        })
+            // The labelled proxy uses more horizontal space, so measure the stable
+            // prefix again after the grid has resized around it.
+            visible = getVisibleCategories()
+        }
 
         chips.forEach(chip => {
             chip.hidden = !visible.has(chip.dataset.category || '')
@@ -2033,6 +2058,20 @@ export class QuickCommandsService {
         if (!overflowCategories.length && this.categoryOverflowOpen) {
             this.closeCategoryOverflowMenu()
         }
+    }
+
+    private focusSelectedOverflowCategory (): void {
+        if (!this.categoryOverflowOpen) {
+            return
+        }
+        window.requestAnimationFrame(() => {
+            if (!this.categoryOverflowOpen) { return }
+            const options = Array.from(this.root?.querySelectorAll<HTMLElement>('[data-category-overflow-option]') || [])
+                .filter(option => !option.hidden)
+            const target = options.find(option => option.dataset.category === this.state.selectedCategory) || options[0]
+            target?.focus()
+            target?.scrollIntoView({ block: 'nearest' })
+        })
     }
 
     private updateCategoryDropIndicator (element: HTMLElement, event: DragEvent): void {
@@ -3350,6 +3389,7 @@ export class QuickCommandsService {
         root.drawerWidth = drawerWidth
         this.setPluginConfig(root, false)
         this.root?.style.setProperty('--tqc-width', `${drawerWidth}px`)
+        window.requestAnimationFrame(() => this.layoutCategories())
     }
 
     private refreshFilteredCommandList (): boolean {

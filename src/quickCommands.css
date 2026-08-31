@@ -554,6 +554,37 @@
   align-self: start;
 }
 
+.tqc-category-overflow-toggle.tqc-category-overflow-selected {
+  width: auto;
+  max-width: min(156px, 34vw);
+  gap: 5px;
+  padding: 0 9px;
+  border-color: var(--tqc-accent);
+  background: var(--tqc-accent-soft);
+  color: var(--tqc-accent);
+}
+
+.tqc-category-overflow-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.tqc-category-overflow-label[hidden] {
+  display: none;
+}
+
+.tqc-category-overflow-toggle svg {
+  flex: none;
+  transition: transform 150ms ease;
+}
+
+.tqc-category-overflow-toggle.tqc-active svg {
+  transform: rotate(180deg);
+}
+
 .tqc-category-overflow-menu {
   position: absolute;
   top: calc(100% + 6px);
