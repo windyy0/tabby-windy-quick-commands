@@ -1,93 +1,79 @@
 {
-  "version": "1.8.2",
+  "version": "1.9.0",
   "zh-CN": {
-    "title": "版本更新交互与提示优化",
+    "title": "快捷键管理与分类导航升级",
     "sections": [
       {
-        "title": "1.8.2 · 更新入口与布局",
+        "title": "快捷键",
         "items": [
-          "优化检查更新相关的样式布局"
+          "新增插件快捷键管理",
+          "完善快捷键录制、冲突检测、跨平台按键转换"
         ]
       },
       {
-        "title": "1.8.0 未发布包说明",
+        "title": "键盘操作",
         "items": [
-          "1.8.0 没有发布 npm 安装包，但相关功能已正常完成并包含在后续版本中，以下为补充说明"
+          "新增抽屉快捷键提示栏，默认可用 Escape 切换抽屉与终端焦点，用 Ctrl+Alt+H 显示或隐藏操作提示",
+          "支持用键盘切换分类和命令"
         ]
       },
       {
-        "title": "1.8.0 · 默认命令与语言",
+        "title": "分类导航与设置界面重新布局",
         "items": [
-          "优化首次使用的默认分类和示例命令，按 Tabby 界面语言初始化，并在升级或重新安装时保留现有命令库"
+          "分类栏改为稳定顺序布局；当前分类在“更多”中时会直接显示名称和选中状态",
+          "完善“更多分类”展开/收起箭头与提示状态，修复重命名分类时光标出现在文本开头的问题"
         ]
       },
       {
-        "title": "1.8.0 · 数据重置与独立 Dev",
+        "title": "其他各种细节优化修复",
         "items": [
-          "新增“重置插件数据”，支持安全清理当前正式版或 Dev 的插件数据并重新初始化",
-          "新增可与正式版并存的独立 Dev 版本，以及对应的构建、安装、重启和数据清理命令"
-        ]
-      },
-      {
-        "title": "1.8.0 · 并发与保存修复",
-        "items": [
-          "修复正式版与 Dev 同时使用时的快捷键归属和抽屉执行问题",
-          "完善数据重置、并发写锁、设置保存以及导入恢复失败时的状态处理"
-        ]
-      },
-      {
-        "title": "1.8.0 · 本地安装、清理与文档",
-        "items": [
-          "完善本地安装、卸载、Dev 数据清理和 Tabby 重启流程",
-          "同步中英文文档，并补充数据隔离、并发、安装、清理和卸载测试"
+          "修复：重命名分类 光标在文本开头的问题",
+          "修复：面板宽度鼠标悬停时的原生样式英文提示去掉",
+          "优化：数字输入框右边的上下箭头去掉",
+          "修复：设置中打开抽屉，在数字输入框滚动鼠标焦点会跳到搜索框的问题",
+          "修复：抽屉提示信息遮挡 Windows 原生最小化、最大化、关闭按钮的问题",
+          "优化：导出文件名配置放到导出弹窗里面"
         ]
       }
     ],
-    "notice": "更新后请完整重启 Tabby。普通升级不会清空已有命令库；“重置插件数据”和 Dev 清理不可撤销，请先导出需要保留的命令和配置。"
+    "notice": "更新后请完整重启 Tabby。现有命令库和快捷键配置会保留；未单独配置的抽屉焦点切换和快捷键提示操作会使用新的默认快捷键。"
   },
   "en": {
-    "title": "Update interaction and notification improvements",
+    "title": "Shortcut management and category navigation upgrade",
     "sections": [
       {
-        "title": "1.8.2 · Update entry points and layout",
+        "title": "Shortcuts",
         "items": [
-          "Improve the styling and layout of update checks"
+          "Add plugin shortcut management",
+          "Improve shortcut recording, conflict detection, and cross-platform key conversion"
         ]
       },
       {
-        "title": "Unpublished 1.8.0 package",
+        "title": "Keyboard controls",
         "items": [
-          "No npm installation package was published for 1.8.0, but its changes were completed normally and remain included in later versions; the following is a supplemental summary"
+          "Add a shortcut hint rail to the drawer; Escape switches focus between the drawer and terminal by default, while Ctrl+Alt+H shows or hides operation hints",
+          "Add keyboard navigation for categories and commands"
         ]
       },
       {
-        "title": "1.8.0 · Default commands and language",
+        "title": "Category navigation and settings layout redesign",
         "items": [
-          "Improve the initial default category and example command, initialize them in Tabby's interface language, and preserve existing command libraries during upgrades or reinstalls"
+          "Keep categories in a stable order; when the current category is under More, show its name and selected state directly",
+          "Improve the expanded and collapsed arrow and tooltip states for More categories, and fix the cursor appearing at the start of the text when renaming a category"
         ]
       },
       {
-        "title": "1.8.0 · Data reset and separate Dev builds",
+        "title": "Other refinements and fixes",
         "items": [
-          "Add Reset plugin data to safely clear and reinitialize data for the selected stable or Dev version",
-          "Add a separate Dev version that can coexist with stable, with commands for building, installation, restart, and data cleanup"
-        ]
-      },
-      {
-        "title": "1.8.0 · Concurrency and saving fixes",
-        "items": [
-          "Fix shortcut ownership and drawer execution when stable and Dev are used together",
-          "Improve state handling for data reset, concurrent write locks, settings saves, and failed imports or restores"
-        ]
-      },
-      {
-        "title": "1.8.0 · Local installation, cleanup, and documentation",
-        "items": [
-          "Improve local installation, uninstall, Dev data cleanup, and Tabby restart workflows",
-          "Synchronize the Chinese and English documentation and add tests for data isolation, concurrency, installation, cleanup, and uninstall"
+          "Fix: Place the cursor correctly when renaming a category instead of at the start of the text",
+          "Fix: Remove the native English tooltip shown when hovering over the panel width setting",
+          "Improvement: Remove the spinner arrows on the right side of number inputs",
+          "Fix: Prevent mouse-wheel adjustments on number inputs in Settings from moving drawer focus to the search field while the drawer is open",
+          "Fix: Prevent drawer hints from obscuring the native Windows minimize, maximize, and close buttons",
+          "Improvement: Move the export filename setting into the export dialog"
         ]
       }
     ],
-    "notice": "Fully restart Tabby after updating. Normal upgrades preserve existing command libraries. Reset plugin data and Dev cleanup cannot be undone; export any commands and configuration you need to keep first."
+    "notice": "Fully restart Tabby after updating. Existing command libraries and shortcut settings are preserved; the new defaults apply only to drawer focus switching and shortcut hints that have not been configured separately."
   }
 }
