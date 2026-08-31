@@ -428,8 +428,16 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     assert.equal(update.snapshot.status, devBuild ? 'available' : 'restart')
     update.ignoreLatest()
     assert.equal(update.snapshot.ignored, true, 'ignore update preference must still work for both channels')
-    update.setCheckInterval('weekly')
-    assert.equal(update.checkInterval, 'weekly', 'both channels must honor update preferences')
+    update.setCheckInterval('startup')
+    assert.equal(update.checkInterval, 'startup', 'both channels must honor the client-startup update preference')
+    const requestsBeforeStartupCheck = host.networkRequests.length
+    update.scheduleAutomaticCheck(true)
+    await update.checkPromise
+    assert.ok(host.networkRequests.length > requestsBeforeStartupCheck, 'the client-startup preference must check once when startup scheduling begins')
+    const requestsAfterStartupCheck = host.networkRequests.length
+    update.scheduleAutomaticCheck(false)
+    await Promise.resolve()
+    assert.equal(host.networkRequests.length, requestsAfterStartupCheck, 'the client-startup preference must not schedule another check during the same run')
     assert.ok(host.networkRequests.every(url => !url.includes('tabby-windy-quick-commands-dev')), 'both channels must use the published stable update source')
     assert.ok(host.events.includes(`${dataDirectory}-config-changed`))
 

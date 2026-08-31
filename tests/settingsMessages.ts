@@ -156,6 +156,11 @@ export async function testSettingsMessages (): Promise<void> {
     assert.ok(template.includes('class="wqc-update-card-check"'), 'the original top update check and status must remain available')
     assert.ok(template.includes('*ngIf="showUpdateCheckStatus && updateStatusLabel"'), 'manual update status must stay hidden until requested')
     assert.ok(template.includes('(click)="dismissUpdateCheckStatus()"'), 'manual update status must provide a dismiss control')
+    assert.ok(template.includes("selectUpdateCheckInterval('startup')") && template.includes('>客户端启动时</button>'), 'automatic checks must offer the client-startup interval')
+
+    const startupIntervalSettings: any = Object.create(Settings.prototype)
+    startupIntervalSettings.updateCheckInterval = 'startup'
+    assert.equal(startupIntervalSettings.updateCheckIntervalLabel, '客户端启动时', 'the startup interval must use the requested label')
 
     let finishUpdateCheck: (() => void) | undefined
     const updateCheck = new Promise<void>(resolve => { finishUpdateCheck = resolve })

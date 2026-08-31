@@ -941,11 +941,12 @@ export class QuickCommandsService {
         const open = this.automationRuleMenuKey === menuKey
         const options = this.getAutomationCommandOptions(selectedId)
         const selectedLabel = options.find(option => option.value === selectedId)?.label || '请选择命令'
+        const selectedCommandExists = Boolean(selectedId && this.state.commands.some(command => command.id === selectedId))
         const selectedTitle = open ? '' : ` title="${this.escapeAttr(selectedLabel)}"`
         return `
           <div class="tqc-rule-select" data-rule-menu-key="${this.escapeAttr(menuKey)}">
-            <button class="tqc-select" type="button" data-action="rule-menu-toggle" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(field)}" aria-haspopup="listbox" aria-expanded="${open}">
-              <span${selectedId && this.state.commands.some(command => command.id === selectedId) ? ' data-i18n-skip' : ''}${selectedTitle}>${this.escape(selectedLabel)}</span>
+            <button class="tqc-select" type="button" data-action="rule-menu-toggle" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(field)}" aria-haspopup="listbox" aria-expanded="${open}"${selectedCommandExists ? ' data-i18n-skip' : ''}${selectedTitle}>
+              <span>${this.escape(selectedLabel)}</span>
               ${icons.chevron}
             </button>
             ${open ? `
@@ -973,14 +974,14 @@ export class QuickCommandsService {
         const selectedTitle = open ? '' : ` title="${this.escapeAttr(selectedLabel)}"`
         return `
           <div class="tqc-rule-select" data-rule-menu-key="${this.escapeAttr(menuKey)}">
-            <button class="tqc-select" type="button" data-action="rule-menu-toggle" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(String(field))}" aria-haspopup="listbox" aria-expanded="${open}">
-              <span${selectedTitle}>${this.escape(selectedLabel)}</span>
+            <button class="tqc-select" type="button" data-action="rule-menu-toggle" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(String(field))}" aria-haspopup="listbox" aria-expanded="${open}"${selectedTitle}>
+              <span>${this.escape(selectedLabel)}</span>
               ${icons.chevron}
             </button>
             ${open ? `
               <div class="tqc-rule-menu" role="listbox">
                 ${options.map(option => `
-                  <button class="tqc-rule-option${option.value === selectedValue ? ' tqc-active' : ''}" type="button" role="option" aria-selected="${option.value === selectedValue}" data-action="rule-option-select" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(String(field))}" data-rule-value="${this.escapeAttr(option.value)}">${this.escape(option.label)}</button>
+                  <button class="tqc-rule-option${option.value === selectedValue ? ' tqc-active' : ''}" type="button" role="option" aria-selected="${option.value === selectedValue}" data-action="rule-option-select" data-rule-action-id="${this.escapeAttr(rule.id)}" data-rule-menu-field="${this.escapeAttr(String(field))}" data-rule-value="${this.escapeAttr(option.value)}" title="${this.escapeAttr(option.label)}">${this.escape(option.label)}</button>
                 `).join('')}
               </div>
             ` : ''}
@@ -4402,7 +4403,7 @@ export class QuickCommandsService {
             moveNavigateAfterMove: root.moveNavigateAfterMove ?? false,
             recentOutputLimit: Math.max(1000, Number(root.recentOutputLimit) || 8000),
             logLimit: Math.max(20, Number(root.logLimit) || 200),
-            updateCheckInterval: root.updateCheckInterval === 'weekly' || root.updateCheckInterval === 'never'
+            updateCheckInterval: root.updateCheckInterval === 'startup' || root.updateCheckInterval === 'weekly' || root.updateCheckInterval === 'never'
                 ? root.updateCheckInterval
                 : 'daily',
             ignoredUpdateVersion: typeof root.ignoredUpdateVersion === 'string' ? root.ignoredUpdateVersion : '',

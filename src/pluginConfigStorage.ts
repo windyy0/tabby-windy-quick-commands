@@ -275,7 +275,7 @@ export class QuickCommandsPluginConfigStore {
         this.validateEnum(config, 'targetMode', ['current', 'all'])
         this.validateEnum(config, 'failureStrategy', ['continue', 'stop', 'manual'])
         this.validateEnum(config, 'drawerInitialFocus', ['drawer', 'terminal'])
-        this.validateEnum(config, 'updateCheckInterval', ['daily', 'weekly', 'never'])
+        this.validateEnum(config, 'updateCheckInterval', ['startup', 'daily', 'weekly', 'never'])
         this.validateStringList(config.customCategories, 'customCategories')
         this.validateStringList(config.categoryOrder, 'categoryOrder')
     }

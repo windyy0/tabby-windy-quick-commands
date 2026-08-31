@@ -221,6 +221,7 @@ function testTranslations (): void {
     assert(translatePluginText('将“部署”移动到指定分类。', 'en-US') === 'Move "部署" to the selected category.', 'move dialog should translate dynamic command names')
     assert(translatePluginText('将选中的 3 条命令移动到', 'en-US') === 'Move the selected 3 commands to', 'batch move prompt should be translated')
     assert(translatePluginText('检查更新', 'en-US') === 'Check for updates', 'update controls should be translated')
+    assert(translatePluginText('客户端启动时', 'en-US') === 'On client startup', 'the client-startup update interval should be translated')
     assert(translatePluginText('Dev 读取正式版的版本信息和更新历史，不会安装正式包。', 'en-US') === 'Dev reads stable release information and history without installing the stable package.', 'Dev update source notice must be translated independently')
     assert(translatePluginText('更新本地代码后，请在源码目录运行：', 'en-US') === 'After updating your local source, run this in the source directory:', 'Dev local installation notice must be translated independently')
     assert(translatePluginText('然后重启 Tabby。', 'en-US') === 'Then restart Tabby.', 'local installation instructions must be fully translated')
@@ -246,6 +247,7 @@ function testUserContentLocalizationBoundary (): void {
     const settingsSource = fs.readFileSync(path.join(process.cwd(), 'src', 'quickCommandsSettingsTab.component.ts'), 'utf8')
     const i18nSource = fs.readFileSync(path.join(process.cwd(), 'src', 'i18n.ts'), 'utf8')
     assert(drawerSource.includes('class="tqc-command-name" data-i18n-skip'), 'drawer command names should opt out of UI translation')
+    assert(drawerSource.includes("${selectedCommandExists ? ' data-i18n-skip' : ''}${selectedTitle}"), 'automation command-picker labels and full-button tooltips should preserve user content together')
     assert(drawerSource.includes("return this.i18n.text('新命令')"), 'new command draft should use the current interface language')
     assert(settingsSource.includes('<strong data-i18n-skip>{{ command.name }}</strong>'), 'settings command names should opt out of UI translation')
     assert(i18nSource.includes('if (this.isAttributeLocalizationSkipped(element))'), 'translation should skip attributes explicitly marked as user content')
@@ -267,6 +269,7 @@ function testPluginVersionComparison (): void {
     const hour = 60 * 60 * 1000
     const now = new Date('2026-08-25T00:00:00Z').getTime()
     assert(getNextPluginUpdateCheckDelay('never', null, 0, now) === null, 'disabled checks should not schedule a timer')
+    assert(getNextPluginUpdateCheckDelay('startup', null, 0, now) === null, 'startup checks should not schedule a repeating timer')
     assert(getNextPluginUpdateCheckDelay('daily', null, 0, now) === 0, 'a first automatic check should run immediately')
     assert(
         getNextPluginUpdateCheckDelay('daily', '2026-08-20T00:00:00Z', now - hour, now) === 23 * hour,

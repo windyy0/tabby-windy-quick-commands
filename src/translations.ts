@@ -46,6 +46,7 @@ const englishPhrases: Record<string, string> = {
     '返回顶部': 'Back to top',
     '加载失败': 'Loading failed',
     '自动检查': 'Automatic checks',
+    '客户端启动时': 'On client startup',
     '每天': 'Daily',
     '每周': 'Weekly',
     '从不': 'Never',

@@ -154,7 +154,7 @@ export class QuickCommandsPluginUpdateService {
     get checkInterval (): UpdateCheckInterval {
         const root = this.configStore.load(createDefaultQuickCommandsConfig(this.i18n.language), true)
         const interval = root.updateCheckInterval
-        return interval === 'weekly' || interval === 'never' ? interval : 'daily'
+        return interval === 'startup' || interval === 'weekly' || interval === 'never' ? interval : 'daily'
     }
 
     get canInstallUpdate (): boolean {
@@ -216,7 +216,9 @@ export class QuickCommandsPluginUpdateService {
     }
 
     setCheckInterval (interval: UpdateCheckInterval): void {
-        const normalized: UpdateCheckInterval = interval === 'weekly' || interval === 'never' ? interval : 'daily'
+        const normalized: UpdateCheckInterval = interval === 'startup' || interval === 'weekly' || interval === 'never'
+            ? interval
+            : 'daily'
         const root = this.configStore.load(createDefaultQuickCommandsConfig(this.i18n.language), true)
         root.updateCheckInterval = normalized
         this.configStore.set(root)
@@ -413,6 +415,12 @@ export class QuickCommandsPluginUpdateService {
         }
         const interval = this.checkInterval
         this.scheduledInterval = interval
+        if (interval === 'startup') {
+            if (runWhenDue) {
+                void this.checkForUpdates()
+            }
+            return
+        }
         const delay = getNextPluginUpdateCheckDelay(
             interval,
             this.cache?.checkedAt,

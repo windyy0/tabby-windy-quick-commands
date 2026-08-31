@@ -1,8 +1,8 @@
 import { PluginLanguage } from './translations'
 
-export type UpdateCheckInterval = 'daily' | 'weekly' | 'never'
+export type UpdateCheckInterval = 'startup' | 'daily' | 'weekly' | 'never'
 
-const updateCheckIntervalMs: Record<Exclude<UpdateCheckInterval, 'never'>, number> = {
+const updateCheckIntervalMs: Record<Exclude<UpdateCheckInterval, 'startup' | 'never'>, number> = {
     daily: 24 * 60 * 60 * 1000,
     weekly: 7 * 24 * 60 * 60 * 1000,
 }
@@ -13,7 +13,7 @@ export function getNextPluginUpdateCheckDelay (
     lastAttemptAt: number,
     now = Date.now(),
 ): number | null {
-    if (interval === 'never') {
+    if (interval === 'startup' || interval === 'never') {
         return null
     }
     const parsedCheckedAt = cachedCheckedAt ? new Date(cachedCheckedAt).getTime() : 0

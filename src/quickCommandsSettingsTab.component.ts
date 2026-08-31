@@ -597,6 +597,7 @@ interface HotkeyConflictCache {
                   <span>{{ updateCheckIntervalLabel }}</span>
                 </button>
                 <div class="wqc-select-menu wqc-update-interval-menu" role="listbox" *ngIf="updateIntervalMenuOpen">
+                  <button type="button" role="option" [attr.aria-selected]="updateCheckInterval === 'startup'" [class.wqc-selected]="updateCheckInterval === 'startup'" (click)="selectUpdateCheckInterval('startup')">客户端启动时</button>
                   <button type="button" role="option" [attr.aria-selected]="updateCheckInterval === 'daily'" [class.wqc-selected]="updateCheckInterval === 'daily'" (click)="selectUpdateCheckInterval('daily')">每天</button>
                   <button type="button" role="option" [attr.aria-selected]="updateCheckInterval === 'weekly'" [class.wqc-selected]="updateCheckInterval === 'weekly'" (click)="selectUpdateCheckInterval('weekly')">每周</button>
                   <button type="button" role="option" [attr.aria-selected]="updateCheckInterval === 'never'" [class.wqc-selected]="updateCheckInterval === 'never'" (click)="selectUpdateCheckInterval('never')">从不</button>
@@ -1139,6 +1140,9 @@ interface HotkeyConflictCache {
 
       .wqc-update-interval-shell .wqc-update-interval-menu {
         top: calc(100% + 5px);
+        right: auto;
+        width: max-content;
+        min-width: 100%;
         gap: 2px;
         padding: 4px;
         border-color: color-mix(in srgb, var(--wqc-accent) 28%, var(--wqc-control-border));
@@ -4379,6 +4383,9 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     }
 
     get updateCheckIntervalLabel (): string {
+        if (this.updateCheckInterval === 'startup') {
+            return '客户端启动时'
+        }
         if (this.updateCheckInterval === 'weekly') {
             return '每周'
         }

@@ -1,79 +1,41 @@
 {
-  "version": "1.9.0",
+  "version": "1.9.1",
   "zh-CN": {
-    "title": "快捷键管理与分类导航升级",
+    "title": "更新检查与规则下拉体验优化",
     "sections": [
       {
-        "title": "快捷键",
+        "title": "更新检查",
         "items": [
-          "新增插件快捷键管理",
-          "完善快捷键录制、冲突检测、跨平台按键转换"
+          "自动检查新增“客户端启动时”选项，每次启动 Tabby 后检查一次，本次运行期间不再重复检查"
         ]
       },
       {
-        "title": "键盘操作",
+        "title": "抽屉规则",
         "items": [
-          "新增抽屉快捷键提示栏，默认可用 Escape 切换抽屉与终端焦点，用 Ctrl+Alt+H 显示或隐藏操作提示",
-          "支持用键盘切换分类和命令"
-        ]
-      },
-      {
-        "title": "分类导航与设置界面重新布局",
-        "items": [
-          "分类栏改为稳定顺序布局；当前分类在“更多”中时会直接显示名称和选中状态",
-          "完善“更多分类”展开/收起箭头与提示状态，修复重命名分类时光标出现在文本开头的问题"
-        ]
-      },
-      {
-        "title": "其他各种细节优化修复",
-        "items": [
-          "修复：重命名分类 光标在文本开头的问题",
-          "修复：面板宽度鼠标悬停时的原生样式英文提示去掉",
-          "优化：数字输入框右边的上下箭头去掉",
-          "修复：设置中打开抽屉，在数字输入框滚动鼠标焦点会跳到搜索框的问题",
-          "修复：抽屉提示信息遮挡 Windows 原生最小化、最大化、关闭按钮的问题",
-          "优化：导出文件名配置放到导出弹窗里面"
+          "修复输出规则下拉框内容截断时无法查看完整文本的问题，为选中值和下拉选项补充悬停提示",
+          "确保规则下拉框中的用户自定义命令名称和分类名称始终保持原文"
         ]
       }
     ],
-    "notice": "更新后请完整重启 Tabby。现有命令库和快捷键配置会保留；未单独配置的抽屉焦点切换和快捷键提示操作会使用新的默认快捷键。"
+    "notice": "更新后请完整重启 Tabby。现有命令库和插件设置会保留。"
   },
   "en": {
-    "title": "Shortcut management and category navigation upgrade",
+    "title": "Update checks and rule dropdown improvements",
     "sections": [
       {
-        "title": "Shortcuts",
+        "title": "Update checks",
         "items": [
-          "Add plugin shortcut management",
-          "Improve shortcut recording, conflict detection, and cross-platform key conversion"
+          "Add an “On client startup” automatic-check option that checks once after Tabby starts without repeating during the same run"
         ]
       },
       {
-        "title": "Keyboard controls",
+        "title": "Drawer rules",
         "items": [
-          "Add a shortcut hint rail to the drawer; Escape switches focus between the drawer and terminal by default, while Ctrl+Alt+H shows or hides operation hints",
-          "Add keyboard navigation for categories and commands"
-        ]
-      },
-      {
-        "title": "Category navigation and settings layout redesign",
-        "items": [
-          "Keep categories in a stable order; when the current category is under More, show its name and selected state directly",
-          "Improve the expanded and collapsed arrow and tooltip states for More categories, and fix the cursor appearing at the start of the text when renaming a category"
-        ]
-      },
-      {
-        "title": "Other refinements and fixes",
-        "items": [
-          "Fix: Place the cursor correctly when renaming a category instead of at the start of the text",
-          "Fix: Remove the native English tooltip shown when hovering over the panel width setting",
-          "Improvement: Remove the spinner arrows on the right side of number inputs",
-          "Fix: Prevent mouse-wheel adjustments on number inputs in Settings from moving drawer focus to the search field while the drawer is open",
-          "Fix: Prevent drawer hints from obscuring the native Windows minimize, maximize, and close buttons",
-          "Improvement: Move the export filename setting into the export dialog"
+          "Fix truncated output-rule dropdown text by adding full hover tooltips to selected values and menu options",
+          "Keep user-defined command and category names unchanged in rule dropdowns"
         ]
       }
     ],
-    "notice": "Fully restart Tabby after updating. Existing command libraries and shortcut settings are preserved; the new defaults apply only to drawer focus switching and shortcut hints that have not been configured separately."
+    "notice": "Fully restart Tabby after updating. Existing command libraries and plugin settings are preserved."
   }
 }
