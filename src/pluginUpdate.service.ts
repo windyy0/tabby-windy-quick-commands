@@ -23,6 +23,16 @@ import {
     isNewerPluginVersion,
     UpdateCheckInterval,
 } from './pluginUpdate'
+import {
+    createPluginUpdateSourceStats,
+    getPluginUpdateSourceOrder,
+    parsePluginUpdateSourceStats,
+    PluginUpdateSourceGroup,
+    PluginUpdateSourceName,
+    PluginUpdateSourceStats,
+    recordPluginUpdateSourceResult,
+    shouldCalibratePluginUpdateSource,
+} from './pluginUpdateSourceStats'
 
 const packageInfo = require('../package.json') as { version?: string }
 
@@ -30,7 +40,10 @@ export const quickCommandsPackageName = pluginIdentity.packageName
 export const quickCommandsUpdatePackageName = pluginIdentity.updatePackageName
 const updateNotesFileName = 'update-notes.json'
 const updateHistoryCacheFileName = 'update-history-cache.json'
+const updateSourceStatsFileName = 'update-source-stats.json'
 const updateHistoryMetadataCacheMs = 24 * 60 * 60 * 1000
+const registryHedgeDelayMs = 300
+const updateNotesHedgeDelayMs = 250
 
 export type PluginUpdateStatus = 'idle' | 'checking' | 'current' | 'available' | 'error' | 'installing' | 'restart'
 
@@ -60,7 +73,7 @@ export interface PluginUpdateHistoryState {
 }
 
 interface PluginUpdateCache {
-    source: 'jsdelivr-localized-v1'
+    source: 'jsdelivr-localized-v1' | 'adaptive-localized-v2'
     packageName: string
     checkedAt: string
     latestVersion: string
@@ -79,11 +92,31 @@ interface PluginUpdateHistoryCacheEntry {
 }
 
 interface PluginUpdateHistoryCache {
-    source: 'jsdelivr-localized-v1'
+    source: 'jsdelivr-localized-v1' | 'adaptive-localized-v2'
     packageName: string
     checkedAt: string
     versions: string[]
     entries: Record<string, PluginUpdateHistoryCacheEntry>
+}
+
+interface AdaptiveSourceDescriptor {
+    source: PluginUpdateSourceName
+    url: string
+}
+
+interface JsonSourceAttempt<T> {
+    source: PluginUpdateSourceName
+    ok: boolean
+    status: number | null
+    durationMs: number
+    value?: T
+    error?: unknown
+}
+
+interface AdaptiveSourceResult<T> {
+    source: PluginUpdateSourceName
+    value: T | null
+    notFound: boolean
 }
 
 @Injectable({ providedIn: 'root' })
@@ -97,6 +130,7 @@ export class QuickCommandsPluginUpdateService {
     private configStore: QuickCommandsPluginConfigStore
     private readonly cachePath: string | null
     private readonly historyCachePath: string | null
+    private readonly sourceStatsPath: string | null
     private checkPromise: Promise<void> | null = null
     private checkTimer: number | null = null
     private initialCheckTimer: number | null = null
@@ -108,6 +142,7 @@ export class QuickCommandsPluginUpdateService {
     private historyPromise: Promise<void> | null = null
     private historySources: PluginUpdateHistorySourceEntry[] = []
     private historyCache: PluginUpdateHistoryCache | null = null
+    private sourceStats: PluginUpdateSourceStats
 
     constructor (
         private platform: PlatformService,
@@ -125,8 +160,12 @@ export class QuickCommandsPluginUpdateService {
         this.historyCachePath = configPath
             ? path.join(path.dirname(configPath), pluginIdentity.dataDirectory, updateHistoryCacheFileName)
             : null
+        this.sourceStatsPath = configPath
+            ? path.join(path.dirname(configPath), pluginIdentity.dataDirectory, updateSourceStatsFileName)
+            : null
         this.cache = this.readCache()
         this.historyCache = this.readHistoryCache()
+        this.sourceStats = this.readSourceStats()
         this.state$ = new BehaviorSubject<PluginUpdateState>({
             currentVersion,
             latestVersion: null,
@@ -156,6 +195,7 @@ export class QuickCommandsPluginUpdateService {
             this.configStore = new QuickCommandsPluginConfigStore(this.platform.getConfigPath())
             this.cache = null
             this.historyCache = null
+            this.sourceStats = createPluginUpdateSourceStats(quickCommandsUpdatePackageName)
             this.historySources = []
             this.lastAttemptAt = 0
             this.scheduledInterval = null
@@ -280,33 +320,36 @@ export class QuickCommandsPluginUpdateService {
     private async performCheck (): Promise<void> {
         const access = this.configStore.dataAccess
         try {
-            const latest = await this.fetchJson<{ version?: string }>(
-                `https://registry.npmjs.org/${quickCommandsUpdatePackageName}/latest`,
+            let firstApplied = false
+            let firstSource: PluginUpdateSourceName | null = null
+            let firstVersion = ''
+            let officialVersion = ''
+            const latest = await this.fetchAdaptiveJson<{ version?: string }>(
+                'registryLatest',
+                this.registrySources('/latest'),
+                registryHedgeDelayMs,
+                value => this.readValidLatestVersion(value) !== '',
+                access,
+                result => {
+                    if (result.source !== 'npm') { return }
+                    officialVersion = this.readValidLatestVersion(result.value)
+                    if (firstApplied && officialVersion && (firstSource !== 'npm' || officialVersion !== firstVersion)) {
+                        void this.applyLatestVersion(officialVersion, 'npm', access)
+                    }
+                },
             )
             if (!access.isCurrent()) { return }
-            const latestVersion = String(latest.version || '').trim()
+            const latestVersion = this.readValidLatestVersion(latest.value)
             if (!latestVersion) {
                 throw new Error('npm 没有返回有效版本号。')
             }
-            const updateNotes = await this.fetchUpdateNotesDocument(latestVersion)
-            if (!access.isCurrent()) { return }
-            this.cache = {
-                source: 'jsdelivr-localized-v1',
-                packageName: quickCommandsUpdatePackageName,
-                checkedAt: new Date().toISOString(),
-                latestVersion,
-                updateNotes,
+            firstSource = latest.source
+            firstVersion = latestVersion
+            await this.applyLatestVersion(latestVersion, latest.source, access)
+            firstApplied = true
+            if (officialVersion && (firstSource !== 'npm' || officialVersion !== firstVersion)) {
+                await this.applyLatestVersion(officialVersion, 'npm', access)
             }
-            this.writeCache(this.cache)
-            const available = isNewerPluginVersion(latestVersion, getUpdateComparisonVersion(this.snapshot.currentVersion, pluginIdentity.devBuild))
-            this.patchState({
-                latestVersion,
-                available,
-                ignored: available && this.getIgnoredVersion() === latestVersion,
-                status: available ? 'available' : 'current',
-                releaseNotes: formatPluginUpdateNotes(updateNotes, this.i18n.language),
-                error: '',
-            })
         } catch (error) {
             if (!access.isCurrent()) { return }
             this.patchState({
@@ -316,22 +359,86 @@ export class QuickCommandsPluginUpdateService {
         }
     }
 
-    private async fetchUpdateNotesDocument (version: string): Promise<unknown> {
-        const url = `https://cdn.jsdelivr.net/npm/${quickCommandsUpdatePackageName}@${encodeURIComponent(version)}/${updateNotesFileName}`
+    private async applyLatestVersion (
+        latestVersion: string,
+        source: PluginUpdateSourceName,
+        access: QuickCommandsPluginConfigStore['dataAccess'],
+    ): Promise<void> {
+        if (!access.isCurrent()) { return }
+        const knownVersion = this.snapshot.latestVersion
+        if (source === 'npmmirror' && knownVersion && comparePluginVersions(latestVersion, knownVersion) < 0) {
+            this.patchState({ status: this.snapshot.available ? 'available' : 'current', error: '' })
+            return
+        }
+        const available = isNewerPluginVersion(
+            latestVersion,
+            getUpdateComparisonVersion(this.snapshot.currentVersion, pluginIdentity.devBuild),
+        )
+        let updateNotes = this.cache?.latestVersion === latestVersion ? this.cache.updateNotes : undefined
+        if (available && updateNotes === undefined) {
+            updateNotes = await this.fetchUpdateNotesDocument(latestVersion, access)
+        }
+        if (!access.isCurrent()) { return }
+        const latestKnownNow = this.snapshot.latestVersion
+        if (source === 'npmmirror' && latestKnownNow && comparePluginVersions(latestVersion, latestKnownNow) < 0) {
+            return
+        }
+        this.cache = {
+            source: 'adaptive-localized-v2',
+            packageName: quickCommandsUpdatePackageName,
+            checkedAt: new Date().toISOString(),
+            latestVersion,
+            ...(updateNotes !== undefined ? { updateNotes } : {}),
+        }
+        this.writeCache(this.cache)
+        const activeStatus = this.snapshot.status === 'installing' || this.snapshot.status === 'restart'
+            ? this.snapshot.status
+            : available ? 'available' : 'current'
+        this.patchState({
+            latestVersion,
+            available,
+            ignored: available && this.getIgnoredVersion() === latestVersion,
+            status: activeStatus,
+            releaseNotes: formatPluginUpdateNotes(updateNotes, this.i18n.language),
+            error: '',
+        })
+    }
+
+    private async fetchUpdateNotesDocument (
+        version: string,
+        access: QuickCommandsPluginConfigStore['dataAccess'],
+    ): Promise<unknown | undefined> {
         try {
-            return await this.fetchJson<unknown>(url)
+            const result = await this.fetchUpdateNotesFromSources(version, access)
+            return result.notFound ? null : result.value ?? undefined
         } catch {
-            return null
+            return undefined
         }
     }
 
     private async performHistoryLoad (): Promise<void> {
         const access = this.configStore.dataAccess
         try {
-            const metadata = await this.fetchJson<{
+            const metadataResult = await this.fetchAdaptiveJson<{
                 versions?: Record<string, unknown>
                 time?: Record<string, string>
-            }>(`https://registry.npmjs.org/${quickCommandsUpdatePackageName}`)
+            }>(
+                'registryMetadata',
+                this.registrySources(''),
+                registryHedgeDelayMs,
+                (value, source) => {
+                    if (!value || typeof value !== 'object' || !value.versions || typeof value.versions !== 'object') {
+                        return false
+                    }
+                    const latestVersion = this.snapshot.latestVersion
+                    return source === 'npm' || !latestVersion || Object.prototype.hasOwnProperty.call(value.versions, latestVersion)
+                },
+                access,
+            )
+            const metadata = metadataResult.value
+            if (!metadata) {
+                throw new Error('npm 没有返回有效版本记录。')
+            }
             const versions = Object.keys(metadata.versions || {})
                 .filter(Boolean)
                 .sort((left, right) => comparePluginVersions(right, left))
@@ -358,7 +465,7 @@ export class QuickCommandsPluginUpdateService {
                     } else if (latestCachedDocument !== undefined && latestCachedDocument !== null) {
                         document = latestCachedDocument
                     } else {
-                        const result = await this.fetchHistoryUpdateNotesDocument(version)
+                        const result = await this.fetchHistoryUpdateNotesDocument(version, access)
                         document = result.document
                         if (!result.cacheable) {
                             sources[index] = {
@@ -383,7 +490,7 @@ export class QuickCommandsPluginUpdateService {
             await Promise.all(workers)
             if (!access.isCurrent()) { return }
             this.historyCache = {
-                source: 'jsdelivr-localized-v1',
+                source: 'adaptive-localized-v2',
                 packageName: quickCommandsUpdatePackageName,
                 checkedAt: new Date().toISOString(),
                 versions,
@@ -402,13 +509,15 @@ export class QuickCommandsPluginUpdateService {
         }
     }
 
-    private async fetchHistoryUpdateNotesDocument (version: string): Promise<{ document: unknown; cacheable: boolean }> {
-        const url = `https://cdn.jsdelivr.net/npm/${quickCommandsUpdatePackageName}@${encodeURIComponent(version)}/${updateNotesFileName}`
+    private async fetchHistoryUpdateNotesDocument (
+        version: string,
+        access: QuickCommandsPluginConfigStore['dataAccess'],
+    ): Promise<{ document: unknown; cacheable: boolean }> {
         try {
-            return { document: await this.fetchJson<unknown>(url), cacheable: true }
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error || '')
-            return { document: null, cacheable: /HTTP 404/.test(message) }
+            const result = await this.fetchUpdateNotesFromSources(version, access)
+            return { document: result.value, cacheable: result.notFound || result.value !== null }
+        } catch {
+            return { document: null, cacheable: false }
         }
     }
 
@@ -434,23 +543,223 @@ export class QuickCommandsPluginUpdateService {
         })
     }
 
-    private async fetchJson<T> (url: string): Promise<T> {
+    private registrySources (suffix: '' | '/latest'): AdaptiveSourceDescriptor[] {
+        return [
+            { source: 'npm', url: `https://registry.npmjs.org/${quickCommandsUpdatePackageName}${suffix}` },
+            { source: 'npmmirror', url: `https://registry.npmmirror.com/${quickCommandsUpdatePackageName}${suffix}` },
+        ]
+    }
+
+    private fetchUpdateNotesFromSources (
+        version: string,
+        access: QuickCommandsPluginConfigStore['dataAccess'],
+    ): Promise<AdaptiveSourceResult<unknown>> {
+        const encodedVersion = encodeURIComponent(version)
+        return this.fetchAdaptiveJson<unknown>(
+            'updateNotes',
+            [
+                {
+                    source: 'jsdelivr',
+                    url: `https://cdn.jsdelivr.net/npm/${quickCommandsUpdatePackageName}@${encodedVersion}/${updateNotesFileName}`,
+                },
+                {
+                    source: 'npmmirror',
+                    url: `https://registry.npmmirror.com/${quickCommandsUpdatePackageName}/${encodedVersion}/files/${updateNotesFileName}`,
+                },
+            ],
+            updateNotesHedgeDelayMs,
+            value => this.isValidUpdateNotesDocument(value, version),
+            access,
+        )
+    }
+
+    private readValidLatestVersion (value: { version?: string } | null | undefined): string {
+        const version = typeof value?.version === 'string' ? value.version.trim() : ''
+        return /^\d+(?:\.\d+)+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version) ? version : ''
+    }
+
+    private isValidUpdateNotesDocument (value: unknown, version: string): boolean {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false
+        }
+        const document = value as Record<string, unknown>
+        if (typeof document.version === 'string' && document.version.trim() !== version) {
+            return false
+        }
+        return Boolean(formatPluginUpdateNotes(value, 'zh-CN') || formatPluginUpdateNotes(value, 'en'))
+    }
+
+    private fetchAdaptiveJson<T> (
+        group: PluginUpdateSourceGroup,
+        sources: AdaptiveSourceDescriptor[],
+        hedgeDelayMs: number,
+        validate: (value: T, source: PluginUpdateSourceName) => boolean,
+        access: QuickCommandsPluginConfigStore['dataAccess'],
+        onValidResult?: (result: AdaptiveSourceResult<T>) => void,
+    ): Promise<AdaptiveSourceResult<T>> {
+        const sourceMap = new Map(sources.map(source => [source.source, source]))
+        const orderedSources = getPluginUpdateSourceOrder(this.sourceStats, group)
+            .map(source => sourceMap.get(source))
+            .filter((source): source is AdaptiveSourceDescriptor => Boolean(source))
+        const attempts = new Map<PluginUpdateSourceName, Promise<void>>()
+        const completed: Array<JsonSourceAttempt<T> & { valid: boolean }> = []
+        const measuredNotFoundSources = new Set<PluginUpdateSourceName>()
+        let settled = false
+        let hedgeTimer: number | null = null
+
+        return new Promise<AdaptiveSourceResult<T>>((resolve, reject) => {
+            const finishIfExhausted = (): void => {
+                if (settled || attempts.size < orderedSources.length || completed.length < attempts.size) {
+                    return
+                }
+                settled = true
+                if (hedgeTimer !== null) { window.clearTimeout(hedgeTimer) }
+                if (completed.length && completed.every(result => result.status === 404)) {
+                    resolve({ source: completed[0].source, value: null, notFound: true })
+                    return
+                }
+                const failure = [...completed].reverse().find(result => result.error)?.error
+                reject(failure instanceof Error ? failure : new Error(String(failure || '请求失败。')))
+            }
+
+            const startSource = (descriptor: AdaptiveSourceDescriptor): void => {
+                if (attempts.has(descriptor.source)) { return }
+                if (!access.isCurrent()) {
+                    if (!settled) {
+                        settled = true
+                        reject(new Error('更新数据已重置。'))
+                    }
+                    return
+                }
+                const promise = this.fetchJsonAttempt<T>(descriptor).then(attempt => {
+                    if (!access.isCurrent()) {
+                        if (!settled) {
+                            settled = true
+                            reject(new Error('更新数据已重置。'))
+                        }
+                        return
+                    }
+                    const valid = Boolean(attempt.ok && attempt.value !== undefined && validate(attempt.value, attempt.source))
+                    completed.push({ ...attempt, valid })
+                    if (attempt.status !== 404) {
+                        this.recordSourceResult(group, attempt.source, valid, attempt.durationMs, access)
+                    } else if (completed.some(result => result.valid)) {
+                        measuredNotFoundSources.add(attempt.source)
+                        this.recordSourceResult(group, attempt.source, false, attempt.durationMs, access)
+                    }
+                    if (valid) {
+                        for (const notFound of completed.filter(result => result.status === 404 && !measuredNotFoundSources.has(result.source))) {
+                            measuredNotFoundSources.add(notFound.source)
+                            this.recordSourceResult(group, notFound.source, false, notFound.durationMs, access)
+                        }
+                        const result: AdaptiveSourceResult<T> = {
+                            source: attempt.source,
+                            value: attempt.value!,
+                            notFound: false,
+                        }
+                        onValidResult?.(result)
+                        if (!settled) {
+                            settled = true
+                            if (hedgeTimer !== null) { window.clearTimeout(hedgeTimer) }
+                            resolve(result)
+                            const other = orderedSources.find(source => !attempts.has(source.source))
+                            const mustVerifyOfficial = group === 'registryLatest' && attempt.source === 'npmmirror'
+                            if (other && (mustVerifyOfficial || shouldCalibratePluginUpdateSource(
+                                this.sourceStats,
+                                group,
+                                other.source,
+                            ))) {
+                                startSource(other)
+                            }
+                        }
+                        return
+                    }
+                    if (!settled) {
+                        const other = orderedSources.find(source => !attempts.has(source.source))
+                        if (other) {
+                            startSource(other)
+                        } else {
+                            finishIfExhausted()
+                        }
+                    }
+                })
+                attempts.set(descriptor.source, promise)
+            }
+
+            if (!orderedSources.length) {
+                reject(new Error('没有可用的更新源。'))
+                return
+            }
+            startSource(orderedSources[0])
+            if (orderedSources.length > 1) {
+                hedgeTimer = window.setTimeout(() => {
+                    if (!settled) { startSource(orderedSources[1]) }
+                }, hedgeDelayMs)
+            }
+        })
+    }
+
+    private async fetchJsonAttempt<T> (descriptor: AdaptiveSourceDescriptor): Promise<JsonSourceAttempt<T>> {
+        const startedAt = Date.now()
         const controller = new AbortController()
         this.requests.add(controller)
         const timer = window.setTimeout(() => controller.abort(), 12000)
         try {
-            const response = await fetch(url, {
+            const response = await fetch(descriptor.url, {
                 headers: { Accept: 'application/json' },
                 signal: controller.signal,
             })
             if (!response.ok) {
-                throw new Error(`请求失败（HTTP ${response.status}）。`)
+                return {
+                    source: descriptor.source,
+                    ok: false,
+                    status: response.status,
+                    durationMs: Math.max(1, Date.now() - startedAt),
+                    error: new Error(`请求失败（HTTP ${response.status}）。`),
+                }
             }
-            return await response.json() as T
+            try {
+                const value = await response.json() as T
+                return {
+                    source: descriptor.source,
+                    ok: true,
+                    status: response.status,
+                    durationMs: Math.max(1, Date.now() - startedAt),
+                    value,
+                }
+            } catch (error) {
+                return {
+                    source: descriptor.source,
+                    ok: false,
+                    status: response.status,
+                    durationMs: Math.max(1, Date.now() - startedAt),
+                    error,
+                }
+            }
+        } catch (error) {
+            return {
+                source: descriptor.source,
+                ok: false,
+                status: null,
+                durationMs: Math.max(1, Date.now() - startedAt),
+                error,
+            }
         } finally {
             this.requests.delete(controller)
             window.clearTimeout(timer)
         }
+    }
+
+    private recordSourceResult (
+        group: PluginUpdateSourceGroup,
+        source: PluginUpdateSourceName,
+        success: boolean,
+        durationMs: number,
+        access: QuickCommandsPluginConfigStore['dataAccess'],
+    ): void {
+        if (!access.isCurrent()) { return }
+        recordPluginUpdateSourceResult(this.sourceStats, group, source, success, durationMs)
+        this.writeSourceStats(access)
     }
 
     private applyCache (): void {
@@ -522,7 +831,8 @@ export class QuickCommandsPluginUpdateService {
             // Stable legacy caches remain valid; Dev caches from the old source must be ignored.
             const matchingPackage = parsed && (parsed.packageName === quickCommandsUpdatePackageName ||
                 (!pluginIdentity.devBuild && parsed.packageName === undefined))
-            return parsed && matchingPackage && parsed.source === 'jsdelivr-localized-v1' && typeof parsed.latestVersion === 'string' && typeof parsed.checkedAt === 'string'
+            const matchingSource = parsed?.source === 'jsdelivr-localized-v1' || parsed?.source === 'adaptive-localized-v2'
+            return parsed && matchingPackage && matchingSource && typeof parsed.latestVersion === 'string' && typeof parsed.checkedAt === 'string'
                 ? parsed
                 : null
         } catch {
@@ -541,6 +851,34 @@ export class QuickCommandsPluginUpdateService {
             })
         } catch {
             // Update cache failures must not affect the plugin itself.
+        }
+    }
+
+    private readSourceStats (): PluginUpdateSourceStats {
+        if (!this.sourceStatsPath || !fs.existsSync(this.sourceStatsPath)) {
+            return createPluginUpdateSourceStats(quickCommandsUpdatePackageName)
+        }
+        try {
+            return parsePluginUpdateSourceStats(
+                JSON.parse(fs.readFileSync(this.sourceStatsPath, 'utf8')),
+                quickCommandsUpdatePackageName,
+            )
+        } catch {
+            return createPluginUpdateSourceStats(quickCommandsUpdatePackageName)
+        }
+    }
+
+    private writeSourceStats (access: QuickCommandsPluginConfigStore['dataAccess']): void {
+        if (!this.sourceStatsPath || !access.isCurrent()) {
+            return
+        }
+        try {
+            access.write(() => {
+                fs.mkdirSync(path.dirname(this.sourceStatsPath!), { recursive: true })
+                fs.writeFileSync(this.sourceStatsPath!, `${JSON.stringify(this.sourceStats, null, 2)}\n`, 'utf8')
+            })
+        } catch {
+            // Source performance statistics must not affect update checks.
         }
     }
 
@@ -590,7 +928,8 @@ export class QuickCommandsPluginUpdateService {
         }
         try {
             const parsed = JSON.parse(fs.readFileSync(this.historyCachePath, 'utf8')) as PluginUpdateHistoryCache
-            if (!parsed || parsed.source !== 'jsdelivr-localized-v1' || parsed.packageName !== quickCommandsUpdatePackageName ||
+            const matchingSource = parsed?.source === 'jsdelivr-localized-v1' || parsed?.source === 'adaptive-localized-v2'
+            if (!parsed || !matchingSource || parsed.packageName !== quickCommandsUpdatePackageName ||
                 typeof parsed.checkedAt !== 'string' || !Array.isArray(parsed.versions) ||
                 parsed.versions.some(version => typeof version !== 'string') || !parsed.entries ||
                 typeof parsed.entries !== 'object' || Array.isArray(parsed.entries)) {

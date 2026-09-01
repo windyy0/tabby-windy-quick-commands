@@ -43,6 +43,13 @@ import {
     isNewerPluginVersion,
     getUpdateComparisonVersion,
 } from '../src/pluginUpdate'
+import {
+    createPluginUpdateSourceStats,
+    getPluginUpdateSourceOrder,
+    parsePluginUpdateSourceStats,
+    recordPluginUpdateSourceResult,
+    shouldCalibratePluginUpdateSource,
+} from '../src/pluginUpdateSourceStats'
 import { shouldHandleDelegatedAction } from '../src/delegatedClick'
 import { getPluginIdentity } from '../src/pluginIdentity'
 import { PluginDataAccess } from '../src/pluginData'
@@ -274,6 +281,39 @@ function testPluginVersionComparison (): void {
     assert(
         getNextPluginUpdateCheckDelay('daily', '2026-08-20T00:00:00Z', now - hour, now) === 23 * hour,
         'a recent failed attempt should prevent rapid retries when the successful cache is stale',
+    )
+}
+
+function testPluginUpdateSourceStats (): void {
+    const stats = createPluginUpdateSourceStats('test-package')
+    assert(
+        getPluginUpdateSourceOrder(stats, 'registryLatest').join(',') === 'npm,npmmirror',
+        'official npm must be the initial registry source',
+    )
+    assert(
+        getPluginUpdateSourceOrder(stats, 'updateNotes').join(',') === 'jsdelivr,npmmirror',
+        'jsDelivr must be the initial release-notes source',
+    )
+    const now = new Date('2026-09-01T00:00:00Z').getTime()
+    recordPluginUpdateSourceResult(stats, 'updateNotes', 'jsdelivr', true, 500, now)
+    recordPluginUpdateSourceResult(stats, 'updateNotes', 'npmmirror', true, 100, now)
+    assert(
+        getPluginUpdateSourceOrder(stats, 'updateNotes').join(',') === 'npmmirror,jsdelivr',
+        'a substantially faster measured notes source should become preferred',
+    )
+    recordPluginUpdateSourceResult(stats, 'registryLatest', 'npm', false, 1000, now)
+    recordPluginUpdateSourceResult(stats, 'registryLatest', 'npmmirror', true, 200, now)
+    assert(
+        getPluginUpdateSourceOrder(stats, 'registryLatest').join(',') === 'npmmirror,npm',
+        'a failing registry source should be deprioritized',
+    )
+    assert(!shouldCalibratePluginUpdateSource(stats, 'updateNotes', 'jsdelivr', now + 1000), 'recent source samples should be reused')
+    assert(shouldCalibratePluginUpdateSource(stats, 'updateNotes', 'jsdelivr', now + 25 * 60 * 60 * 1000), 'source performance should be recalibrated daily')
+    const parsed = parsePluginUpdateSourceStats(JSON.parse(JSON.stringify(stats)), 'test-package')
+    assert(parsed.groups.updateNotes.npmmirror?.averageMs === 100, 'valid persisted source statistics should be restored')
+    assert(
+        !parsePluginUpdateSourceStats({ ...stats, packageName: 'other' }, 'test-package').groups.updateNotes.npmmirror,
+        'statistics from another package must be discarded',
     )
 }
 
@@ -1513,6 +1553,7 @@ const tests: Array<[string, () => void | Promise<void>]> = [
     ['用户内容本地化边界', testUserContentLocalizationBoundary],
     ['设置提示关闭与计时', testSettingsMessages],
     ['插件版本比较', testPluginVersionComparison],
+    ['更新源自适应统计', testPluginUpdateSourceStats],
     ['弹窗委托点击', testDelegatedDialogClicks],
     ['插件更新说明', testPluginUpdateNotes],
     ['命令导入预览', testImportPreview],

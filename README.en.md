@@ -210,6 +210,22 @@ If Tabby is already closed, the command only clears data without prompting or st
 
 The Enter confirmation prompt follows Tabby's interface language, falling back to the Windows display language if it cannot be read. This workflow has only been tested on Windows.
 
+### Update Sources
+
+Sources are prioritized according to the current network quality.
+
+**Update checks**
+
+- Official npm registry: `registry.npmjs.org`
+- npmmirror: `registry.npmmirror.com`
+
+**Update history**
+
+- jsDelivr
+- npmmirror `/files`
+
+> To read files through npmmirror's unpkg service, the package must first be added to its allowlist. See the [npmmirror unpkg allowlist project on GitHub](https://github.com/cnpm/unpkg-white-list).
+
 ## Publishing to npm
 
 > Packages whose names begin with `tabby-` and include the `tabby-plugin` keyword can be discovered by Tabby's Plugin Manager after publication.
@@ -236,6 +252,8 @@ This command verifies the npm login, version, and update notes; runs type checki
 Run `npm run publish:check` to validate without publishing. Running `npm publish` directly also validates the version and update notes automatically.
 
 ### Update Notes
+
+Maintain release notes in `update-notes.json`. Only the current release needs to be included; there is no need to accumulate notes from earlier versions.
 
 ```json
 {
@@ -266,8 +284,6 @@ Run `npm run publish:check` to validate without publishing. Running `npm publish
 The sample text above is shown entirely in English for readability. For an actual release, write the `zh-CN` values in Chinese and the `en` values in English.
 
 The `version` must match `package.json` and `package-lock.json`. Both languages require a `title`, `sections`, and at least one item; `notice` is optional. Other interface languages fall back to English.
-
-Only the current release notes need to be maintained; they do not accumulate in this file. The plugin checks the npm `latest` version, reads the corresponding notes through jsDelivr, and automatically assembles the update history. Versions without a notes file display a fallback message.
 
 ## License
 

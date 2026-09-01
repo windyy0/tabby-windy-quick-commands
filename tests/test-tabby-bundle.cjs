@@ -22,6 +22,12 @@ function loadBundle (bundlePath, liveNetwork = false, document = { addEventListe
         latestVersion: '9.0.0',
         registryStatus: 200,
         historyVersions: { '9.0.0': '2026-08-27T00:00:00Z' },
+        npmRegistryStatus: null,
+        mirrorRegistryStatus: null,
+        mirrorLatestVersion: null,
+        mirrorHistoryVersions: null,
+        jsdelivrStatus: 200,
+        mirrorFilesStatus: 200,
     }
     const core = { ConfigProvider: class {}, HotkeyProvider: class {}, ToolbarButtonProvider: class {}, HotkeysService: class {} }
     const settings = { SettingsTabProvider: class {} }
@@ -52,19 +58,34 @@ function loadBundle (bundlePath, liveNetwork = false, document = { addEventListe
         },
         fetch: async (url, options) => {
             networkRequests.push(url)
-            const stableSource = /^https:\/\/registry\.npmjs\.org\/tabby-windy-quick-commands(?:\/latest)?$/.test(url) ||
-                /^https:\/\/cdn\.jsdelivr\.net\/npm\/tabby-windy-quick-commands@[^/]+\/update-notes\.json$/.test(url)
+            const npmRegistry = /^https:\/\/registry\.npmjs\.org\/tabby-windy-quick-commands(?:\/latest)?$/.test(url)
+            const mirrorRegistry = /^https:\/\/registry\.npmmirror\.com\/tabby-windy-quick-commands(?:\/latest)?$/.test(url)
+            const jsdelivrNotes = /^https:\/\/cdn\.jsdelivr\.net\/npm\/tabby-windy-quick-commands@[^/]+\/update-notes\.json$/.test(url)
+            const mirrorNotes = /^https:\/\/registry\.npmmirror\.com\/tabby-windy-quick-commands\/[^/]+\/files\/update-notes\.json$/.test(url)
+            const stableSource = npmRegistry || mirrorRegistry || jsdelivrNotes || mirrorNotes
             if (!stableSource) return { ok: false, status: 404, json: async () => ({}) }
             if (liveNetwork) return fetch(url, { ...options, signal: AbortSignal.timeout(15000) })
             if (networkGate.wait) await networkGate.wait
-            if (networkGate.registryStatus !== 200) return { ok: false, status: networkGate.registryStatus }
-            const data = url.endsWith('/latest') ? { version: networkGate.latestVersion }
-                : url.includes('cdn.jsdelivr.net') ? notes
+            const status = npmRegistry ? (networkGate.npmRegistryStatus ?? networkGate.registryStatus)
+                : mirrorRegistry ? (networkGate.mirrorRegistryStatus ?? networkGate.registryStatus)
+                    : jsdelivrNotes ? networkGate.jsdelivrStatus
+                        : networkGate.mirrorFilesStatus
+            if (status !== 200) return { ok: false, status }
+            const requestedVersion = decodeURIComponent(
+                (url.match(/@([^/]+)\/update-notes\.json$/)?.[1] || url.match(/commands\/([^/]+)\/files\/update-notes\.json$/)?.[1] || '9.0.0'),
+            )
+            const sourceVersions = mirrorRegistry && networkGate.mirrorHistoryVersions
+                ? networkGate.mirrorHistoryVersions
+                : networkGate.historyVersions
+            const data = url.endsWith('/latest')
+                ? { version: mirrorRegistry && networkGate.mirrorLatestVersion ? networkGate.mirrorLatestVersion : networkGate.latestVersion }
+                : jsdelivrNotes || mirrorNotes
+                    ? { ...notes, version: requestedVersion }
                     : {
-                        versions: Object.fromEntries(Object.keys(networkGate.historyVersions).map(version => [version, {}])),
-                        time: networkGate.historyVersions,
+                        versions: Object.fromEntries(Object.keys(sourceVersions).map(version => [version, {}])),
+                        time: sourceVersions,
                     }
-            return { ok: true, json: async () => data }
+            return { ok: true, status: 200, json: async () => data }
         },
         require: name => name === '@angular/core' ? angular
             : name === '@angular/common' ? { CommonModule: class {} }
@@ -409,9 +430,14 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     assert.equal(update.checkInterval, defaults.updateCheckInterval)
     assert.equal(update.cachePath, cachePath)
     host.networkGate.latestVersion = baseVersion
+    const requestsBeforeCurrentCheck = host.networkRequests.length
     await update.checkNow()
     assert.equal(update.snapshot.status, 'current', 'equal source versions must not advertise a Dev update')
     assert.equal(update.snapshot.currentVersion, version, 'the displayed installed version must keep its Dev suffix')
+    assert.ok(
+        host.networkRequests.slice(requestsBeforeCurrentCheck).every(url => !url.includes('update-notes.json')),
+        'an up-to-date check must not download release notes',
+    )
     const cachedUpdate = new UpdateService(platform, config, i18n, bootstrap)
     assert.equal(cachedUpdate.snapshot.status, 'current', 'cached results must use the same normalized comparison')
     assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).packageName, 'tabby-windy-quick-commands')
@@ -426,6 +452,12 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     host.networkGate.latestVersion = '9.0.0'
     await update.checkNow()
     assert.equal(update.snapshot.status, 'available', update.snapshot.error)
+    const requestsBeforeRepeatedAvailableCheck = host.networkRequests.length
+    await update.checkNow()
+    assert.ok(
+        host.networkRequests.slice(requestsBeforeRepeatedAvailableCheck).every(url => !url.includes('update-notes.json')),
+        'a repeated check must reuse cached notes for the same available version',
+    )
     await update.loadHistory()
     assert.equal(update.historyState$.value.status, 'ready')
     assert.equal(update.historyState$.value.entries.length, 1)
@@ -455,6 +487,86 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     assert.ok(incrementalHistoryRequests.some(url => url.includes('@9.1.0/update-notes.json')))
     assert.ok(incrementalHistoryRequests.every(url => !url.includes('@9.0.0/update-notes.json')), 'existing immutable version notes must stay cached')
     host.networkGate.historyVersions = { '9.0.0': '2026-08-27T00:00:00Z' }
+
+    const sourceStatsPath = path.join(profilePath, dataDirectory, 'update-source-stats.json')
+    assert.equal(fs.existsSync(sourceStatsPath), true, 'successful source measurements must be persisted')
+    fs.rmSync(sourceStatsPath, { force: true })
+    host.networkGate.npmRegistryStatus = 503
+    host.networkGate.mirrorRegistryStatus = 200
+    host.networkGate.latestVersion = '9.0.0'
+    const registryFallbackUpdate = new UpdateService(platform, config, i18n, bootstrap)
+    const requestsBeforeRegistryFallback = host.networkRequests.length
+    await registryFallbackUpdate.checkNow()
+    const registryFallbackRequests = host.networkRequests.slice(requestsBeforeRegistryFallback)
+    assert.equal(registryFallbackUpdate.snapshot.status, 'available', 'npmmirror must recover a failed official registry check')
+    assert.ok(registryFallbackRequests[0].includes('registry.npmjs.org'), 'official npm must be the initial registry source without measurements')
+    assert.ok(registryFallbackRequests.some(url => url.includes('registry.npmmirror.com/tabby-windy-quick-commands/latest')))
+
+    host.networkGate.npmRegistryStatus = 200
+    host.networkGate.jsdelivrStatus = 404
+    host.networkGate.mirrorFilesStatus = 200
+    host.networkGate.latestVersion = '9.2.0'
+    fs.rmSync(sourceStatsPath, { force: true })
+    const notesFallbackUpdate = new UpdateService(platform, config, i18n, bootstrap)
+    const requestsBeforeNotesFallback = host.networkRequests.length
+    await notesFallbackUpdate.checkNow()
+    const notesFallbackRequests = host.networkRequests.slice(requestsBeforeNotesFallback).filter(url => url.includes('update-notes.json'))
+    assert.ok(notesFallbackRequests[0].includes('cdn.jsdelivr.net'), 'jsDelivr must be the initial notes source without measurements')
+    assert.ok(notesFallbackRequests.some(url => url.includes('/files/update-notes.json')), 'npmmirror files must recover a jsDelivr 404')
+    assert.ok(notesFallbackUpdate.snapshot.releaseNotes.includes('Update'))
+    const notesFallbackStats = JSON.parse(fs.readFileSync(sourceStatsPath, 'utf8')).groups.updateNotes
+    assert.equal(notesFallbackStats.jsdelivr.consecutiveFailures, 1, 'a single-source 404 must be deprioritized when the other source has the file')
+    assert.equal(notesFallbackStats.npmmirror.successRate, 1)
+
+    host.networkGate.jsdelivrStatus = 404
+    host.networkGate.mirrorFilesStatus = 404
+    host.networkGate.latestVersion = '9.3.0'
+    const missingNotesUpdate = new UpdateService(platform, config, i18n, bootstrap)
+    await missingNotesUpdate.checkNow()
+    assert.equal(missingNotesUpdate.snapshot.status, 'available')
+    assert.equal(missingNotesUpdate.snapshot.releaseNotes, '')
+    assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).updateNotes, null, 'only a dual-source 404 should persist missing notes')
+    const requestsBeforeMissingNotesRetry = host.networkRequests.length
+    await missingNotesUpdate.checkNow()
+    assert.ok(
+        host.networkRequests.slice(requestsBeforeMissingNotesRetry).every(url => !url.includes('update-notes.json')),
+        'a confirmed dual-source missing file should not be requested again',
+    )
+
+    const measuredAt = new Date().toISOString()
+    fs.writeFileSync(sourceStatsPath, JSON.stringify({
+        version: 1,
+        packageName: 'tabby-windy-quick-commands',
+        updatedAt: measuredAt,
+        groups: {
+            registryLatest: {
+                npm: { samples: 3, averageMs: 600, successRate: 1, consecutiveFailures: 0, lastTestedAt: measuredAt },
+                npmmirror: { samples: 3, averageMs: 50, successRate: 1, consecutiveFailures: 0, lastTestedAt: measuredAt },
+            },
+            registryMetadata: {},
+            updateNotes: {
+                jsdelivr: { samples: 3, averageMs: 80, successRate: 1, consecutiveFailures: 0, lastTestedAt: measuredAt },
+                npmmirror: { samples: 3, averageMs: 300, successRate: 1, consecutiveFailures: 0, lastTestedAt: measuredAt },
+            },
+        },
+    }))
+    host.networkGate.latestVersion = '9.4.0'
+    host.networkGate.mirrorLatestVersion = '9.3.0'
+    host.networkGate.jsdelivrStatus = 200
+    host.networkGate.mirrorFilesStatus = 200
+    const mirrorPreferredUpdate = new UpdateService(platform, config, i18n, bootstrap)
+    const requestsBeforeMirrorPreferred = host.networkRequests.length
+    await mirrorPreferredUpdate.checkNow()
+    await new Promise(resolve => setImmediate(resolve))
+    const mirrorPreferredRequests = host.networkRequests.slice(requestsBeforeMirrorPreferred)
+    assert.ok(mirrorPreferredRequests[0].includes('registry.npmmirror.com'), 'measured source performance must change the next request order')
+    assert.ok(mirrorPreferredRequests.some(url => url.includes('registry.npmjs.org')), 'an official latest validation must still run when the mirror wins')
+    assert.equal(mirrorPreferredUpdate.snapshot.latestVersion, '9.4.0', 'official validation must correct a lagging mirror result')
+
+    host.networkGate.jsdelivrStatus = 200
+    host.networkGate.mirrorFilesStatus = 200
+    host.networkGate.mirrorLatestVersion = null
+    host.networkGate.latestVersion = '9.0.0'
     await update.installLatest()
     assert.equal(update.canInstallUpdate, !devBuild)
     assert.deepEqual(pluginInstalls, devBuild ? [] : [[packageName, '9.0.0']], 'Dev must not install a stable or unpublished Dev package')
@@ -579,6 +691,7 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     await Promise.all([pendingCheck, pendingHistory])
     assert.equal(fs.existsSync(path.join(dataPath, 'update-cache.json')), false, 'in-flight update requests must not repopulate the old cache after reset')
     assert.equal(fs.existsSync(path.join(dataPath, 'update-history-cache.json')), false, 'in-flight history requests must not repopulate the old cache after reset')
+    assert.equal(fs.existsSync(path.join(dataPath, 'update-source-stats.json')), false, 'in-flight measurements must not repopulate source statistics after reset')
     assert.equal(update.snapshot.status, 'idle', 'obsolete update results must not reappear in the UI')
     assert.equal(update.historyState$.value.entries.length, 0)
     settingsTab.ngOnDestroy()

@@ -209,6 +209,20 @@ Tabby 原本已关闭时，只清理，不询问、不启动；之后自行打�
 
 回车确认提示跟随tabby客户端语言，失败尝试Windows显示语言，目前只测试过Windows。
 
+### 更新源
+根据网络质量优先选择。
+
+**检查更新**
+- npm 官方：`registry.npmjs.org`
+- npmmirror：`registry.npmmirror.com`
+
+**更新历史**
+- jsDelivr
+- npmmirror`/files`
+
+> npmmirror的unpkg功能需要自行添加到白名单，才能正常读取文件。[GitHub上的npmmirror白名单项目](https://github.com/cnpm/unpkg-white-list)
+
+
 ## 发布到 npm
 
 > 包名以 `tabby-` 开头并包含 `tabby-plugin` 关键词，发布后即可被 Tabby 插件管理器发现。
@@ -235,6 +249,8 @@ npm run release
 只检查可运行 `npm run publish:check`。直接运行 `npm publish` 时也会自动校验版本和更新说明。
 
 ### 更新说明
+
+更新维护文件`update-notes.json`，每次只需要维护本次发布内容，无需累积历史。
 
 ```json
 {
@@ -264,7 +280,6 @@ npm run release
 
 `version` 必须与 `package.json`、`package-lock.json` 一致；中英文的 `title`、`sections` 和至少一条 `items` 必填，`notice` 可省略。其他界面语言回退到英文。
 
-每次只维护本次发布内容，无需累积历史。插件以 npm 的 `latest` 版本检查更新，通过 jsDelivr 读取对应版本的说明，并自动汇总为更新历史；旧版本没有说明文件时会显示默认提示。
 
 ## License
 
