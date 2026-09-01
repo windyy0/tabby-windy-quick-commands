@@ -7,7 +7,7 @@ const os = require('node:os')
 const { ReplaySubject, Subject } = require('rxjs')
 const clone = value => JSON.parse(JSON.stringify(value))
 
-function loadBundle (bundlePath, liveNetwork = false, document = { addEventListener () {} }) {
+function loadBundle (bundlePath, liveNetwork = false, document = { addEventListener () {} }, runtimeOptions = {}) {
     class TestNode {}
     class TestElement extends TestNode {}
     class TestHTMLElement extends TestElement {}
@@ -46,7 +46,9 @@ function loadBundle (bundlePath, liveNetwork = false, document = { addEventListe
         HTMLTextAreaElement: TestTextAreaElement, setTimeout, clearTimeout,
         Reflect: { metadata: (key, value) => target => { target[key] = value } },
         CustomEvent: class { constructor (type) { this.type = type } },
+        navigator: runtimeOptions.navigator || {},
         window: {
+            innerWidth: runtimeOptions.innerWidth ?? 1280,
             addEventListener: (name, callback) => {
                 events.push(name)
                 windowListeners.set(name, [...(windowListeners.get(name) || []), callback])
@@ -102,7 +104,32 @@ function loadBundle (bundlePath, liveNetwork = false, document = { addEventListe
     sandbox.document = document
     const Module = sandbox.module.exports.default
     const getProvider = type => Module.testMetadata.providers.find(provider => provider.provide === type).useClass
-    return { Module, getProvider, core, settings, hostListeners, events, networkRequests, networkGate, TestHTMLElement }
+    return { Module, getProvider, core, settings, hostListeners, events, networkRequests, networkGate, TestHTMLElement, window: sandbox.window }
+}
+
+function createWindowControlsOverlayHarness () {
+    const listeners = new Map()
+    const state = {
+        visible: true,
+        rect: { x: 0, y: 0, width: 1056, height: 34 },
+    }
+    return {
+        overlay: {
+            get visible () { return state.visible },
+            getTitlebarAreaRect: () => ({ ...state.rect }),
+            addEventListener: (name, callback) => {
+                listeners.set(name, [...(listeners.get(name) || []), callback])
+            },
+        },
+        setGeometry (visible, rect = state.rect) {
+            state.visible = visible
+            state.rect = { ...rect }
+        },
+        dispatch (name) {
+            for (const callback of listeners.get(name) || []) callback({ type: name })
+        },
+        listenerCount: name => (listeners.get(name) || []).length,
+    }
 }
 
 async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profilePath) {
@@ -333,7 +360,11 @@ async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profi
 }
 
 async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh-CN') {
-    const host = loadBundle(bundlePath)
+    const windowControls = createWindowControlsOverlayHarness()
+    const host = loadBundle(bundlePath, false, undefined, {
+        innerWidth: 1200,
+        navigator: { windowControlsOverlay: windowControls.overlay },
+    })
     const dataDirectory = devBuild ? 'windy-quick-commands-dev' : 'windy-quick-commands'
     const packageName = `tabby-${dataDirectory}`
     const baseVersion = require('../package.json').version
@@ -364,6 +395,28 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     })
     if (devBuild) config.store.windyCommandCenter = { commands: [] }
     const service = new Service({}, config, platform, { create: () => ({}) }, i18n, { state$: stream })
+    const overlayStyles = new Map()
+    const overlayWidthVariable = devBuild ? '--tqc-dev-window-controls-width' : '--tqc-window-controls-width'
+    const overlayHeightVariable = devBuild ? '--tqc-dev-window-controls-height' : '--tqc-window-controls-height'
+    service.root = { style: { setProperty: (name, value) => overlayStyles.set(name, value) } }
+    service.bindWindowControlsOverlay()
+    service.bindWindowControlsOverlay()
+    assert.equal(windowControls.listenerCount('geometrychange'), 1, 'window controls geometry listener must only be bound once')
+    service.syncWindowControlsOverlay()
+    assert.equal(overlayStyles.get(overlayWidthVariable), '144px', 'initial WCO geometry must reserve the actual right-side controls width')
+    assert.equal(overlayStyles.get(overlayHeightVariable), '34px', 'initial WCO geometry must reserve the actual controls height')
+    windowControls.setGeometry(true, { x: 0, y: 1, width: 1010, height: 36 })
+    windowControls.dispatch('geometrychange')
+    assert.equal(overlayStyles.get(overlayWidthVariable), '190px', 'geometrychange must refresh the controls width')
+    assert.equal(overlayStyles.get(overlayHeightVariable), '37px', 'geometrychange must include the titlebar vertical offset')
+    host.window.innerWidth = 1100
+    host.window.dispatchEvent({ type: 'resize' })
+    assert.equal(overlayStyles.get(overlayWidthVariable), '90px', 'window resize must recompute controls width against the new viewport')
+    windowControls.setGeometry(false)
+    windowControls.dispatch('geometrychange')
+    assert.equal(overlayStyles.get(overlayWidthVariable), '0px', 'hidden WCO must release the reserved controls width')
+    assert.equal(overlayStyles.get(overlayHeightVariable), '0px', 'hidden WCO must release the reserved controls height')
+    service.root = null
     const PluginHotkeyProvider = host.getProvider(host.core.HotkeyProvider)
     const pluginHotkeyDescriptions = await new PluginHotkeyProvider(i18n).provide()
     assert.equal(pluginHotkeyDescriptions.some(item => item.id.startsWith('settings-tab.')), false, 'the plugin must not duplicate Tabby\'s standard settings-tab hotkey description')
