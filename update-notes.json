@@ -1,38 +1,26 @@
 {
-  "version": "1.9.1",
+  "version": "1.9.2",
   "zh-CN": {
-    "title": "更新检查与规则下拉体验优化",
+    "title": "优化更新检查与历史加载",
     "sections": [
       {
-        "title": "更新检查",
+        "title": "更新优化",
         "items": [
-          "自动检查新增“客户端启动时”选项，每次启动 Tabby 后检查一次，本次运行期间不再重复检查"
-        ]
-      },
-      {
-        "title": "抽屉规则",
-        "items": [
-          "修复输出规则下拉框内容截断时无法查看完整文本的问题，为选中值和下拉选项补充悬停提示",
-          "确保规则下拉框中的用户自定义命令名称和分类名称始终保持原文"
+          "根据网络表现自动选择更快、更稳定的更新源，响应慢或失败时切换备用源",
+          "更新历史优先显示本地缓存并只获取新增版本，减少等待和重复请求"
         ]
       }
     ],
     "notice": "更新后请完整重启 Tabby。现有命令库和插件设置会保留。"
   },
   "en": {
-    "title": "Update checks and rule dropdown improvements",
+    "title": "Faster update checks and history loading",
     "sections": [
       {
-        "title": "Update checks",
+        "title": "Update improvements",
         "items": [
-          "Add an “On client startup” automatic-check option that checks once after Tabby starts without repeating during the same run"
-        ]
-      },
-      {
-        "title": "Drawer rules",
-        "items": [
-          "Fix truncated output-rule dropdown text by adding full hover tooltips to selected values and menu options",
-          "Keep user-defined command and category names unchanged in rule dropdowns"
+          "Automatically prefer the faster and more reliable update source, switching to a fallback when requests are slow or fail",
+          "Show cached update history first and fetch only new versions to reduce waiting and repeated requests"
         ]
       }
     ],
