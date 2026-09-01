@@ -102,7 +102,7 @@ function loadBundle (bundlePath, liveNetwork = false, document = { addEventListe
     sandbox.document = document
     const Module = sandbox.module.exports.default
     const getProvider = type => Module.testMetadata.providers.find(provider => provider.provide === type).useClass
-    return { Module, getProvider, core, settings, hostListeners, events, networkRequests, networkGate }
+    return { Module, getProvider, core, settings, hostListeners, events, networkRequests, networkGate, TestHTMLElement }
 }
 
 async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profilePath) {
@@ -138,6 +138,7 @@ async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profi
             },
         }
         const services = {}
+        const hosts = {}
         const executions = []
         const focusSwitches = []
         for (const devBuild of (devFirst ? [true, false] : [false, true])) {
@@ -160,6 +161,7 @@ async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profi
             service.executeSelectedCommand = async () => { executions.push(channel) }
             service.requestConfirmation = () => Service.prototype.executeSelectedCommand.call(service)
             services[channel] = service
+            hosts[channel] = host
         }
         const pressExecute = expected => {
             executions.length = 0
@@ -246,6 +248,25 @@ async function exerciseConcurrentDrawers (stableBundlePath, devBundlePath, profi
         assert.equal(blankSurfaceFocuses, 1, 'clicking drawer whitespace must focus the drawer surface instead of search')
         services.dev.focusDrawerSurface = originalFocusDrawerSurface
         services.dev.isDrawerInteractiveControl = originalIsDrawerInteractiveControl
+
+        const executeButton = new hosts.dev.TestHTMLElement()
+        executeButton.dataset = { action: 'execute' }
+        executeButton.ownerRoot = services.dev.root
+        executeButton.classList = { contains: () => false }
+        executeButton.closest = selector => selector === '[data-action]' ? executeButton : null
+        const originalExecuteSelectedCommand = services.dev.executeSelectedCommand
+        let clickExecutionFocusOrigin = null
+        services.dev.executeSelectedCommand = async (_confirmed, focusOrigin) => { clickExecutionFocusOrigin = focusOrigin }
+        services.dev.focusArea = 'terminal'
+        services.dev.handleRootClick({ target: executeButton })
+        services.dev.handleDelegatedRootClick({
+            target: executeButton,
+            preventDefault () {},
+            stopPropagation () {},
+        })
+        assert.equal(services.dev.focusArea, 'drawer', 'clicking an action must still move drawer interaction state to the drawer')
+        assert.equal(clickExecutionFocusOrigin, 'terminal', 'mouse execution must preserve the input area from before the drawer action received focus')
+        services.dev.executeSelectedCommand = originalExecuteSelectedCommand
         services.dev.running = true
         pressExecute([])
         services.dev.running = false

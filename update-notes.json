@@ -1,28 +1,28 @@
 {
-  "version": "1.9.3",
+  "version": "1.9.4",
   "zh-CN": {
-    "title": "优化启动更新检查体验",
+    "title": "修复输入焦点与窗口按钮交互",
     "sections": [
       {
-        "title": "检查更新",
+        "title": "操作与输入",
         "items": [
-          "启动后等待网络就绪再自动检查，并在临时网络故障时静默重试一次，减少首次启动误报",
-          "手动检查始终优先，不再因后台自动重试延长等待时间",
-          "更新请求超时时显示明确提示，不再暴露底层 AbortSignal 错误"
+          "修复使用鼠标点击执行命令时，“发送命令后输入位置”选择“保持原位”却将焦点留在抽屉的问题",
+          "现在点击前位于终端会在发送后回到终端，点击前位于抽屉则继续留在抽屉",
+          "恢复按实际窗口控制区避让鼠标命中，消除右上角最小化等按钮的重复悬停提示，同时保持新增分类等弹窗的灰色背景完整显示"
         ]
       }
     ],
     "notice": "更新后请完整重启 Tabby。现有命令库和插件设置会保留。"
   },
   "en": {
-    "title": "Smoother startup update checks",
+    "title": "Fix input focus and window control interactions",
     "sections": [
       {
-        "title": "Update checks",
+        "title": "Interaction and input",
         "items": [
-          "Wait for the network to become ready before the startup check and silently retry once after a temporary network failure",
-          "Always prioritize manual checks so a background retry no longer extends their waiting time",
-          "Show a clear timeout message instead of exposing the underlying AbortSignal error"
+          "Fix mouse execution leaving focus in the drawer when Input position after sending is set to Keep current position",
+          "Focus now returns to the terminal when execution started there, while remaining in the drawer when execution started there",
+          "Restore hit testing exclusion based on the actual window controls area to remove duplicate hover hints while preserving the full dialog backdrop"
         ]
       }
     ],

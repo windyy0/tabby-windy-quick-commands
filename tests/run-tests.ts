@@ -724,6 +724,28 @@ function testCategoryLayout (): void {
     assert(drawerStyles.includes('.tqc-category-overflow-toggle.tqc-active svg'), 'the open category overflow toggle should point upward')
 }
 
+function testWindowControlsOverlayLayout (): void {
+    const drawerSource = fs.readFileSync(path.join(process.cwd(), 'src', 'quickCommands.service.ts'), 'utf8')
+    const drawerStyles = fs.readFileSync(path.join(process.cwd(), 'src', 'quickCommands.css'), 'utf8')
+    assert(
+        drawerSource.includes('getTitlebarAreaRect()') &&
+        drawerSource.includes("overlay.addEventListener('geometrychange'") &&
+        drawerSource.includes("window.addEventListener('resize'") &&
+        drawerSource.includes("setProperty('--tqc-window-controls-width'") &&
+        drawerSource.includes("setProperty('--tqc-window-controls-height'"),
+        'window controls exclusion must follow Electron actual overlay geometry instead of relying only on CSS environment values',
+    )
+    assert(
+        /\.tqc-interactive-surface\s*\{[^}]*clip-path:\s*polygon/s.test(drawerStyles),
+        'the drawer interaction surface must exclude the native window controls region',
+    )
+    assert(
+        /\.tqc-confirm-backdrop\s*\{[^}]*pointer-events:\s*none;[^}]*background:/s.test(drawerStyles) &&
+        /\.tqc-confirm-backdrop::before\s*\{[^}]*clip-path:\s*polygon[^}]*pointer-events:\s*auto;/s.test(drawerStyles),
+        'dialog shading must remain full-height while only its hit layer excludes native window controls',
+    )
+}
+
 function testDangerChecks (): void {
     const danger = getDangerCheck('rm -rf /tmp/demo')
     assert(danger.dangerous, 'rm -rf should be dangerous')
@@ -1561,6 +1583,7 @@ const tests: Array<[string, () => void | Promise<void>]> = [
     ['导入数据校验', testImportValidation],
     ['快捷键处理', testShortcuts],
     ['分类栏布局', testCategoryLayout],
+    ['窗口按钮交互层', testWindowControlsOverlayLayout],
     ['危险命令检查', testDangerChecks],
     ['逐行脚本解析', testScriptParser],
     ['工具栏按钮显示', testToolbarButtonVisibility],

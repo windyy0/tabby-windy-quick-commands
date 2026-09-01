@@ -62,6 +62,16 @@ type TerminalTabLike = ExecutionTarget
 type DrawerFocusArea = 'drawer' | 'terminal'
 type DrawerFocusTarget = 'search' | 'surface'
 
+interface WindowControlsOverlayLike {
+    visible: boolean
+    getTitlebarAreaRect: () => DOMRect
+    addEventListener: (type: 'geometrychange', listener: () => void) => void
+}
+
+interface NavigatorWithWindowControlsOverlay extends Navigator {
+    windowControlsOverlay?: WindowControlsOverlayLike
+}
+
 interface ExecutionSummary {
     modeLabel: string
     targetCount: number
@@ -84,6 +94,7 @@ export class QuickCommandsService {
     private filter = ''
     private focusArea: DrawerFocusArea = 'terminal'
     private drawerFocusTarget: DrawerFocusTarget = 'search'
+    private focusAreaBeforeRootClick: DrawerFocusArea | null = null
     private searchReturnCategory: string | null = null
     private searchReturnCommandId: string | null = null
     private message = ''
@@ -131,6 +142,7 @@ export class QuickCommandsService {
     private pluginConfigDirty = false
     private pendingPluginConfigWrite: Record<string, unknown> | null = null
     private pluginConfigWriteTimer: number | null = null
+    private windowControlsOverlayBound = false
     private readonly pluginConfigWriteDelay = 400
     private runtimeStore: QuickCommandsRuntimeStore
     private pluginConfigStore: QuickCommandsPluginConfigStore
@@ -231,6 +243,7 @@ export class QuickCommandsService {
     private showDrawer (): void {
         this.visible = true
         this.ensureRoot()
+        this.syncWindowControlsOverlay()
         // This attribute deliberately has no channel-specific CSS prefix. Both
         // bundles use DOM order to agree which visible drawer owns Ctrl+Enter.
         this.root!.setAttribute('data-windy-quick-commands-drawer', 'open')
@@ -297,7 +310,46 @@ export class QuickCommandsService {
             this.root.addEventListener('drop', event => this.handleDelegatedCommandDrop(event))
             this.root.addEventListener('dragend', event => this.handleDelegatedCommandDragEnd(event))
             document.body.appendChild(this.root)
+            this.bindWindowControlsOverlay()
         }
+    }
+
+    private bindWindowControlsOverlay (): void {
+        if (this.windowControlsOverlayBound) {
+            return
+        }
+        const overlay = typeof navigator === 'undefined'
+            ? undefined
+            : (navigator as NavigatorWithWindowControlsOverlay).windowControlsOverlay
+        if (!overlay) {
+            return
+        }
+        this.windowControlsOverlayBound = true
+        overlay.addEventListener('geometrychange', () => this.syncWindowControlsOverlay())
+        window.addEventListener('resize', () => this.syncWindowControlsOverlay())
+    }
+
+    private syncWindowControlsOverlay (): void {
+        if (!this.root) {
+            return
+        }
+        const overlay = typeof navigator === 'undefined'
+            ? undefined
+            : (navigator as NavigatorWithWindowControlsOverlay).windowControlsOverlay
+        if (!overlay) {
+            return
+        }
+        if (!overlay.visible) {
+            this.root.style.setProperty('--tqc-window-controls-width', '0px')
+            this.root.style.setProperty('--tqc-window-controls-height', '0px')
+            return
+        }
+        const rect = overlay.getTitlebarAreaRect()
+        const controlRightEdge = Math.max(0, rect.x + rect.width)
+        const controlWidth = Math.max(0, window.innerWidth - controlRightEdge)
+        const controlHeight = Math.max(0, rect.y + rect.height)
+        this.root.style.setProperty('--tqc-window-controls-width', `${controlWidth}px`)
+        this.root.style.setProperty('--tqc-window-controls-height', `${controlHeight}px`)
     }
 
     private render (): void {
@@ -2118,7 +2170,11 @@ export class QuickCommandsService {
         })
     }
 
-    private async handleAction (action: string, element?: HTMLElement): Promise<void> {
+    private async handleAction (
+        action: string,
+        element?: HTMLElement,
+        focusAreaBeforeAction: DrawerFocusArea = this.focusArea,
+    ): Promise<void> {
         switch (action) {
             case 'close':
                 this.close()
@@ -2338,7 +2394,7 @@ export class QuickCommandsService {
                 const commandId = element?.dataset.commandExecuteId
                 if (commandId && this.state.commands.some(command => command.id === commandId)) {
                     this.updateConfig({ selectedCommandId: commandId })
-                    await this.executeSelectedCommand()
+                    await this.executeSelectedCommand(false, focusAreaBeforeAction)
                 }
                 return
             }
@@ -2403,10 +2459,10 @@ export class QuickCommandsService {
                 await this.copySelectedCommand()
                 return
             case 'execute':
-                await this.executeSelectedCommand()
+                await this.executeSelectedCommand(false, focusAreaBeforeAction)
                 return
             case 'execute-confirm':
-                await this.executeSelectedCommand(true)
+                await this.executeSelectedCommand(true, focusAreaBeforeAction)
                 return
             case 'execute-cancel':
                 this.pendingExecutionId = null
@@ -3247,7 +3303,10 @@ export class QuickCommandsService {
         this.showMessage(`${mode === 'merge' ? '命令库已合并导入' : '命令库已替换导入'}${referenceMessage}。`)
     }
 
-    private async executeSelectedCommand (confirmed = false): Promise<void> {
+    private async executeSelectedCommand (
+        confirmed = false,
+        focusAreaBeforeSend: DrawerFocusArea = this.focusArea,
+    ): Promise<void> {
         if (!this.pluginConfigStore.dataAccess.isCurrent()) {
             this.showMessage('插件数据已在其他窗口重置，请重启 Tabby 后再操作。')
             return
@@ -3305,7 +3364,10 @@ export class QuickCommandsService {
                 this.state.failureStrategy,
                 this.state.recentOutputLimit,
             )
-            if (this.visible && this.state.focusTerminalAfterSend) {
+            if (
+                this.visible &&
+                (this.state.focusTerminalAfterSend || focusAreaBeforeSend === 'terminal')
+            ) {
                 this.focusCurrentTerminal()
             }
             const stopped = await execution
@@ -3595,6 +3657,7 @@ export class QuickCommandsService {
             return
         }
 
+        this.focusAreaBeforeRootClick = this.focusArea
         if (this.isEditableElement(event.target)) {
             return
         }
@@ -3617,6 +3680,8 @@ export class QuickCommandsService {
     private handleDelegatedRootClick (event: MouseEvent): void {
         const actionElement = this.getDelegatedTarget(event, '[data-action]')
         const action = actionElement?.dataset.action || ''
+        const focusAreaBeforeAction = this.focusAreaBeforeRootClick || this.focusArea
+        this.focusAreaBeforeRootClick = null
         if (actionElement && shouldHandleDelegatedAction(
             action,
             actionElement.classList.contains('tqc-confirm-backdrop'),
@@ -3639,7 +3704,7 @@ export class QuickCommandsService {
             if (this.automationRuleMenuKey && action !== 'rule-menu-toggle' && action !== 'rule-option-select') {
                 this.closeAutomationRuleMenu()
             }
-            void this.handleAction(action, actionElement)
+            void this.handleAction(action, actionElement, focusAreaBeforeAction)
             return
         }
 
