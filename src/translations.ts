@@ -68,6 +68,7 @@ const englishPhrases: Record<string, string> = {
     '查看插件更新': 'View plugin update',
     '检查失败': 'Update check failed',
     '请稍后重试': 'Try again later',
+    '请求超时，请稍后重试。': 'Request timed out. Try again later.',
     '请求失败': 'Request failed',
     'npm 没有返回有效版本号。': 'npm did not return a valid version.',
     '更新安装失败。': 'Update installation failed.',

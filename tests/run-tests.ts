@@ -238,6 +238,7 @@ function testTranslations (): void {
     assert(translatePluginText('发现新版本 v1.5.2', 'en-US') === 'New version available v1.5.2', 'available update status should include the version in English')
     assert(translatePluginText('此版本未提供更新说明。', 'en-US') === 'No release notes were provided for this version.', 'missing historical notes should be translated')
     assert(translatePluginText('检查失败：请求失败（HTTP 503）。', 'en-US') === 'Update check failed: Request failed (HTTP 503).', 'update request errors should be translated')
+    assert(translatePluginText('检查失败：请求超时，请稍后重试。', 'en-US') === 'Update check failed: Request timed out. Try again later.', 'update timeout errors should be translated')
     for (const [source, english] of [
         ['文件只包含命令，不包含插件配置。', 'The file contains commands only, not plugin configuration.'],
         ['更新安装失败。', 'Update installation failed.'],

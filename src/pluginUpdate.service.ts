@@ -44,6 +44,8 @@ const updateSourceStatsFileName = 'update-source-stats.json'
 const updateHistoryMetadataCacheMs = 24 * 60 * 60 * 1000
 const registryHedgeDelayMs = 300
 const updateNotesHedgeDelayMs = 250
+const initialUpdateCheckDelayMs = 5000
+const updateRequestTimeoutMs = 12000
 
 export type PluginUpdateStatus = 'idle' | 'checking' | 'current' | 'available' | 'error' | 'installing' | 'restart'
 
@@ -143,6 +145,7 @@ export class QuickCommandsPluginUpdateService {
     private historySources: PluginUpdateHistorySourceEntry[] = []
     private historyCache: PluginUpdateHistoryCache | null = null
     private sourceStats: PluginUpdateSourceStats
+    private manualCheckRequested = false
 
     constructor (
         private platform: PlatformService,
@@ -206,7 +209,7 @@ export class QuickCommandsPluginUpdateService {
             this.initialCheckTimer = null
             this.refreshPreferenceState()
             this.scheduleAutomaticCheck(true)
-        }, 1000)
+        }, initialUpdateCheckDelayMs)
     }
 
     get snapshot (): PluginUpdateState {
@@ -224,7 +227,12 @@ export class QuickCommandsPluginUpdateService {
     }
 
     async checkNow (): Promise<void> {
-        return this.checkForUpdates()
+        this.manualCheckRequested = true
+        try {
+            await this.checkForUpdates(false)
+        } finally {
+            this.manualCheckRequested = false
+        }
     }
 
     async loadHistory (force = false): Promise<void> {
@@ -300,7 +308,7 @@ export class QuickCommandsPluginUpdateService {
         return requested
     }
 
-    private async checkForUpdates (): Promise<void> {
+    private async checkForUpdates (automatic = false): Promise<void> {
         if (!this.configStore.dataAccess.isCurrent()) { return }
         if (this.checkPromise) {
             return this.checkPromise
@@ -308,7 +316,7 @@ export class QuickCommandsPluginUpdateService {
         this.lastAttemptAt = Date.now()
         const access = this.configStore.dataAccess
         this.patchState({ status: 'checking', error: '' })
-        this.checkPromise = this.performCheck()
+        this.checkPromise = this.performCheck(automatic)
         try {
             await this.checkPromise
         } finally {
@@ -317,46 +325,50 @@ export class QuickCommandsPluginUpdateService {
         }
     }
 
-    private async performCheck (): Promise<void> {
+    private async performCheck (retryOnce = false): Promise<void> {
         const access = this.configStore.dataAccess
-        try {
-            let firstApplied = false
-            let firstSource: PluginUpdateSourceName | null = null
-            let firstVersion = ''
-            let officialVersion = ''
-            const latest = await this.fetchAdaptiveJson<{ version?: string }>(
-                'registryLatest',
-                this.registrySources('/latest'),
-                registryHedgeDelayMs,
-                value => this.readValidLatestVersion(value) !== '',
-                access,
-                result => {
-                    if (result.source !== 'npm') { return }
-                    officialVersion = this.readValidLatestVersion(result.value)
-                    if (firstApplied && officialVersion && (firstSource !== 'npm' || officialVersion !== firstVersion)) {
-                        void this.applyLatestVersion(officialVersion, 'npm', access)
-                    }
-                },
-            )
-            if (!access.isCurrent()) { return }
-            const latestVersion = this.readValidLatestVersion(latest.value)
-            if (!latestVersion) {
-                throw new Error('npm 没有返回有效版本号。')
+        const attempts = retryOnce ? 2 : 1
+        let failure: unknown = null
+        for (let attempt = 0; attempt < attempts; attempt++) {
+            try {
+                let firstApplied = false
+                let firstSource: PluginUpdateSourceName | null = null
+                let firstVersion = ''
+                let officialVersion = ''
+                const latest = await this.fetchAdaptiveJson<{ version?: string }>(
+                    'registryLatest',
+                    this.registrySources('/latest'),
+                    registryHedgeDelayMs,
+                    value => this.readValidLatestVersion(value) !== '',
+                    access,
+                    result => {
+                        if (result.source !== 'npm') { return }
+                        officialVersion = this.readValidLatestVersion(result.value)
+                        if (firstApplied && officialVersion && (firstSource !== 'npm' || officialVersion !== firstVersion)) {
+                            void this.applyLatestVersion(officialVersion, 'npm', access)
+                        }
+                    },
+                )
+                if (!access.isCurrent()) { return }
+                const latestVersion = this.readValidLatestVersion(latest.value)
+                if (!latestVersion) {
+                    throw new Error('npm 没有返回有效版本号。')
+                }
+                firstSource = latest.source
+                firstVersion = latestVersion
+                await this.applyLatestVersion(latestVersion, latest.source, access)
+                firstApplied = true
+                if (officialVersion && (firstSource !== 'npm' || officialVersion !== firstVersion)) {
+                    await this.applyLatestVersion(officialVersion, 'npm', access)
+                }
+                return
+            } catch (error) {
+                if (!access.isCurrent()) { return }
+                failure = error
+                if (this.manualCheckRequested) { break }
             }
-            firstSource = latest.source
-            firstVersion = latestVersion
-            await this.applyLatestVersion(latestVersion, latest.source, access)
-            firstApplied = true
-            if (officialVersion && (firstSource !== 'npm' || officialVersion !== firstVersion)) {
-                await this.applyLatestVersion(officialVersion, 'npm', access)
-            }
-        } catch (error) {
-            if (!access.isCurrent()) { return }
-            this.patchState({
-                status: 'error',
-                error: error instanceof Error ? error.message : String(error || '检查更新失败。'),
-            })
         }
+        this.patchState({ status: 'error', error: this.formatCheckError(failure) })
     }
 
     private async applyLatestVersion (
@@ -703,7 +715,7 @@ export class QuickCommandsPluginUpdateService {
         const startedAt = Date.now()
         const controller = new AbortController()
         this.requests.add(controller)
-        const timer = window.setTimeout(() => controller.abort(), 12000)
+        const timer = window.setTimeout(() => controller.abort(), updateRequestTimeoutMs)
         try {
             const response = await fetch(descriptor.url, {
                 headers: { Accept: 'application/json' },
@@ -762,6 +774,20 @@ export class QuickCommandsPluginUpdateService {
         this.writeSourceStats(access)
     }
 
+    private formatCheckError (error: unknown): string {
+        const details = error && typeof error === 'object'
+            ? error as { name?: unknown; message?: unknown }
+            : null
+        const name = typeof details?.name === 'string' ? details.name : ''
+        const message = typeof details?.message === 'string'
+            ? details.message
+            : String(error || '')
+        if (name === 'AbortError' || /(?:signal|operation|request).*abort|aborted without reason/i.test(message)) {
+            return '请求超时，请稍后重试。'
+        }
+        return message || '检查更新失败。'
+    }
+
     private applyCache (): void {
         if (!this.cache?.latestVersion) {
             return
@@ -794,7 +820,7 @@ export class QuickCommandsPluginUpdateService {
         this.scheduledInterval = interval
         if (interval === 'startup') {
             if (runWhenDue) {
-                void this.checkForUpdates()
+                void this.checkForUpdates(true)
             }
             return
         }
@@ -807,10 +833,10 @@ export class QuickCommandsPluginUpdateService {
             return
         }
         if (runWhenDue && delay === 0) {
-            void this.checkForUpdates()
+            void this.checkForUpdates(true)
             return
         }
-        this.checkTimer = window.setTimeout(() => void this.checkForUpdates(), Math.max(1000, delay))
+        this.checkTimer = window.setTimeout(() => void this.checkForUpdates(true), Math.max(1000, delay))
     }
 
     private getIgnoredVersion (): string {

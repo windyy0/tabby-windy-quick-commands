@@ -1,26 +1,28 @@
 {
-  "version": "1.9.2",
+  "version": "1.9.3",
   "zh-CN": {
-    "title": "优化更新检查与历史加载",
+    "title": "优化启动更新检查体验",
     "sections": [
       {
-        "title": "更新优化",
+        "title": "检查更新",
         "items": [
-          "根据网络表现自动选择更快、更稳定的更新源，响应慢或失败时切换备用源",
-          "更新历史优先显示本地缓存并只获取新增版本，减少等待和重复请求"
+          "启动后等待网络就绪再自动检查，并在临时网络故障时静默重试一次，减少首次启动误报",
+          "手动检查始终优先，不再因后台自动重试延长等待时间",
+          "更新请求超时时显示明确提示，不再暴露底层 AbortSignal 错误"
         ]
       }
     ],
     "notice": "更新后请完整重启 Tabby。现有命令库和插件设置会保留。"
   },
   "en": {
-    "title": "Faster update checks and history loading",
+    "title": "Smoother startup update checks",
     "sections": [
       {
-        "title": "Update improvements",
+        "title": "Update checks",
         "items": [
-          "Automatically prefer the faster and more reliable update source, switching to a fallback when requests are slow or fail",
-          "Show cached update history first and fetch only new versions to reduce waiting and repeated requests"
+          "Wait for the network to become ready before the startup check and silently retry once after a temporary network failure",
+          "Always prioritize manual checks so a background retry no longer extends their waiting time",
+          "Show a clear timeout message instead of exposing the underlying AbortSignal error"
         ]
       }
     ],

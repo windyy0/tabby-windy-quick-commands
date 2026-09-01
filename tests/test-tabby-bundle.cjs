@@ -28,6 +28,8 @@ function loadBundle (bundlePath, liveNetwork = false, document = { addEventListe
         mirrorHistoryVersions: null,
         jsdelivrStatus: 200,
         mirrorFilesStatus: 200,
+        registryThrownFailures: 0,
+        registryThrownError: null,
     }
     const core = { ConfigProvider: class {}, HotkeyProvider: class {}, ToolbarButtonProvider: class {}, HotkeysService: class {} }
     const settings = { SettingsTabProvider: class {} }
@@ -66,6 +68,10 @@ function loadBundle (bundlePath, liveNetwork = false, document = { addEventListe
             if (!stableSource) return { ok: false, status: 404, json: async () => ({}) }
             if (liveNetwork) return fetch(url, { ...options, signal: AbortSignal.timeout(15000) })
             if (networkGate.wait) await networkGate.wait
+            if ((npmRegistry || mirrorRegistry) && networkGate.registryThrownFailures > 0) {
+                networkGate.registryThrownFailures--
+                throw networkGate.registryThrownError || new Error('temporary registry failure')
+            }
             const status = npmRegistry ? (networkGate.npmRegistryStatus ?? networkGate.registryStatus)
                 : mirrorRegistry ? (networkGate.mirrorRegistryStatus ?? networkGate.registryStatus)
                     : jsdelivrNotes ? networkGate.jsdelivrStatus
@@ -452,6 +458,37 @@ async function exerciseBundle (bundlePath, profilePath, devBuild, language = 'zh
     host.networkGate.latestVersion = '9.0.0'
     await update.checkNow()
     assert.equal(update.snapshot.status, 'available', update.snapshot.error)
+    const timeoutUpdate = new UpdateService(platform, config, i18n, bootstrap)
+    host.networkGate.registryThrownFailures = 2
+    host.networkGate.registryThrownError = Object.assign(new Error('signal is aborted without reason'), { name: 'AbortError' })
+    await timeoutUpdate.checkNow()
+    assert.equal(timeoutUpdate.snapshot.status, 'error')
+    assert.equal(timeoutUpdate.snapshot.error, '请求超时，请稍后重试。', 'manual checks must not expose the runtime AbortSignal error')
+    const retryUpdate = new UpdateService(platform, config, i18n, bootstrap)
+    host.networkGate.registryThrownFailures = 2
+    host.networkGate.registryThrownError = new TypeError('fetch failed')
+    const requestsBeforeAutomaticRetry = host.networkRequests.length
+    await retryUpdate.checkForUpdates(true)
+    const automaticRetryRequests = host.networkRequests.slice(requestsBeforeAutomaticRetry)
+        .filter(url => url.endsWith('/latest'))
+    assert.equal(retryUpdate.snapshot.status, 'available', 'automatic checks must recover from one transient registry failure')
+    assert.ok(automaticRetryRequests.length >= 3, 'automatic checks must retry after both update sources fail')
+    const foregroundPriorityUpdate = new UpdateService(platform, config, i18n, bootstrap)
+    host.networkGate.registryThrownFailures = 2
+    host.networkGate.registryThrownError = new TypeError('fetch failed')
+    let releaseForegroundPriorityCheck
+    host.networkGate.wait = new Promise(resolve => { releaseForegroundPriorityCheck = resolve })
+    const requestsBeforeForegroundPriorityCheck = host.networkRequests.length
+    const pendingAutomaticCheck = foregroundPriorityUpdate.checkForUpdates(true)
+    const pendingManualCheck = foregroundPriorityUpdate.checkNow()
+    releaseForegroundPriorityCheck()
+    await Promise.all([pendingAutomaticCheck, pendingManualCheck])
+    host.networkGate.wait = null
+    const foregroundPriorityRequests = host.networkRequests.slice(requestsBeforeForegroundPriorityCheck)
+        .filter(url => url.endsWith('/latest'))
+    assert.equal(foregroundPriorityUpdate.snapshot.status, 'error')
+    assert.equal(foregroundPriorityRequests.length, 2, 'a manual check must stop an in-flight automatic check from entering its background retry')
+    host.networkGate.registryThrownError = null
     const requestsBeforeRepeatedAvailableCheck = host.networkRequests.length
     await update.checkNow()
     assert.ok(
