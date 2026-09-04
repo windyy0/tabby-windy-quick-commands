@@ -13,7 +13,9 @@ const englishPhrases: Record<string, string> = {
     '等待成功或错误输出的最长时间，单位为毫秒；到时后执行右侧的超时动作，最少 100 毫秒。': 'Maximum time to wait for success or error output, in milliseconds. The timeout action is used when it expires; minimum 100 ms.',
     '等待成功或错误输出的最长时间，单位为毫秒；到时后执行右侧的超时动作，最少 100ms。': 'Maximum time to wait for success or error output, in milliseconds. The timeout action is used when it expires; minimum 100 ms.',
     '导出或恢复命令、分类、触发器和所有插件设置；运行日志与使用统计不包含在内。': 'Export or restore commands, categories, triggers, and all plugin settings. Runtime logs and usage statistics are excluded.',
+    '导出或恢复命令、分类、触发器和所有插件设置；活动日志与使用统计不包含在内。': 'Export or restore commands, categories, triggers, and all plugin settings. Activity logs and usage statistics are excluded.',
     '确定恢复所有插件设置的默认值？现有命令、分类和输出触发器将保留，运行日志和使用统计也不会清除。': 'Restore all plugin settings to their defaults? Existing commands, categories, and output triggers will be kept. Runtime logs and usage statistics will not be cleared.',
+    '确定恢复所有插件设置的默认值？现有命令、分类和输出触发器将保留，活动日志和使用统计也不会清除。': 'Restore all plugin settings to their defaults? Existing commands, categories, output triggers, activity logs, and usage statistics will be kept.',
     '该文件包含命令和插件配置，请选择要导入的内容。导入完整配置会替换当前命令和设置。': 'This file contains commands and plugin settings. Choose what to import. Importing the full configuration replaces the current commands and settings.',
     '该文件只包含命令。是否将命令合并到当前命令库？': 'This file contains commands only. Merge them into the current command library?',
     '该文件包含命令和插件配置，请选择要导入的内容。': 'This file contains commands and plugin settings. Choose what to import.',
@@ -82,6 +84,8 @@ const englishPhrases: Record<string, string> = {
     '当前会话不支持输出监听，已跳过输出触发器。': 'The current session does not support output monitoring, so output triggers were skipped.',
     '逐行模式支持为每一行设置延迟和执行后暂停。': 'Line-by-line mode supports a delay and pause-after-run setting for each line.',
     '插件配置已导入。按钮显示设置将在重启 Tabby 后生效。': 'Plugin configuration imported. Toolbar button visibility takes effect after restarting Tabby.',
+    '插件设置、配置备份、活动日志和使用统计': 'Plugin settings, configuration backups, activity logs and usage statistics',
+    '请先导出需要保留的命令和配置；导出文件不包含活动日志和使用统计。': 'Export any commands and settings you want to keep first. Exports do not include activity logs or usage statistics.',
     '当前为执行后暂停，点击改为执行后继续': 'Currently pauses after running; click to continue after running',
     '当前为执行后继续，点击改为执行后暂停': 'Currently continues after running; click to pause after running',
     '修改后重启 Tabby 生效；隐藏按钮后仍可使用快捷键': 'Restart Tabby after changing this setting; shortcuts remain available when the button is hidden',
@@ -103,6 +107,50 @@ const englishPhrases: Record<string, string> = {
     '开启时，检测到删除、磁盘写入、强制清理等高风险命令，会弹出确认框；其中严重风险还需输入命令名称。关闭后，高风险命令不再单独触发确认，但“执行前确认：每次”和“发送到所有会话：始终确认”仍各自生效。关闭会降低误操作保护；自动化中的高风险命令仍会被跳过。': 'When enabled, detected high-risk commands such as deletion, direct disk writes, and forced cleanup open a confirmation dialog; severe risks also require entering the command name. When disabled, high-risk detection no longer triggers confirmation by itself, while “Confirmation before execution: Every time” and “Send to all sessions: Always confirm” still apply independently. Disabling this reduces protection against mistakes; high-risk commands are still skipped by automations.',
     '搜索名称、说明或命令内容': 'Search names, descriptions, or command text',
     '搜索消息、命令或目标会话': 'Search messages, commands, or target sessions',
+    '搜索消息、对象、命令或目标会话': 'Search messages, objects, commands, or target sessions',
+    '记录命令运行、命令管理、分类以及导入导出操作，最新日志在前。': 'Records command runs, command management, categories, and import/export operations, newest first.',
+    '活动日志': 'Activity logs',
+    '清空活动日志': 'Clear activity logs',
+    '保留方式': 'Retention mode',
+    '按条数': 'By count',
+    '按天数': 'By age',
+    '按大小': 'By size',
+    '长期保留': 'Keep indefinitely',
+    '最多保留条数': 'Maximum entries',
+    '保留天数': 'Retention days',
+    '存储上限': 'Storage limit',
+    '提醒阈值': 'Warning threshold',
+    '当前占用': 'Current size',
+    '全部类型': 'All types',
+    '全部结果': 'All results',
+    '命令运行': 'Command run',
+    '分类管理': 'Category management',
+    '导入导出': 'Import/export',
+    '结果': 'Result',
+    '对象': 'Object',
+    '摘要': 'Summary',
+    '序号': 'No.',
+    '跳转到': 'Go to',
+    '展开日志详情': 'Expand log details',
+    '收起日志详情': 'Collapse log details',
+    '没有匹配的活动日志': 'No matching activity logs',
+    '成功': 'Success',
+    '失败': 'Failed',
+    '运行事件': 'Run event',
+    '新增分类': 'Add category',
+    '分类排序': 'Reorder categories',
+    '系统事件': 'System event',
+    '原位置': 'Previous location',
+    '新位置': 'New location',
+    '方向': 'Direction',
+    '来源命令': 'Source command',
+    '命令数量': 'Command count',
+    '清理引用': 'Cleared references',
+    '已下载': 'Downloaded',
+    '已复制': 'Copied',
+    '方式': 'Mode',
+    '启用': 'Enabled',
+    '原因': 'Reason',
     '请进入具体分类排序': 'Open a specific category to sort',
     '点击改为执行后继续': 'Click to continue after running',
     '点击改为执行后暂停': 'Click to pause after running',
@@ -146,6 +194,7 @@ const englishPhrases: Record<string, string> = {
     '复制当前命令并创建新的命令项': 'Copy the current command into a new item',
     '确认永久删除选中的': 'Permanently delete the selected',
     '条命令？运行日志将保留。': 'commands? Runtime logs will be kept.',
+    '条命令？活动日志将保留。': 'commands? Activity logs will be kept.',
     '默认保留 200 条，最多 2000 条；每页': 'Keeps 200 entries by default and up to 2000;',
     '条，最新日志在前。': 'per page, newest first.',
     '修改后会立即更新左侧命令列表。': 'Changes update the command list immediately.',
@@ -570,12 +619,22 @@ export function translatePluginText (text: string, locale: string | null | undef
     }
 
     let translated = text
+        .replace(/(\d+)\s*条命令，\s*(\d+)\s*条活动日志/g, '$1 commands, $2 activity logs')
         .replace(/(\d+)\s*条命令，\s*(\d+)\s*条运行日志/g, '$1 commands, $2 runtime logs')
+        .replace(/最多保留最近\s*(\d+)\s*条日志/g, 'Keep the latest $1 log entries')
+        .replace(/自动删除超过\s*(\d+)\s*天的旧日志/g, 'Automatically delete logs older than $1 days')
+        .replace(/超过\s*([\d.]+)\s*(MB|GB) 时自动删除最旧日志/g, 'Automatically delete the oldest logs above $1 $2')
+        .replace(/不自动清理，超过\s*([\d.]+)\s*(MB|GB) 后提醒/g, 'Do not clean automatically; warn above $1 $2')
+        .replace(/活动日志已超过\s*([\d.]+)\s*(MB|GB)，请清理日志或改用自动限制。/g, 'Activity logs exceed $1 $2. Clear them or use an automatic limit.')
+        .replace(/活动日志已超过\s*([\d.]+)\s*(MB|GB)，请前往设置清理或改用自动限制。/g, 'Activity logs exceed $1 $2. Open Settings to clear them or use an automatic limit.')
+        .replace(/当前\s*(\d+)\s*条数据/g, '$1 entries')
+        .replace(/当前\s*(\d+)\s*条/g, '$1 entries')
         .replace(/(\d+)\s*\/\s*(\d+)\s*已配置/g, '$1 / $2 assigned')
         .replace(/(\d+)\s*\/\s*(\d+)\s*插件操作/g, '$1 / $2 plugin actions')
         .replace(/(\d+)\s*\/\s*(\d+)\s*命令已绑定/g, '$1 / $2 commands assigned')
         .replace(/(\d+)\s*项冲突/g, '$1 conflicts')
         .replace(/确认永久删除选中的\s*(\d+)\s*条命令？运行日志将保留。/g, 'Permanently delete the selected $1 commands? Runtime logs will be kept.')
+        .replace(/确认永久删除选中的\s*(\d+)\s*条命令？活动日志将保留。/g, 'Permanently delete the selected $1 commands? Activity logs will be kept.')
         .replace(/将选中的\s*(\d+)\s*条命令移动到/g, 'Move the selected $1 commands to')
         .replace(/另有\s*(\d+)\s*条冲突未显示。?/g, '$1 more conflicts are not shown.')
         .replace(/默认保留\s*(\d+)\s*条，最多\s*(\d+)\s*条；每页\s*(\d+)\s*条，最新日志在前。/g, 'Keeps $1 entries by default and up to $2; $3 per page, newest first.')
@@ -655,6 +714,7 @@ export function translatePluginText (text: string, locale: string | null | undef
         .replace(/第\s*(\d+)\s*\/\s*(\d+)\s*步/g, 'Step $1 / $2')
         .replace(/(\d+)\s*条命令/g, '$1 commands')
         .replace(/(\d+)\s*条运行日志/g, '$1 runtime logs')
+        .replace(/(\d+)\s*条活动日志/g, '$1 activity logs')
         .replace(/(\d+)\s*条自动化规则/g, '$1 automation rules')
         .replace(/(\d+)\s*条/g, '$1 entries')
         .replace(/(\d+)\s*行/g, '$1 lines')

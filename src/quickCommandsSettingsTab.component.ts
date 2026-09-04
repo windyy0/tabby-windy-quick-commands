@@ -46,6 +46,9 @@ import {
     readPluginHotkeyBindings,
     reservedQuickCommandsShortcuts,
 } from './pluginHotkeys'
+import { ActivityLogService } from './activityLog/activityLog.service'
+import { normalizeActivityLogRetention } from './activityLog/activityLog.retention'
+import { ActivityLogDraft, ActivityLogEntry, ActivityLogRetentionSettings } from './activityLog/activityLog.types'
 
 const historyDateFormatters = {
     'zh-CN': new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }),
@@ -65,7 +68,7 @@ interface HotkeyConflictCache {
         <header class="wqc-header">
           <div>
             <h3>{{ pluginTitle }}</h3>
-            <div class="wqc-muted">{{ commandCount }} 条命令，{{ logCount }} 条运行日志</div>
+            <div class="wqc-muted">{{ commandCount }} 条命令，{{ logCount }} 条活动日志</div>
           </div>
           <label class="wqc-header-toggle" title="修改后重启 Tabby 生效；隐藏按钮后仍可使用快捷键">
             <input class="wqc-command-check" type="checkbox" [checked]="root.showToolbarButton !== false" (change)="setToolbarButtonVisibility($event)">
@@ -101,7 +104,7 @@ interface HotkeyConflictCache {
           <div class="wqc-section-head">
             <div>
               <h4>插件配置</h4>
-              <div class="wqc-muted">导出或恢复命令、分类、触发器和所有插件设置；运行日志与使用统计不包含在内。</div>
+              <div class="wqc-muted">导出或恢复命令、分类、触发器和所有插件设置；活动日志与使用统计不包含在内。</div>
             </div>
           </div>
           <div class="wqc-config-actions">
@@ -441,7 +444,7 @@ interface HotkeyConflictCache {
               <h4>命令管理与统计</h4>
               <div class="wqc-muted">按关键词、分类和使用状态筛选，并按最近使用时间排序，每页 6 条。</div>
             </div>
-            <span class="wqc-count">{{ commandStats.length }} / {{ commandCount }} 条命令</span>
+            <span class="wqc-count">{{ commandCount }} 条命令</span>
           </div>
           <div class="wqc-command-filters">
             <input class="form-control" placeholder="搜索名称、说明或命令内容" [value]="commandQuery" (input)="setCommandQuery($event)">
@@ -491,7 +494,7 @@ interface HotkeyConflictCache {
             </div>
           </div>
           <div class="wqc-batch-confirm" *ngIf="batchDeleteConfirmOpen">
-            <span>确认永久删除选中的 {{ selectedCommandCount }} 条命令？运行日志将保留。</span>
+            <span>确认永久删除选中的 {{ selectedCommandCount }} 条命令？活动日志将保留。</span>
             <div class="wqc-batch-confirm-actions">
               <button class="btn btn-secondary" type="button" (click)="closeBatchDeleteConfirm()">取消</button>
               <button class="btn wqc-danger-button" type="button" (click)="deleteSelectedCommands()">确认删除</button>
@@ -522,57 +525,14 @@ interface HotkeyConflictCache {
           </div>
         </section>
 
-        <section class="wqc-section">
-          <div class="wqc-section-head">
-            <div>
-              <h4>运行日志</h4>
-              <div class="wqc-muted">默认保留 200 条，最多 2000 条；每页 {{ logPageSize }} 条，最新日志在前。</div>
-            </div>
-            <span class="wqc-count">{{ filteredLogCount }} / {{ logCount }} 条</span>
-          </div>
-          <div class="wqc-grid">
-            <label>
-              <span>日志保留条数</span>
-              <input class="form-control wqc-number-input" type="number" min="20" max="2000" step="20" [value]="root.logLimit || 200" (wheel)="releaseNumberWheel($event)" (change)="setNumber('logLimit', $event, 20, 2000)">
-            </label>
-            <div class="wqc-actions">
-              <button class="btn btn-secondary" type="button" (click)="clearLogs()">清空运行日志</button>
-              <button class="btn btn-secondary" type="button" (click)="openLogLocation()">打开日志位置</button>
-            </div>
-          </div>
-          <div class="wqc-log-toolbar">
-            <input class="form-control" placeholder="搜索消息、命令或目标会话" [value]="logQuery" (input)="setLogQuery($event)">
-            <div class="wqc-log-filters" aria-label="日志级别">
-              <button type="button" [class.wqc-active]="logLevel === 'all'" (click)="setLogLevel('all')">全部</button>
-              <button type="button" [class.wqc-active]="logLevel === 'info'" (click)="setLogLevel('info')">信息</button>
-              <button type="button" [class.wqc-active]="logLevel === 'warn'" (click)="setLogLevel('warn')">警告</button>
-              <button type="button" [class.wqc-active]="logLevel === 'error'" (click)="setLogLevel('error')">错误</button>
-            </div>
-          </div>
-          <div class="wqc-log-list">
-            <article class="wqc-log" *ngFor="let log of visibleLogs" [class.wqc-log-warn]="log.level === 'warn'" [class.wqc-log-error]="log.level === 'error'">
-              <header class="wqc-log-head">
-                <span class="wqc-log-level">{{ levelLabel(log.level) }}</span>
-                <strong class="wqc-log-command">{{ commandName(log) }}</strong>
-                <time class="wqc-log-time">{{ formatFullTime(log.time) }}</time>
-              </header>
-              <div class="wqc-log-message">{{ log.message }}</div>
-              <pre class="wqc-log-content" *ngIf="logContent(log)">{{ logContent(log) }}</pre>
-              <div class="wqc-log-meta" *ngIf="log.line || log.mode || log.durationMs !== undefined || (log.targetNames && log.targetNames.length)">
-                <span *ngIf="log.line">源行 {{ log.line }}</span>
-                <span *ngIf="log.mode">{{ log.mode }}</span>
-                <span *ngIf="log.durationMs !== undefined">耗时 {{ formatDuration(log.durationMs) }}</span>
-                <span *ngIf="log.targetNames && log.targetNames.length" [title]="log.targetNames.join('、')">目标：{{ targetSummary(log.targetNames) }}</span>
-              </div>
-            </article>
-            <div class="wqc-empty" *ngIf="!visibleLogs.length">没有匹配的运行日志</div>
-          </div>
-          <div class="wqc-pager" *ngIf="logPageCount > 1">
-            <button class="btn btn-secondary" type="button" [disabled]="logPageNumber <= 1" (click)="previousLogPage()">上一页</button>
-            <span>第 {{ logPageNumber }} / {{ logPageCount }} 页</span>
-            <button class="btn btn-secondary" type="button" [disabled]="logPageNumber >= logPageCount" (click)="nextLogPage()">下一页</button>
-          </div>
-        </section>
+        <quick-commands-activity-log
+          [entries]="runtimeLogs"
+          [settings]="activityLogRetention"
+          [sizeBytes]="activityLogSizeBytes"
+          (settingsChange)="updateActivityLogRetention($event)"
+          (clearRequested)="clearLogs()"
+          (openLocationRequested)="openLogLocation()">
+        </quick-commands-activity-log>
 
         <section class="wqc-section wqc-update-section" id="wqc-plugin-update">
           <div class="wqc-section-head">
@@ -693,7 +653,7 @@ interface HotkeyConflictCache {
           <section class="wqc-config-dialog" role="dialog" aria-modal="true" aria-labelledby="wqc-reset-defaults-title" (click)="$event.stopPropagation()">
             <h4 id="wqc-reset-defaults-title">{{ resetInitialConfirmOpen ? '重置插件数据' : '恢复默认配置' }}</h4>
             <ng-container *ngIf="!resetInitialConfirmOpen">
-              <p>确定恢复所有插件设置的默认值？现有命令、分类和输出触发器将保留，运行日志和使用统计也不会清除。</p>
+              <p>确定恢复所有插件设置的默认值？现有命令、分类和输出触发器将保留，活动日志和使用统计也不会清除。</p>
               <div class="wqc-config-dialog-actions wqc-reset-actions">
                 <button class="wqc-reset-initial-entry wqc-reset-text-action" type="button" (click)="openResetInitialConfirm()">重置插件数据</button>
                 <button class="btn btn-secondary" type="button" (click)="closeResetDefaultsConfirm()">取消</button>
@@ -706,11 +666,11 @@ interface HotkeyConflictCache {
                 <p>将删除现有插件数据，并按当前界面语言重新创建默认分类和示例命令。</p>
                 <ul>
                   <li>命令、分类、命令快捷键和输出触发器</li>
-                  <li>插件设置、配置备份、运行日志和使用统计</li>
+                  <li>插件设置、配置备份、活动日志和使用统计</li>
                   <li>插件本地缓存</li>
                 </ul>
               </div>
-              <p>请先导出需要保留的命令和配置；导出文件不包含运行日志和使用统计。</p>
+              <p>请先导出需要保留的命令和配置；导出文件不包含活动日志和使用统计。</p>
               <p>不会卸载插件，也不会删除保存在其他位置的导出文件。</p>
               <p>当前 Tabby 窗口不会重启。请在操作后重启，以免继续使用旧数据。</p>
               <p>仅清空下方显示的当前插件数据目录，不影响 Tabby 配置和其他插件。</p>
@@ -2849,10 +2809,7 @@ interface HotkeyConflictCache {
       .wqc-count,
       .wqc-pill,
       .wqc-selection-count,
-      .wqc-stat-header,
-      .wqc-log-time,
-      .wqc-log-meta,
-      .wqc-log-meta span {
+      .wqc-stat-header {
         color: var(--wqc-muted);
       }
 
@@ -3398,140 +3355,6 @@ interface HotkeyConflictCache {
         margin-top: 0;
       }
 
-      .wqc-log-toolbar {
-        display: grid;
-        grid-template-columns: minmax(220px, 1fr) auto;
-        gap: 10px;
-        align-items: center;
-      }
-
-      .wqc-log-filters {
-        display: flex;
-        gap: 5px;
-        padding: 4px;
-        border: 1px solid var(--bs-border-color);
-        border-radius: 8px;
-      }
-
-      .wqc-log-filters button {
-        min-height: 28px;
-        padding: 0 9px;
-        color: var(--bs-secondary-color);
-        background: transparent;
-        border: 0;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 12px;
-      }
-
-      .wqc-log-filters button:hover,
-      .wqc-log-filters button.wqc-active {
-        color: var(--bs-primary);
-        background: color-mix(in srgb, var(--bs-primary) 12%, transparent);
-      }
-
-      .wqc-log-list {
-        display: grid;
-        gap: 8px;
-        margin-top: 14px;
-      }
-
-      .wqc-log {
-        display: grid;
-        gap: 8px;
-        border: 1px solid var(--wqc-surface-border);
-        border-left: 3px solid color-mix(in srgb, var(--bs-primary) 55%, var(--wqc-surface-border));
-        border-radius: 8px;
-        padding: 10px 12px;
-        font-size: 12px;
-      }
-
-      .wqc-log-warn {
-        border-left-color: #d97706;
-      }
-
-      .wqc-log-error {
-        border-left-color: var(--bs-danger);
-      }
-
-      .wqc-log-head {
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr) auto;
-        gap: 9px;
-        align-items: center;
-      }
-
-      .wqc-log-level {
-        min-width: 38px;
-        padding: 2px 6px;
-        color: var(--bs-primary);
-        background: color-mix(in srgb, var(--bs-primary) 12%, transparent);
-        border-radius: 5px;
-        text-align: center;
-        font-size: 10px;
-        font-weight: 700;
-      }
-
-      .wqc-log-warn .wqc-log-level {
-        color: #b45309;
-        background: color-mix(in srgb, #d97706 13%, transparent);
-      }
-
-      .wqc-log-error .wqc-log-level {
-        color: var(--bs-danger);
-        background: color-mix(in srgb, var(--bs-danger) 12%, transparent);
-      }
-
-      .wqc-log-command {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .wqc-log-time {
-        color: var(--bs-secondary-color);
-        font-variant-numeric: tabular-nums;
-      }
-
-      .wqc-log-message {
-        line-height: 1.5;
-        overflow-wrap: anywhere;
-      }
-
-      .wqc-log-content {
-        max-height: 150px;
-        margin: 0;
-        padding: 9px 10px;
-        overflow: auto;
-        color: var(--bs-body-color);
-        background: color-mix(in srgb, var(--bs-body-color) 6%, var(--bs-body-bg));
-        border: 1px solid var(--bs-border-color);
-        border-radius: 7px;
-        font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-        font-size: 11px;
-        line-height: 1.45;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-      }
-
-      .wqc-log-meta {
-        display: flex;
-        gap: 6px;
-        flex-wrap: wrap;
-      }
-
-      .wqc-log-meta span {
-        max-width: 100%;
-        padding: 2px 6px;
-        overflow: hidden;
-        color: var(--bs-secondary-color);
-        background: color-mix(in srgb, var(--bs-body-color) 5%, transparent);
-        border-radius: 5px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
       .wqc-empty {
         padding: 22px 12px;
         color: var(--bs-secondary-color);
@@ -3611,27 +3434,10 @@ interface HotkeyConflictCache {
           align-items: stretch;
         }
 
-        .wqc-log-toolbar {
-          grid-template-columns: 1fr;
-        }
-
         .wqc-command-filter-options {
           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
         }
 
-        .wqc-log-filters {
-          width: max-content;
-          max-width: 100%;
-          overflow-x: auto;
-        }
-
-        .wqc-log-head {
-          grid-template-columns: auto minmax(0, 1fr);
-        }
-
-        .wqc-log-time {
-          grid-column: 1 / -1;
-        }
       }
 
       @media (max-width: 520px) {
@@ -3790,14 +3596,10 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     updateIntervalMenuOpen = false
     commandCategoryMenuOpen = false
     commandUsageMenuOpen = false
-    logLevel: 'all' | 'info' | 'warn' | 'error' = 'all'
-    logQuery = ''
     commandQuery = ''
     commandCategory = 'all'
     commandUsage: 'all' | 'used' | 'unused' = 'all'
     commandPage = 1
-    logPage = 1
-    readonly logPageSize = 3
     batchDeleteConfirmOpen = false
     batchMoveOpen = false
     batchMoveCategoryMenuOpen = false
@@ -3811,7 +3613,8 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     resetInitialError = ''
     resetInProgress = false
     selectedCommandIds = new Set<string>()
-    runtimeLogs: any[] = []
+    runtimeLogs: ActivityLogEntry[] = []
+    activityLogSizeBytes = 0
     runtimeStats: CommandUsageStats = {}
     configMessage = ''
     configMessageDetail = ''
@@ -3834,6 +3637,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     private recordingPrimaryKeyId = ''
     private recentlyCapturedHotkey: { kind: 'plugin' | 'command', targetId: string, shortcut: string } | null = null
     private runtimeStore: QuickCommandsRuntimeStore
+    private activityLog: ActivityLogService
     private pluginConfigStore: QuickCommandsPluginConfigStore
     private pluginConfig: Record<string, any>
     private savedConfigSnapshot: string
@@ -3856,6 +3660,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         @Optional() private hotkeys?: HotkeysService,
     ) {
         this.runtimeStore = new QuickCommandsRuntimeStore(this.platform.getConfigPath())
+        this.activityLog = new ActivityLogService(this.platform.getConfigPath())
         this.pluginConfigStore = new QuickCommandsPluginConfigStore(this.platform.getConfigPath())
         this.pluginConfig = this.pluginConfigStore.load(createDefaultQuickCommandsConfig(this.i18n.language))
         this.savedConfigSnapshot = JSON.stringify(this.pluginConfig)
@@ -3922,6 +3727,10 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     get logCount (): number {
         return this.runtimeLogs.length
+    }
+
+    get activityLogRetention (): ActivityLogRetentionSettings {
+        return normalizeActivityLogRetention(this.root)
     }
 
     get allCommandStats (): any[] {
@@ -4021,44 +3830,6 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         return selected > 0 && selected < this.pagedCommandStats.length
     }
 
-    get filteredLogs (): any[] {
-        const query = this.logQuery.trim().toLowerCase()
-        const logs = [...this.runtimeLogs].reverse()
-        return logs.filter(log => {
-            if (this.logLevel !== 'all' && log.level !== this.logLevel) {
-                return false
-            }
-            if (!query) {
-                return true
-            }
-            const text = [
-                log.message,
-                this.commandName(log),
-                this.logContent(log),
-                log.mode,
-                ...(Array.isArray(log.targetNames) ? log.targetNames : []),
-            ].filter(Boolean).join(' ').toLowerCase()
-            return text.includes(query)
-        })
-    }
-
-    get visibleLogs (): any[] {
-        const start = (this.logPageNumber - 1) * this.logPageSize
-        return this.filteredLogs.slice(start, start + this.logPageSize)
-    }
-
-    get filteredLogCount (): number {
-        return this.filteredLogs.length
-    }
-
-    get logPageCount (): number {
-        return Math.max(1, Math.ceil(this.filteredLogCount / this.logPageSize))
-    }
-
-    get logPageNumber (): number {
-        return Math.min(this.logPage, this.logPageCount)
-    }
-
     get failureStrategyLabel (): string {
         if (this.root.failureStrategy === 'continue') {
             return '继续执行'
@@ -4104,7 +3875,9 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     @HostListener(`window:${runtimeChangedEvent}`)
     refreshRuntimeData (): void {
         this.runtimeStore = new QuickCommandsRuntimeStore(this.platform.getConfigPath())
-        this.runtimeLogs = this.runtimeStore.getLogs()
+        this.activityLog = new ActivityLogService(this.platform.getConfigPath())
+        this.runtimeLogs = this.activityLog.getEntries()
+        this.activityLogSizeBytes = this.activityLog.storage.getSizeBytes()
         this.runtimeStats = this.runtimeStore.getStats()
     }
 
@@ -4248,7 +4021,6 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.refreshRuntimeData()
         this.selectedCommandIds.clear()
         this.commandQuery = ''; this.commandCategory = 'all'; this.commandUsage = 'all'; this.commandPage = 1
-        this.logQuery = ''; this.logLevel = 'all'; this.logPage = 1
         this.pendingConfigImport = null
         this.batchDeleteConfirmOpen = false
         this.closeBatchMove()
@@ -4431,16 +4203,6 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.save()
     }
 
-    setLogLevel (level: 'all' | 'info' | 'warn' | 'error'): void {
-        this.logLevel = level
-        this.logPage = 1
-    }
-
-    setLogQuery (event: Event): void {
-        this.logQuery = (event.target as HTMLInputElement).value
-        this.logPage = 1
-    }
-
     setCommandQuery (event: Event): void {
         this.commandQuery = (event.target as HTMLInputElement).value
         this.resetCommandFilterPage()
@@ -4557,7 +4319,8 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     moveSelectedCommands (): void {
         const category = this.batchMoveCategory
-        if (!category || !this.selectedCommandCount) {
+        const count = this.selectedCommandCount
+        if (!category || !count) {
             return
         }
         const selectedIds = new Set(this.selectedCommandIds)
@@ -4570,7 +4333,12 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.commandQuery = ''
         this.commandPage = 1
         this.clearCommandSelection()
-        this.save()
+        if (this.save()) {
+            this.recordActivity({
+                category: 'command', action: 'command.move', status: 'success', message: '已批量移动命令',
+                subject: { type: 'category', name: category }, details: { commandCount: count, to: category },
+            })
+        }
     }
 
     openBatchDeleteConfirm (): void {
@@ -4613,26 +4381,23 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         }
 
         if (!this.save()) { return }
+        const deletedCount = selectedIds.size
         const stats = this.runtimeStore.getStats()
         selectedIds.forEach(commandId => delete stats[commandId])
         this.runtimeStore.setStats(stats)
         this.runtimeStats = stats
         this.commandPage = Math.min(this.commandPage, Math.max(1, Math.ceil(remaining.length / 6)))
         this.clearCommandSelection()
-    }
-
-    previousLogPage (): void {
-        this.logPage = Math.max(1, this.logPageNumber - 1)
-    }
-
-    nextLogPage (): void {
-        this.logPage = Math.min(this.logPageCount, this.logPageNumber + 1)
+        this.recordActivity({
+            category: 'command', action: 'command.delete', status: 'success', message: '已批量删除命令',
+            subject: { type: 'command', name: `${deletedCount} 条命令` }, details: { commandCount: deletedCount },
+        })
     }
 
     openLogLocation (): void {
-        const path = this.runtimeStore.logsPath
-        if (path) {
-            this.platform.showItemInFolder(path)
+        const directory = this.activityLog.ensureDirectory()
+        if (directory) {
+            this.platform.openPath(directory)
         }
     }
 
@@ -4681,8 +4446,16 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         try {
             this.downloadJson(text, fileName)
             this.showConfigMessage('已触发插件配置文件下载，请检查下载目录。')
+            this.recordActivity({
+                category: 'library', action: 'library.export', status: 'success', message: '插件配置导出成功',
+                subject: { type: 'library', name: fileName }, details: { commandCount: this.commandCount },
+            })
         } catch {
             this.showConfigMessage('无法触发配置文件下载，请重试。')
+            this.recordActivity({
+                category: 'library', action: 'library.export', status: 'failure', message: '插件配置导出失败',
+                subject: { type: 'library', name: fileName },
+            })
         }
     }
 
@@ -4714,7 +4487,12 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
             this.pendingConfigImport = parsed
         } catch (error) {
             if (store !== this.pluginConfigStore || !store.dataAccess.isCurrent()) { return }
-            this.showConfigMessage('导入失败', error instanceof Error ? error.message : '配置文件无效。')
+            const reason = error instanceof Error ? error.message : '配置文件无效。'
+            this.showConfigMessage('导入失败', reason)
+            this.recordActivity({
+                category: 'library', action: 'library.import', status: 'failure', message: '插件配置导入失败',
+                subject: { type: 'library', name: file.name }, details: { reason },
+            })
         }
     }
 
@@ -4765,6 +4543,10 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         if (!this.applyImportedConfig(next, '导入失败')) { return }
         this.pendingConfigImport = null
         this.showConfigMessage('导入成功')
+        this.recordActivity({
+            category: 'library', action: 'library.import', status: 'success', message: '命令导入成功',
+            subject: { type: 'library', name: '合并导入' }, details: { commandCount: imported.length, mode: 'merge' },
+        })
     }
 
     async importPendingFullConfig (): Promise<void> {
@@ -4791,6 +4573,10 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         }
         this.pendingConfigImport = null
         this.showConfigMessage('导入成功')
+        this.recordActivity({
+            category: 'library', action: 'library.import', status: 'success', message: '插件配置导入成功',
+            subject: { type: 'library', name: '完整配置' }, details: { commandCount: this.commandCount, mode: 'replace' },
+        })
     }
 
     openResetDefaultsConfirm (): void {
@@ -4860,6 +4646,10 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         this.closeResetDefaultsConfirm()
         if (success) {
             this.showConfigMessage('恢复成功', '已恢复默认配置，现有命令、分类和输出触发器已保留。按钮显示设置将在重启 Tabby 后生效。')
+            this.recordActivity({
+                category: 'settings', action: 'settings.reset', status: 'success', message: '已恢复默认设置',
+                subject: { type: 'settings', name: this.pluginTitle },
+            })
         }
     }
 
@@ -5257,17 +5047,32 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     }
 
     clearLogs (): void {
-        this.runtimeStore.setLogs([])
+        this.activityLog.clear()
         this.runtimeLogs = []
-        this.logPage = 1
+        this.activityLogSizeBytes = this.activityLog.storage.getSizeBytes()
     }
 
-    formatTime (isoTime: string): string {
-        const date = new Date(isoTime)
-        if (Number.isNaN(date.getTime())) {
-            return isoTime
-        }
-        return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`
+    updateActivityLogRetention (settings: ActivityLogRetentionSettings): void {
+        this.root.logRetentionMode = settings.mode
+        this.root.logLimit = settings.count
+        this.root.logRetentionDays = settings.days
+        this.root.logSizeLimitMb = settings.sizeMb
+        this.root.logWarningSizeMb = settings.warningSizeMb
+        this.root.logSizeUnit = settings.sizeUnit
+        this.root.logWarningSizeUnit = settings.warningSizeUnit
+        if (!this.save()) { return }
+        this.runtimeLogs = this.activityLog.prune(settings)
+        this.activityLogSizeBytes = this.activityLog.storage.getSizeBytes()
+    }
+
+    private recordActivity (draft: ActivityLogDraft): void {
+        // Some host-side controller checks instantiate the prototype without
+        // running Angular dependency construction. Logging is non-critical and
+        // should never make the requested settings operation fail.
+        if (!this.activityLog) { return }
+        this.activityLog.record(draft, this.activityLogRetention)
+        this.runtimeLogs = this.activityLog.getEntries()
+        this.activityLogSizeBytes = this.activityLog.storage.getSizeBytes()
     }
 
     formatFullTime (isoTime: string): string {
@@ -5280,52 +5085,6 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     formatLastUsed (isoTime: string | null | undefined): string {
         return isoTime ? this.formatFullTime(isoTime) : '从未执行'
-    }
-
-    levelLabel (level: string): string {
-        if (level === 'error') {
-            return '错误'
-        }
-        if (level === 'warn') {
-            return '警告'
-        }
-        return '信息'
-    }
-
-    commandName (log: any): string {
-        if (log.commandName) {
-            return log.commandName
-        }
-        const command = Array.isArray(this.root.commands)
-            ? this.root.commands.find((item: any) => item.id === log.commandId)
-            : null
-        return command?.name || log.commandId || '系统'
-    }
-
-    targetSummary (targets: string[]): string {
-        if (targets.length <= 2) {
-            return targets.join('、')
-        }
-        return `${targets.slice(0, 2).join('、')} 等 ${targets.length} 个会话`
-    }
-
-    logContent (log: any): string {
-        const command = Array.isArray(this.root.commands)
-            ? this.root.commands.find((item: any) => item.id === log.commandId)
-            : null
-        const content = String(log.commandText || command?.command || '')
-        if (!content || !log.line) {
-            return content
-        }
-        return content.split(/\r?\n/)[Number(log.line) - 1] || content
-    }
-
-    formatDuration (durationMs: number): string {
-        const value = Math.max(0, Number(durationMs) || 0)
-        if (value < 1000) {
-            return `${Math.round(value)} ms`
-        }
-        return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)} 秒`
     }
 
     private timeValue (isoTime: string | null | undefined): number {

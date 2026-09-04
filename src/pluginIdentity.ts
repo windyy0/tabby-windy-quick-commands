@@ -22,5 +22,7 @@ export function getPluginIdentity (devBuild: boolean) {
     }
 }
 
+export type PluginIdentity = ReturnType<typeof getPluginIdentity>
+
 // Plain tsc/node tests use the stable identity; webpack fixes the channel at build time.
 export const pluginIdentity = getPluginIdentity(typeof __WQC_DEV_BUILD__ !== 'undefined' && __WQC_DEV_BUILD__)

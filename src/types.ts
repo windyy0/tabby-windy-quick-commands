@@ -1,4 +1,5 @@
 import { UpdateCheckInterval } from './pluginUpdate'
+import type { ActivityLogEntry } from './activityLog/activityLog.types'
 
 export type ExecutionMode = 'paste' | 'line'
 export type TargetMode = 'current' | 'all'
@@ -81,21 +82,15 @@ export interface QuickCommandsConfig {
     moveNavigateAfterMove: boolean
     recentOutputLimit: number
     logLimit: number
+    logRetentionMode: 'count' | 'days' | 'size' | 'unlimited'
+    logRetentionDays: number
+    logSizeLimitMb: number
+    logWarningSizeMb: number
+    logSizeUnit: 'MB' | 'GB'
+    logWarningSizeUnit: 'MB' | 'GB'
     updateCheckInterval: UpdateCheckInterval
     ignoredUpdateVersion: string
     automationLogs: AutomationLogEntry[]
 }
 
-export interface AutomationLogEntry {
-    id: string
-    time: string
-    level: 'info' | 'warn' | 'error'
-    message: string
-    commandId?: string
-    commandName?: string
-    commandText?: string
-    line?: number
-    mode?: string
-    targetNames?: string[]
-    durationMs?: number
-}
+export type AutomationLogEntry = ActivityLogEntry

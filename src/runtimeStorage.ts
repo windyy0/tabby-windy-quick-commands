@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 import { AutomationLogEntry } from './types'
+import { ActivityLogStorage } from './activityLog/activityLog.storage'
 import { pluginIdentity } from './pluginIdentity'
 import { PluginDataAccess } from './pluginData'
 
@@ -17,31 +18,26 @@ export const runtimeChangedEvent = pluginIdentity.runtimeChangedEvent
 export class QuickCommandsRuntimeStore {
     readonly logsPath: string | null
     readonly statsPath: string | null
-    private logs: AutomationLogEntry[] | null = null
+    private logStorage: ActivityLogStorage
     private stats: CommandUsageStats | null = null
     private dataAccess: PluginDataAccess
 
     constructor (configPath: string | null, readonly identity = pluginIdentity) {
         this.dataAccess = new PluginDataAccess(configPath, identity)
+        this.logStorage = new ActivityLogStorage(configPath, identity)
         const directory = configPath
             ? path.join(path.dirname(configPath), identity.dataDirectory)
             : null
-        this.logsPath = directory ? path.join(directory, 'logs.json') : null
+        this.logsPath = this.logStorage.path
         this.statsPath = directory ? path.join(directory, 'command-stats.json') : null
     }
 
     getLogs (): AutomationLogEntry[] {
-        if (!this.logs) {
-            this.logs = this.readJson<AutomationLogEntry[]>(this.logsPath, [])
-        }
-        return [...this.logs]
+        return this.logStorage.getEntries()
     }
 
     setLogs (logs: AutomationLogEntry[]): void {
-        if (!this.dataAccess.isCurrent()) { return }
-        this.logs = [...logs]
-        this.writeJson(this.logsPath, this.logs)
-        this.notifyChanged()
+        this.logStorage.setEntries(logs)
     }
 
     getStats (): CommandUsageStats {

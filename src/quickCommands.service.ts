@@ -55,6 +55,9 @@ import {
     ExecutionTarget,
     QuickCommandsExecutionRunner,
 } from './executionRunner'
+import { ActivityLogService } from './activityLog/activityLog.service'
+import { activityLogSizeValue, normalizeActivityLogRetention } from './activityLog/activityLog.retention'
+import { ActivityLogDraft, ActivityLogStatus } from './activityLog/activityLog.types'
 
 require('./quickCommands.css')
 
@@ -143,8 +146,10 @@ export class QuickCommandsService {
     private pendingPluginConfigWrite: Record<string, unknown> | null = null
     private pluginConfigWriteTimer: number | null = null
     private windowControlsOverlayBound = false
+    private activityLogSizeWarningShown = false
     private readonly pluginConfigWriteDelay = 400
     private runtimeStore: QuickCommandsRuntimeStore
+    private activityLog: ActivityLogService
     private pluginConfigStore: QuickCommandsPluginConfigStore
     private state: QuickCommandsConfig
     private logger: Logger
@@ -160,11 +165,14 @@ export class QuickCommandsService {
     ) {
         this.logger = log.create('quick-commands')
         this.runtimeStore = new QuickCommandsRuntimeStore(platform.getConfigPath())
+        this.activityLog = new ActivityLogService(platform.getConfigPath())
         this.pluginConfigStore = new QuickCommandsPluginConfigStore(platform.getConfigPath())
         this.state = this.readConfig()
+        this.state.automationLogs = this.activityLog.prune(normalizeActivityLogRetention(this.state as unknown as Record<string, unknown>))
 
         this.config.ready$.subscribe(() => {
             this.state = this.readConfig(true)
+            this.state.automationLogs = this.activityLog.prune(normalizeActivityLogRetention(this.state as unknown as Record<string, unknown>))
             this.render()
         })
         window.addEventListener(pluginConfigChangedEvent, () => {
@@ -174,6 +182,7 @@ export class QuickCommandsService {
             this.cancelScheduledPluginConfigWrite()
             this.pluginConfigDirty = false
             this.state = this.readConfig(true)
+            this.state.automationLogs = this.activityLog.prune(normalizeActivityLogRetention(this.state as unknown as Record<string, unknown>))
             this.render()
         })
         window.addEventListener('beforeunload', () => this.persistPluginConfig())
@@ -182,6 +191,7 @@ export class QuickCommandsService {
             this.pluginConfigDirty = false
             this.pluginConfigStore = new QuickCommandsPluginConfigStore(this.platform.getConfigPath())
             this.runtimeStore = new QuickCommandsRuntimeStore(this.platform.getConfigPath())
+            this.activityLog = new ActivityLogService(this.platform.getConfigPath())
             this.state = this.readConfig()
             this.filter = ''
             this.searchReturnCategory = null
@@ -2720,7 +2730,16 @@ export class QuickCommandsService {
         if (!selected) {
             return
         }
-        this.updateSelectedCommand({ [field]: !selected[field] } as Partial<QuickCommand>)
+        const enabled = !selected[field]
+        this.updateSelectedCommand({ [field]: enabled } as Partial<QuickCommand>)
+        this.recordActivity({
+            category: 'command',
+            action: field === 'favorite' ? 'command.favorite' : 'command.pin',
+            status: 'success',
+            message: `${enabled ? '已' : '已取消'}${field === 'favorite' ? '收藏' : '置顶'}命令`,
+            subject: { type: 'command', id: selected.id, name: selected.name },
+            details: { enabled },
+        })
     }
 
     private openAddCommand (): void {
@@ -2772,6 +2791,10 @@ export class QuickCommandsService {
             selectedCommandId: command.id,
             selectedCategory: category,
         })
+        this.recordActivity({
+            category: 'command', action: 'command.create', status: 'success', message: '已新增命令',
+            subject: { type: 'command', id: command.id, name: command.name }, details: { category },
+        })
     }
 
     private openAddCategory (): void {
@@ -2797,6 +2820,10 @@ export class QuickCommandsService {
             categoryOrder: [...this.getOrderedCategories(), name],
             selectedCategory: name,
         })
+        this.recordActivity({
+            category: 'category', action: 'category.create', status: 'success', message: '已新增分类',
+            subject: { type: 'category', name },
+        })
     }
 
     private duplicateSelectedCommand (): void {
@@ -2819,6 +2846,11 @@ export class QuickCommandsService {
             selectedCommandId: command.id,
             selectedCategory: command.category,
         })
+        this.recordActivity({
+            category: 'command', action: 'command.duplicate', status: 'success', message: '已复制命令',
+            subject: { type: 'command', id: command.id, name: command.name },
+            details: { sourceName: selected.name },
+        })
     }
 
     private openMoveCommand (): void {
@@ -2838,6 +2870,8 @@ export class QuickCommandsService {
         if (!commandId || !category || this.isSystemCategory(category)) {
             return
         }
+        const moved = this.state.commands.find(command => command.id === commandId)
+        const previousCategory = moved?.category || ''
         const commands = this.state.commands.map(command => (
             command.id === commandId ? { ...command, category } : command
         ))
@@ -2854,6 +2888,13 @@ export class QuickCommandsService {
             selectedCommandId: commandId,
             selectedCategory: navigateAfterMove ? category : currentCategory,
         })
+        if (moved && previousCategory !== category) {
+            this.recordActivity({
+                category: 'command', action: 'command.move', status: 'success', message: '已移动命令',
+                subject: { type: 'command', id: moved.id, name: moved.name },
+                details: { from: previousCategory, to: category },
+            })
+        }
     }
 
     private clearSearchState (): void {
@@ -2892,6 +2933,11 @@ export class QuickCommandsService {
         commands[index] = commands[nextIndex]
         commands[nextIndex] = current
         this.updateConfig({ commands })
+        this.recordActivity({
+            category: 'command', action: 'command.reorder', status: 'success', message: '已调整命令顺序',
+            subject: { type: 'command', id: selected.id, name: selected.name },
+            details: { direction: direction < 0 ? 'up' : 'down' },
+        })
     }
 
     private reorderCommand (draggedId: string, targetId: string): void {
@@ -2911,6 +2957,10 @@ export class QuickCommandsService {
         const [dragged] = commands.splice(from, 1)
         commands.splice(to, 0, dragged)
         this.updateConfig({ commands, selectedCommandId: draggedId })
+        this.recordActivity({
+            category: 'command', action: 'command.reorder', status: 'success', message: '已调整命令顺序',
+            subject: { type: 'command', id: dragged.id, name: dragged.name },
+        })
     }
 
     private reorderCategory (dragged: string, target: string, placement: 'before' | 'after'): void {
@@ -2930,6 +2980,10 @@ export class QuickCommandsService {
         }
         categories.splice(to, 0, category)
         this.updateConfig({ categoryOrder: categories })
+        this.recordActivity({
+            category: 'category', action: 'category.reorder', status: 'success', message: '已调整分类顺序',
+            subject: { type: 'category', name: category },
+        })
     }
 
     private deleteSelectedCommand (): void {
@@ -2937,6 +2991,7 @@ export class QuickCommandsService {
         if (!id) {
             return
         }
+        const deleted = this.state.commands.find(command => command.id === id)
         const commands = this.state.commands
             .filter(command => command.id !== id)
             .map(command => ({
@@ -2954,6 +3009,13 @@ export class QuickCommandsService {
             selectedCommandId: commands[0]?.id || null,
         })
         this.persistPluginConfig()
+        if (deleted) {
+            this.recordActivity({
+                category: 'command', action: 'command.delete', status: 'success', message: '已删除命令',
+                subject: { type: 'command', id: deleted.id, name: deleted.name },
+                details: { category: deleted.category },
+            })
+        }
     }
 
     private saveCommandListEdit (): void {
@@ -2966,15 +3028,23 @@ export class QuickCommandsService {
             this.showMessage('命令名称不能为空。')
             return
         }
+        const description = this.editCommandDescription.trim()
+        const previous = this.state.commands.find(command => command.id === commandId)
         const commands = this.state.commands.map(command => (
             command.id === commandId
-                ? { ...command, name, description: this.editCommandDescription.trim() }
+                ? { ...command, name, description }
                 : command
         ))
         this.editingCommandId = null
         this.editCommandName = ''
         this.editCommandDescription = ''
         this.updateConfig({ commands, selectedCommandId: commandId })
+        if (previous && (previous.name !== name || previous.description !== description)) {
+            this.recordActivity({
+                category: 'command', action: 'command.update', status: 'success', message: '已编辑命令',
+                subject: { type: 'command', id: commandId, name },
+            })
+        }
     }
 
     private closeCommandListEdit (): void {
@@ -3022,6 +3092,10 @@ export class QuickCommandsService {
             category === current ? nextName : category
         ))
         this.updateConfig({ commands, customCategories, categoryOrder, selectedCategory: nextName })
+        this.recordActivity({
+            category: 'category', action: 'category.rename', status: 'success', message: '已重命名分类',
+            subject: { type: 'category', name: nextName }, details: { from: current, to: nextName },
+        })
     }
 
     private openDeleteCategory (): void {
@@ -3066,6 +3140,10 @@ export class QuickCommandsService {
             selectedCommandId: commands[0]?.id || null,
         })
         this.persistPluginConfig()
+        this.recordActivity({
+            category: 'category', action: 'category.delete', status: 'success', message: '已删除分类',
+            subject: { type: 'category', name: category }, details: { commandCount: deletedCommandIds.size },
+        })
     }
 
     private canDeleteSelectedCategory (): boolean {
@@ -3230,6 +3308,14 @@ export class QuickCommandsService {
         this.showMessage(downloaded
             ? copied ? '命令库已导出，并已复制 JSON 到剪贴板。' : '命令库已导出为 JSON 文件。'
             : copied ? '文件下载失败，JSON 已复制到剪贴板。' : '导出失败，请查看 Tabby 日志。')
+        this.recordActivity({
+            category: 'library',
+            action: 'library.export',
+            status: downloaded || copied ? 'success' : 'failure',
+            message: downloaded || copied ? '命令库导出成功' : '命令库导出失败',
+            subject: { type: 'library', name: fileName },
+            details: { commandCount: this.state.commands.length, downloaded, copied },
+        })
     }
 
     private renderExportFileName (): string {
@@ -3254,6 +3340,10 @@ export class QuickCommandsService {
             this.logger.warn('Command import failed', error)
             const reason = error instanceof Error ? error.message : '请确认 JSON 文件格式。'
             this.showMessage(`导入失败：${reason}`)
+            this.recordActivity({
+                category: 'library', action: 'library.import', status: 'failure', message: '命令库导入失败',
+                subject: { type: 'library', name: file.name }, details: { reason },
+            })
         }
     }
 
@@ -3301,6 +3391,11 @@ export class QuickCommandsService {
             ? `，并清理 ${sanitized.clearedReferences} 个失效触发器引用`
             : ''
         this.showMessage(`${mode === 'merge' ? '命令库已合并导入' : '命令库已替换导入'}${referenceMessage}。`)
+        this.recordActivity({
+            category: 'library', action: 'library.import', status: 'success', message: '命令库导入成功',
+            subject: { type: 'library', name: mode === 'merge' ? '合并导入' : '替换导入' },
+            details: { mode, commandCount: commands.length, clearedReferences: sanitized.clearedReferences },
+        })
     }
 
     private async executeSelectedCommand (
@@ -3355,6 +3450,8 @@ export class QuickCommandsService {
             this.addLog('info', '开始执行', selected.id, undefined, {
                 mode: summary.modeLabel,
                 targetNames: summary.targetNames,
+                action: 'execution.start',
+                status: 'info',
             })
             this.render()
             const execution = runner.execute(
@@ -3379,6 +3476,8 @@ export class QuickCommandsService {
                 mode: summary.modeLabel,
                 targetNames: summary.targetNames,
                 durationMs: runner.getDuration(),
+                action: 'execution.complete',
+                status: 'success',
             })
             this.showMessage(`已发送到 ${targets.length} 个会话。`)
         } catch (error) {
@@ -3387,6 +3486,8 @@ export class QuickCommandsService {
                 mode: summary.modeLabel,
                 targetNames: summary.targetNames,
                 durationMs: runner.getDuration(),
+                action: 'execution.fail',
+                status: 'failure',
             })
             this.showMessage('执行失败，请查看 Tabby 日志。')
         } finally {
@@ -4407,23 +4508,47 @@ export class QuickCommandsService {
         message: string,
         commandId?: string,
         line?: number,
-        context: Pick<AutomationLogEntry, 'mode' | 'targetNames' | 'durationMs'> = {},
+        context: Pick<AutomationLogEntry, 'mode' | 'targetNames' | 'durationMs'> & {
+            action?: string
+            status?: ActivityLogStatus
+        } = {},
     ): void {
         const command = commandId ? this.state.commands.find(item => item.id === commandId) : undefined
-        const log: AutomationLogEntry = {
-            id: this.createId(),
-            time: new Date().toISOString(),
+        const retention = normalizeActivityLogRetention(this.state as unknown as Record<string, unknown>)
+        this.activityLog.record({
             level,
             message,
+            category: 'execution',
+            action: context.action || 'execution.event',
+            status: context.status,
+            subject: command ? { type: 'command', id: command.id, name: command.name } : undefined,
             commandId,
             commandName: command?.name,
             commandText: command?.command,
             line,
             ...context,
+        }, retention)
+        this.state.automationLogs = this.activityLog.getEntries()
+        this.notifyActivityLogSizeWarning(retention)
+    }
+
+    private recordActivity (draft: ActivityLogDraft): void {
+        const retention = normalizeActivityLogRetention(this.state as unknown as Record<string, unknown>)
+        this.activityLog.record(draft, retention)
+        this.state.automationLogs = this.activityLog.getEntries()
+        this.notifyActivityLogSizeWarning(retention)
+    }
+
+    private notifyActivityLogSizeWarning (retention: ReturnType<typeof normalizeActivityLogRetention>): void {
+        const warning = retention.mode === 'unlimited' && this.activityLog.hasSizeWarning(retention)
+        if (!warning) {
+            this.activityLogSizeWarningShown = false
+            return
         }
-        const logs = [...this.state.automationLogs, log].slice(-this.state.logLimit)
-        this.runtimeStore.setLogs(logs)
-        this.updateConfig({ automationLogs: logs }, false)
+        if (this.activityLogSizeWarningShown) { return }
+        this.activityLogSizeWarningShown = true
+        const warningValue = activityLogSizeValue(retention.warningSizeMb, retention.warningSizeUnit)
+        window.setTimeout(() => this.showMessage(`活动日志已超过 ${warningValue} ${retention.warningSizeUnit}，请前往设置清理或改用自动限制。`))
     }
 
     private readConfig (reload = false): QuickCommandsConfig {
@@ -4467,12 +4592,20 @@ export class QuickCommandsService {
             previewCollapsed: root.previewCollapsed ?? false,
             moveNavigateAfterMove: root.moveNavigateAfterMove ?? false,
             recentOutputLimit: Math.max(1000, Number(root.recentOutputLimit) || 8000),
-            logLimit: Math.max(20, Number(root.logLimit) || 200),
+            logLimit: Math.max(20, Math.min(20000, Number(root.logLimit) || 200)),
+            logRetentionMode: root.logRetentionMode === 'days' || root.logRetentionMode === 'size' || root.logRetentionMode === 'unlimited'
+                ? root.logRetentionMode
+                : 'count',
+            logRetentionDays: Math.max(1, Math.min(3650, Number(root.logRetentionDays) || 30)),
+            logSizeLimitMb: Math.max(1, Math.min(102400, Number(root.logSizeLimitMb) || 10)),
+            logWarningSizeMb: Math.max(1, Math.min(102400, Number(root.logWarningSizeMb) || 10)),
+            logSizeUnit: root.logSizeUnit === 'GB' ? 'GB' : 'MB',
+            logWarningSizeUnit: root.logWarningSizeUnit === 'GB' ? 'GB' : 'MB',
             updateCheckInterval: root.updateCheckInterval === 'startup' || root.updateCheckInterval === 'weekly' || root.updateCheckInterval === 'never'
                 ? root.updateCheckInterval
                 : 'daily',
             ignoredUpdateVersion: typeof root.ignoredUpdateVersion === 'string' ? root.ignoredUpdateVersion : '',
-            automationLogs: this.runtimeStore.getLogs(),
+            automationLogs: this.activityLog.getEntries(),
         }
     }
 
@@ -4531,6 +4664,12 @@ export class QuickCommandsService {
         delete root.highRiskConfirmText
         root.recentOutputLimit = next.recentOutputLimit
         root.logLimit = next.logLimit
+        root.logRetentionMode = next.logRetentionMode
+        root.logRetentionDays = next.logRetentionDays
+        root.logSizeLimitMb = next.logSizeLimitMb
+        root.logWarningSizeMb = next.logWarningSizeMb
+        root.logSizeUnit = next.logSizeUnit
+        root.logWarningSizeUnit = next.logWarningSizeUnit
         root.updateCheckInterval = next.updateCheckInterval
         root.ignoredUpdateVersion = next.ignoredUpdateVersion
         this.setPluginConfig(root, save)

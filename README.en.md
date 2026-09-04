@@ -34,6 +34,7 @@ The plugin adds a Quick Commands button to the upper-right corner of Tabby and o
 - Run output triggers after the full command is sent or bind them to a specific line in line-by-line mode
 - Send to the current terminal or broadcast to every open terminal session
 - Import and export command libraries and plugin configuration
+- View command execution and management activity logs in a filterable table
 - Automatically switch between Chinese and English interfaces
 
 ## Installation
@@ -73,9 +74,9 @@ By default, press `Escape` to switch focus between drawer search and the active 
 ### Import and Export
 
 - **Export commands** in the drawer exports commands, categories, and output triggers only.
-- **Export** on the Settings page exports the command library and all plugin settings, but excludes runtime logs and usage statistics.
+- **Export** on the Settings page exports the command library and all plugin settings, but excludes activity logs and usage statistics.
 - Both files use the unified v1 format and can be recognized from either the drawer or the Settings page. Importing a configuration file from the drawer extracts its commands only. Importing from Settings lets you choose between importing commands and importing the full configuration.
-- **Restore defaults** resets plugin settings while keeping existing commands, categories, output triggers, runtime logs, and usage statistics.
+- **Restore defaults** resets plugin settings while keeping existing commands, categories, output triggers, activity logs, and usage statistics.
 
 > The export-file `version` remains fixed at `1` and will not increase with later format changes. The new v1 format is not compatible with command-library or configuration backups created in older formats.
 

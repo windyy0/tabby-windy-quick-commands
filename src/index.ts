@@ -6,6 +6,7 @@ import { SettingsTabProvider } from 'tabby-settings'
 import { createDefaultQuickCommandsConfig, QuickCommandsConfigProvider } from './configProvider'
 import { QuickCommandsHotkeyProvider } from './hotkeyProvider'
 import { QuickCommandsSettingsTabComponent } from './quickCommandsSettingsTab.component'
+import { ActivityLogComponent } from './activityLog/activityLog.component'
 import { QuickCommandsSettingsTabProvider } from './settingsTabProvider'
 import { QuickCommandsToolbarButtonProvider } from './toolbarButtonProvider'
 import { QuickCommandsPluginConfigStore } from './pluginConfigStorage'
@@ -33,6 +34,7 @@ import {
     ],
     declarations: [
         QuickCommandsSettingsTabComponent,
+        ActivityLogComponent,
     ],
 })
 export default class QuickCommandsModule {

@@ -25,6 +25,7 @@ export async function testSettingsMessages (): Promise<void> {
         }
     }
     const source = fs.readFileSync(path.join(process.cwd(), 'src', 'quickCommandsSettingsTab.component.ts'), 'utf8')
+    const activityLogSource = fs.readFileSync(path.join(process.cwd(), 'src', 'activityLog', 'activityLog.component.ts'), 'utf8')
     const compiled = ts.transpileModule(source, {
         compilerOptions: {
             target: ts.ScriptTarget.ES2017,
@@ -138,9 +139,21 @@ export async function testSettingsMessages (): Promise<void> {
     assert.ok(settingRowRule.includes('grid-template-columns: minmax(190px, 240px) minmax(280px, 420px);') && settingRowRule.includes('min-height: 44px;') && !/border(?:-bottom)?\s*:/.test(settingRowRule), 'setting rows must align labels and controls compactly without separators')
     assert.ok(template.includes('class="wqc-settings-subgrid"') && styles.includes('.wqc-settings-subgrid {\n        display: block;'), 'line execution and advanced settings must remain vertically grouped')
     assert.ok(styles.includes('.wqc-setting-row:hover {') && styles.includes('.wqc-setting-row:focus-within {'), 'setting rows must use hover and active-field tint instead of static dividers')
-    assert.equal((template.match(/type="number"/g) || []).length, 3, 'settings must expose the expected three numeric inputs')
-    assert.equal((template.match(/wqc-number-input/g) || []).length, 3, 'all settings numeric inputs must share one visual treatment')
-    assert.equal((template.match(/\(wheel\)="releaseNumberWheel\(\$event\)"/g) || []).length, 3, 'all settings numeric inputs must release focus before wheel scrolling')
+    assert.equal((template.match(/type="number"/g) || []).length, 2, 'the parent settings page must keep only its two non-log numeric inputs')
+    assert.equal((template.match(/wqc-number-input/g) || []).length, 2, 'the parent numeric inputs must share one visual treatment')
+    assert.equal((template.match(/\(wheel\)="releaseNumberWheel\(\$event\)"/g) || []).length, 2, 'the parent numeric inputs must release focus before wheel scrolling')
+    assert.ok(template.includes('<quick-commands-activity-log') && template.includes('(settingsChange)="updateActivityLogRetention($event)"'), 'activity logs must live in a dedicated child component')
+    assert.equal((activityLogSource.match(/type="number"/g) || []).length, 5, 'activity log retention and pager must expose count, age, size, warning, and page controls')
+    assert.ok(activityLogSource.includes('class="wqc-activity-table"') && activityLogSource.includes("settings.mode === 'unlimited'"), 'activity logs must use a table and support unlimited retention warnings')
+    assert.ok(!activityLogSource.includes('<select') && activityLogSource.includes('class="form-control wqc-control wqc-select"'), 'activity log dropdowns must share the custom settings control style')
+    assert.ok(activityLogSource.includes('.wqc-search-input { font-size: 12px; }') && activityLogSource.includes('.wqc-search-input::placeholder { color: var(--wqc-muted, var(--bs-secondary-color)); opacity: 1; }'), 'activity log search text and placeholder must match command management search styling')
+    assert.ok(activityLogSource.includes("selectSizeUnit('sizeUnit', 'GB')") && activityLogSource.includes("selectSizeUnit('warningUnit', 'GB')"), 'size and unlimited retention controls must offer MB and GB units')
+    assert.ok(activityLogSource.includes('class="wqc-sequence-column"') && activityLogSource.includes('entryNumber(rowIndex)') && activityLogSource.includes('class="wqc-pager-count">当前 {{ filteredCount }} 条数据') && activityLogSource.includes('jumpToPage($event)'), 'activity log table must expose compact sequence numbers, a pager-side data count, and page jumping')
+    assert.ok(activityLogSource.includes('.wqc-pager-controls .btn { min-width: 72px; }') && activityLogSource.includes('.wqc-activity-section .btn-secondary {'), 'activity log pagination buttons must match command statistics pagination')
+    assert.ok(activityLogSource.includes('table-layout: auto;') && activityLogSource.includes('class="wqc-table-fill"') && activityLogSource.includes('.wqc-activity-summary > span { max-width:'), 'activity log columns must size from visible content while long object and summary text remains bounded')
+    assert.ok(activityLogSource.includes('class="wqc-activity-count">{{ entries.length }} 条') && template.includes('class="wqc-count">{{ commandCount }} 条命令'), 'section header counters must show totals without a filtered/total fraction')
+    assert.ok(source.includes('this.activityLog.ensureDirectory()') && source.includes('this.platform.openPath(directory)') && !source.includes('this.platform.showItemInFolder(path)'), 'open log location must enter the activity-logs directory instead of revealing it in the parent folder')
+    assert.ok(activityLogSource.includes('grid-template-columns: minmax(0, .7fr) minmax(0, .7fr) auto;') && activityLogSource.includes('justify-self: end;'), 'activity log actions must remain inside and align with the retention grid')
     assert.ok(template.includes('step="20" title=""'), 'drawer width must suppress native hover text while retaining numeric constraints')
     assert.ok(styles.includes('.wqc-number-input::-webkit-inner-spin-button,') && styles.includes('-moz-appearance: textfield;'), 'all settings numeric inputs must hide native browser steppers')
     const drawerSource = fs.readFileSync(path.join(process.cwd(), 'src', 'quickCommands.service.ts'), 'utf8')

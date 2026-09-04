@@ -23,6 +23,9 @@ import {
 import { getDangerCheck } from '../src/safety'
 import { getExecutableLineCount, parseScriptSteps } from '../src/scriptParser'
 import { QuickCommandsRuntimeStore } from '../src/runtimeStorage'
+import { ActivityLogService } from '../src/activityLog/activityLog.service'
+import { activityLogSizeValue, applyActivityLogRetention, estimateActivityLogBytes } from '../src/activityLog/activityLog.retention'
+import { activityLogSegmentSizeBytes, splitActivityLogSegments } from '../src/activityLog/activityLog.storage'
 import { shouldShowToolbarButton } from '../src/toolbarVisibility'
 import { buildDefaultSettingsConfig, QuickCommandsPluginConfigStore } from '../src/pluginConfigStorage'
 import { createDefaultQuickCommandsConfig, defaultQuickCommandsConfig } from '../src/defaults'
@@ -190,7 +193,10 @@ function testTranslations (): void {
     assert(translatePluginText('不额外确认', 'en-US') === 'No extra confirmation', 'current segmented confirmation choices should be translated')
     assert(translatePluginText('第 2 / 5 页', 'de-DE') === 'Page 2 / 5', 'dynamic page labels should be translated')
     assert(translatePluginText('2 条命令，3 条运行日志', 'en-US') === '2 commands, 3 runtime logs', 'dynamic counters should be translated as a complete sentence')
+    assert(translatePluginText('2 条命令，3 条活动日志', 'en-US') === '2 commands, 3 activity logs', 'activity log counters should be translated as a complete sentence')
+    assert(translatePluginText('不自动清理，超过 10 MB 后提醒', 'en-US') === 'Do not clean automatically; warn above 10 MB', 'unlimited retention hints should be translated')
     assert(translatePluginText('确认永久删除选中的 3 条命令？运行日志将保留。', 'en-US') === 'Permanently delete the selected 3 commands? Runtime logs will be kept.', 'dynamic confirmations should be fully translated')
+    assert(translatePluginText('确认永久删除选中的 3 条命令？活动日志将保留。', 'en-US') === 'Permanently delete the selected 3 commands? Activity logs will be kept.', 'activity-log confirmations should be fully translated')
     assert(translatePluginText('执行后继续', 'en-US') === 'Continue', 'line setting continue label should fit its button')
     assert(translatePluginText('执行后暂停', 'en-US') === 'Pause', 'line setting pause label should fit its button')
     assert(translatePluginText('全部折叠', 'en-US') === 'Collapse all', 'bulk collapse action should be translated')
@@ -1005,8 +1011,59 @@ function testRuntimeStorage (): void {
         })
         const reloaded = new QuickCommandsRuntimeStore(path.join(directory, 'config.yaml'))
         assert(reloaded.getLogs().length === 1, 'runtime logs should persist in an independent file')
+        assert(reloaded.getLogs()[0].category === 'execution', 'legacy runtime logs should migrate to execution activity records')
         assert(reloaded.getStats()['command-1']?.usageCount === 3, 'command stats should persist in an independent file')
         assert(store.logsPath !== store.statsPath, 'logs and command stats should use separate files')
+        assert(path.basename(store.logsPath!) === 'activity-logs', 'activity logs should live in a dedicated directory')
+        assert(fs.readdirSync(store.logsPath!).some(name => /^activity-\d{6}\.jsonl$/.test(name)), 'activity logs should persist as JSONL segments')
+        assert(activityLogSegmentSizeBytes === 10 * 1024 * 1024, 'activity log segments should roll over at 10 MB')
+
+        const splitEntries = Array.from({ length: 3 }, (_, index) => ({
+            id: `split-${index}`,
+            time: `2026-09-04T00:00:0${index}.000Z`,
+            level: 'info' as const,
+            message: 'x'.repeat(260),
+        }))
+        const splitSegments = splitActivityLogSegments(splitEntries, 500)
+        assert(splitSegments.length === 3, 'segment packing should start a new file before the configured byte limit is exceeded')
+        assert(splitSegments.every(segment => Buffer.byteLength(segment, 'utf8') <= 500), 'ordinary activity log segments should remain within their byte limit')
+
+        const legacyConfigPath = path.join(directory, 'legacy-profile', 'config.yaml')
+        const legacyDataPath = path.join(path.dirname(legacyConfigPath), getPluginIdentity(false).dataDirectory)
+        fs.mkdirSync(legacyDataPath, { recursive: true })
+        fs.writeFileSync(path.join(legacyDataPath, 'logs.json'), JSON.stringify([{
+            id: 'legacy-log', time: '2026-06-17T00:00:00.000Z', level: 'info', message: 'Legacy log',
+        }]))
+        const migratedStore = new QuickCommandsRuntimeStore(legacyConfigPath)
+        assert(migratedStore.getLogs()[0]?.id === 'legacy-log', 'legacy single-file activity logs should remain readable during migration')
+        assert(!fs.existsSync(path.join(legacyDataPath, 'logs.json')), 'successful activity log migration should remove the superseded single file')
+        assert(fs.existsSync(path.join(legacyDataPath, 'activity-logs', 'activity-000001.jsonl')), 'legacy activity logs should migrate into the segmented directory')
+
+        const activityLog = new ActivityLogService(path.join(directory, 'config.yaml'))
+        const countRetention = { mode: 'count' as const, count: 2, days: 30, sizeMb: 10, warningSizeMb: 10, sizeUnit: 'MB' as const, warningSizeUnit: 'MB' as const }
+        activityLog.record({ message: 'Added command', category: 'command', action: 'command.create' }, countRetention)
+        activityLog.record({ message: 'Deleted command', category: 'command', action: 'command.delete' }, countRetention)
+        assert(activityLog.getEntries().length === 2, 'activity log count retention should keep only the newest entries')
+        assert(activityLog.getEntries()[1].action === 'command.delete', 'structured activity fields should persist')
+
+        const now = new Date('2026-09-04T00:00:00.000Z').getTime()
+        const aged = applyActivityLogRetention([
+            { id: 'old', time: '2026-08-01T00:00:00.000Z', level: 'info', message: 'Old' },
+            { id: 'new', time: '2026-09-03T00:00:00.000Z', level: 'info', message: 'New' },
+        ], { ...countRetention, mode: 'days', days: 7 }, now)
+        assert(aged.length === 1 && aged[0].id === 'new', 'activity log age retention should remove expired entries')
+
+        const largeEntries = Array.from({ length: 4 }, (_, index) => ({
+            id: `large-${index}`,
+            time: '2026-09-04T00:00:00.000Z',
+            level: 'info' as const,
+            message: 'x'.repeat(400000),
+        }))
+        const sizeLimited = applyActivityLogRetention(largeEntries, { ...countRetention, mode: 'size', sizeMb: 1 })
+        assert(sizeLimited.length < largeEntries.length && estimateActivityLogBytes(sizeLimited) <= 1024 * 1024, 'activity log size retention should remove oldest entries until the file fits')
+        const unlimited = applyActivityLogRetention(largeEntries, { ...countRetention, mode: 'unlimited' })
+        assert(unlimited.length === largeEntries.length, 'unlimited activity log retention should not delete entries')
+        assert(activityLogSizeValue(1536, 'GB') === 1.5, 'activity log size labels should honor the selected GB unit')
     } finally {
         fs.rmSync(directory, { recursive: true, force: true })
     }
@@ -1340,6 +1397,12 @@ function testPluginConfigStorage (): void {
                 drawerWidth: 9999,
                 recentOutputLimit: 999999,
                 logLimit: 1,
+                logRetentionMode: 'size',
+                logRetentionDays: 0,
+                logSizeLimitMb: 999,
+                logWarningSizeMb: 0,
+                logSizeUnit: 'GB',
+                logWarningSizeUnit: 'MB',
             },
         }))
         const normalizedCommands = normalized.commands as any[]
@@ -1353,6 +1416,12 @@ function testPluginConfigStorage (): void {
         assert(normalized.drawerWidth === 760, 'full config import should clamp drawer width')
         assert(normalized.recentOutputLimit === 50000, 'full config import should clamp output buffer size')
         assert(normalized.logLimit === 20, 'full config import should clamp log count')
+        assert(normalized.logRetentionMode === 'size', 'full config import should retain a valid log retention mode')
+        assert(normalized.logRetentionDays === 1, 'full config import should clamp log retention days')
+        assert(normalized.logSizeLimitMb === 999, 'full config import should retain log limits within the 100 GB range')
+        assert(normalized.logWarningSizeMb === 1, 'full config import should clamp the log warning threshold')
+        assert(normalized.logSizeUnit === 'GB', 'full config import should retain the selected size unit')
+        assert(normalized.logWarningSizeUnit === 'MB', 'full config import should retain the selected warning unit')
         assert(!Object.prototype.hasOwnProperty.call(normalizedCommands[0], 'usageCount'), 'full config import should strip runtime command fields')
 
         let malformedRuleRejected = false

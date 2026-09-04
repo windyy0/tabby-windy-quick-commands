@@ -49,6 +49,12 @@ export const defaultQuickCommandsConfig = {
     moveNavigateAfterMove: false,
     recentOutputLimit: 8000,
     logLimit: 200,
+    logRetentionMode: 'count',
+    logRetentionDays: 30,
+    logSizeLimitMb: 10,
+    logWarningSizeMb: 10,
+    logSizeUnit: 'MB',
+    logWarningSizeUnit: 'MB',
     updateCheckInterval: 'daily',
     ignoredUpdateVersion: '',
 }

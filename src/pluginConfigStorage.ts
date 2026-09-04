@@ -148,6 +148,7 @@ export class QuickCommandsPluginConfigStore {
             'drawerInitialFocus', 'focusTerminalAfterSend', 'showOperationHints', 'pluginHotkeys',
             'requireConfirmBeforeExecute', 'confirmHighRiskCommands', 'confirmBroadcast', 'exportFileName', 'basicInfoCollapsed',
             'moreSettingsCollapsed', 'previewCollapsed', 'moveNavigateAfterMove', 'recentOutputLimit', 'logLimit',
+            'logRetentionMode', 'logRetentionDays', 'logSizeLimitMb', 'logWarningSizeMb', 'logSizeUnit', 'logWarningSizeUnit',
             'updateCheckInterval', 'ignoredUpdateVersion',
         ]
         const normalized = Object.fromEntries(
@@ -170,7 +171,13 @@ export class QuickCommandsPluginConfigStore {
         normalized.categoryOrder = this.normalizeStringList(source.categoryOrder)
         normalized.drawerWidth = this.normalizeNumber(source.drawerWidth, 420, 760, 560)
         normalized.recentOutputLimit = this.normalizeNumber(source.recentOutputLimit, 1000, 50000, 8000)
-        normalized.logLimit = this.normalizeNumber(source.logLimit, 20, 2000, 200)
+        normalized.logLimit = this.normalizeNumber(source.logLimit, 20, 20000, 200)
+        normalized.logRetentionMode = source.logRetentionMode || 'count'
+        normalized.logRetentionDays = this.normalizeNumber(source.logRetentionDays, 1, 3650, 30)
+        normalized.logSizeLimitMb = this.normalizeNumber(source.logSizeLimitMb, 1, 102400, 10)
+        normalized.logWarningSizeMb = this.normalizeNumber(source.logWarningSizeMb, 1, 102400, 10)
+        normalized.logSizeUnit = source.logSizeUnit || 'MB'
+        normalized.logWarningSizeUnit = source.logWarningSizeUnit || 'MB'
         if (source.pluginHotkeys !== undefined) {
             normalized.pluginHotkeys = parsePluginHotkeyExport(source.pluginHotkeys)
         }
@@ -262,7 +269,7 @@ export class QuickCommandsPluginConfigStore {
                 throw new Error(`配置字段 ${field} 无效。`)
             }
         })
-        const numberFields = ['drawerWidth', 'recentOutputLimit', 'logLimit']
+        const numberFields = ['drawerWidth', 'recentOutputLimit', 'logLimit', 'logRetentionDays', 'logSizeLimitMb', 'logWarningSizeMb']
         numberFields.forEach(field => {
             if (config[field] !== undefined && (
                 typeof config[field] !== 'number' ||
@@ -276,6 +283,9 @@ export class QuickCommandsPluginConfigStore {
         this.validateEnum(config, 'failureStrategy', ['continue', 'stop', 'manual'])
         this.validateEnum(config, 'drawerInitialFocus', ['drawer', 'terminal'])
         this.validateEnum(config, 'updateCheckInterval', ['startup', 'daily', 'weekly', 'never'])
+        this.validateEnum(config, 'logRetentionMode', ['count', 'days', 'size', 'unlimited'])
+        this.validateEnum(config, 'logSizeUnit', ['MB', 'GB'])
+        this.validateEnum(config, 'logWarningSizeUnit', ['MB', 'GB'])
         this.validateStringList(config.customCategories, 'customCategories')
         this.validateStringList(config.categoryOrder, 'categoryOrder')
     }
