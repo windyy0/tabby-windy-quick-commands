@@ -545,7 +545,7 @@ export class QuickCommandsService {
               ${badges.length ? `<div class="tqc-command-meta">${badges.join('')}</div>` : ''}
             </button>
             <button class="tqc-icon-button tqc-command-edit" type="button" data-action="edit-command" data-command-edit-id="${this.escapeAttr(command.id)}" data-tooltip="编辑名称和说明" aria-label="编辑名称和说明">${icons.edit}</button>
-            <button class="tqc-icon-button tqc-command-run" type="button" data-action="execute-command" data-command-execute-id="${this.escapeAttr(command.id)}" data-tooltip="执行命令" aria-label="执行命令">${icons.run}</button>
+            <button class="tqc-icon-button tqc-command-run" type="button" data-action="execute-command" data-command-execute-id="${this.escapeAttr(command.id)}" data-tooltip="执行命令" data-tooltip-command-name="${this.escapeAttr(command.name)}" aria-label="执行命令">${icons.run}</button>
           </div>
         `
     }
@@ -1981,6 +1981,18 @@ export class QuickCommandsService {
 
     private showTooltip (tooltip: HTMLElement, anchor: HTMLElement, text: string): void {
         tooltip.textContent = text
+        const commandName = anchor.dataset.tooltipCommandName
+        tooltip.classList.toggle('tqc-tooltip-command', commandName !== undefined)
+        if (commandName !== undefined) {
+            const label = document.createElement('span')
+            label.className = 'tqc-tooltip-action-label'
+            label.textContent = text
+            const name = document.createElement('strong')
+            name.className = 'tqc-tooltip-command-name'
+            name.setAttribute('data-i18n-skip', '')
+            name.textContent = commandName
+            tooltip.replaceChildren(label, name)
+        }
         tooltip.classList.remove('tqc-tooltip-above')
         tooltip.classList.add('tqc-tooltip-visible')
         tooltip.style.left = '0px'

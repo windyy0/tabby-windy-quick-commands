@@ -1926,6 +1926,25 @@
   backdrop-filter: blur(12px);
 }
 
+.tqc-tooltip.tqc-tooltip-command {
+  text-align: left;
+}
+
+.tqc-tooltip-action-label {
+  display: block;
+  margin-bottom: 3px;
+  color: color-mix(in srgb, var(--tqc-text) 72%, transparent);
+  font-size: 11px;
+}
+
+.tqc-tooltip-command-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .tqc-tooltip::before {
   position: absolute;
   top: -5px;
