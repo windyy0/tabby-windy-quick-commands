@@ -284,7 +284,7 @@ Maintain release notes in `update-notes.json`. Only the current release needs to
 
 The sample text above is shown entirely in English for readability. For an actual release, write the `zh-CN` values in Chinese and the `en` values in English.
 
-The `version` must match `package.json` and `package-lock.json`. Both languages require a `title`, `sections`, and at least one item; `notice` is optional. Other interface languages fall back to English.
+The `version` must match `package.json` and `package-lock.json`. Both languages require a `title`; short notes can contain just the title. `sections` and `notice` are optional. When provided, `sections` must contain at least one group, each with a title and at least one item. Other interface languages fall back to English.
 
 ## License
 

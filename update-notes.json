@@ -1,45 +1,9 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "zh-CN": {
-    "title": "新增活动日志与独立分卷存储",
-    "sections": [
-      {
-        "title": "活动日志",
-        "items": [
-          "设置页新增活动日志表格，记录命令运行、命令与分类管理、收藏置顶、导入导出及设置重置操作",
-          "支持按消息、对象、类型和结果筛选，详情可行内展开，并支持分页跳转和内容自适应列宽",
-          "日志可按条数、天数或大小自动清理，也可长期保留并设置 MB 或 GB 提醒阈值"
-        ]
-      },
-      {
-        "title": "日志存储",
-        "items": [
-          "活动日志改为保存在独立的 activity-logs 目录中，并按 10 MB 自动分卷为 JSONL 文件",
-          "旧版 logs.json 会自动迁移，打开日志位置会直接进入活动日志目录"
-        ]
-      }
-    ],
-    "notice": "更新后请完整重启 Tabby。现有命令库和插件设置会保留，旧运行日志会自动迁移。"
+    "title": "新增设置页悬浮目录导航"
   },
   "en": {
-    "title": "Add activity logs with independent segmented storage",
-    "sections": [
-      {
-        "title": "Activity logs",
-        "items": [
-          "Add an activity log table to Settings for command runs, command and category management, favorites and pins, imports and exports, and settings resets",
-          "Filter by message, object, type, and result; expand details inline; jump between pages; and size columns to their content",
-          "Automatically retain logs by count, age, or size, or keep them indefinitely with a configurable MB or GB warning threshold"
-        ]
-      },
-      {
-        "title": "Log storage",
-        "items": [
-          "Store activity logs in a dedicated activity-logs directory and automatically rotate them into 10 MB JSONL segments",
-          "Automatically migrate the legacy logs.json file and open the activity log directory directly from Settings"
-        ]
-      }
-    ],
-    "notice": "Fully restart Tabby after updating. Existing command libraries and plugin settings are preserved, and legacy runtime logs are migrated automatically."
+    "title": "Add floating section navigation to Settings"
   }
 }

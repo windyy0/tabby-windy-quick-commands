@@ -33,6 +33,17 @@ assert.equal(compareVersions('1.6.0-beta.1', '1.6.0'), -1)
 assert.equal(compareVersions('1.6.0-beta.10', '1.6.0-beta.2'), 1)
 assert.throws(() => compareVersions('01.6.0', '1.6.0'), /无法比较版本号/)
 assert.doesNotThrow(() => validateUpdateNotesDocument(packageJson, updateNotes))
+assert.doesNotThrow(() => validateUpdateNotesDocument(packageJson, {
+    version: packageJson.version,
+    'zh-CN': { title: '新增设置页悬浮目录导航' },
+    en: { title: 'Add floating section navigation to Settings' },
+}))
+for (const sections of [null, [], 'invalid', [{ title: '新增', items: [] }]]) {
+    assert.throws(() => validateUpdateNotesDocument(packageJson, {
+        ...updateNotes,
+        'zh-CN': { title: '更新标题', sections },
+    }))
+}
 assert.doesNotThrow(() => validatePackageLock(packageJson, {
     version: '1.6.0',
     packages: { '': { version: '1.6.0' } },

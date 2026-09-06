@@ -279,7 +279,7 @@ npm run release
 }
 ```
 
-`version` 必须与 `package.json`、`package-lock.json` 一致；中英文的 `title`、`sections` 和至少一条 `items` 必填，`notice` 可省略。其他界面语言回退到英文。
+`version` 必须与 `package.json`、`package-lock.json` 一致；中英文的 `title` 必填，简短说明可只保留标题。`sections` 和 `notice` 可省略；填写 `sections` 时，每个分组需包含标题和至少一条 `items`。其他界面语言回退到英文。
 
 
 ## License

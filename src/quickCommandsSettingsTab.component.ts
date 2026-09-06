@@ -61,13 +61,36 @@ interface HotkeyConflictCache {
     commands: Map<string, string>
 }
 
+interface SettingsSectionLink {
+    id: string
+    label: string
+}
+
 @Component({
     selector: 'quick-commands-settings-tab',
     template: `
       <div class="wqc-settings">
+        <aside class="wqc-page-nav" [class.wqc-page-nav-open]="settingsNavigationOpen" (click)="$event.stopPropagation()" (mouseenter)="scheduleSettingsNavigationOpen()" (mouseleave)="scheduleSettingsNavigationClose()" (focusin)="onSettingsNavigationFocus($event)" (focusout)="onSettingsNavigationBlur($event)">
+          <button class="wqc-page-nav-trigger" type="button" [attr.aria-label]="pluginTitle + ' · 目录'" aria-controls="wqc-page-nav-links" [attr.aria-expanded]="settingsNavigationOpen" (click)="toggleSettingsNavigation()" (keydown.arrowdown)="focusSettingsNavigation($event)">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 4h1M6 4h7M3 8h1M6 8h7M3 12h1M6 12h7"></path>
+            </svg>
+            <span class="wqc-page-nav-handle-label">目录</span>
+          </button>
+          <nav class="wqc-page-nav-panel" id="wqc-page-nav-links" [attr.aria-label]="pluginTitle + ' · 目录'">
+            <button class="wqc-page-nav-title" type="button" (click)="scrollToSettingsTop()">
+              <span>{{ pluginTitle }}</span>
+            </button>
+            <button type="button" *ngFor="let section of settingsSections" [class.wqc-active]="activeSettingsSection === section.id" [attr.aria-current]="activeSettingsSection === section.id ? 'location' : null" (click)="scrollToSettingsSection(section.id)">
+              <span class="wqc-page-nav-marker" aria-hidden="true"></span>
+              <span>{{ section.label }}</span>
+            </button>
+          </nav>
+        </aside>
+
         <header class="wqc-header">
           <div>
-            <h3>{{ pluginTitle }}</h3>
+            <h3 tabindex="-1">{{ pluginTitle }}</h3>
             <div class="wqc-muted">{{ commandCount }} 条命令，{{ logCount }} 条活动日志</div>
           </div>
           <label class="wqc-header-toggle" title="修改后重启 Tabby 生效；隐藏按钮后仍可使用快捷键">
@@ -100,7 +123,10 @@ interface HotkeyConflictCache {
           </div>
         </div>
 
-        <section class="wqc-section wqc-config-section">
+        <div class="wqc-settings-layout">
+          <main class="wqc-settings-content">
+
+        <section class="wqc-section wqc-config-section" id="wqc-settings-config">
           <div class="wqc-section-head">
             <div>
               <h4>插件配置</h4>
@@ -128,7 +154,7 @@ interface HotkeyConflictCache {
           </div>
         </section>
 
-        <section class="wqc-section wqc-hotkey-section">
+        <section class="wqc-section wqc-hotkey-section" id="wqc-settings-hotkeys">
           <div class="wqc-hotkey-summary-row">
             <div class="wqc-hotkey-summary-copy">
               <h4>快捷键</h4>
@@ -329,7 +355,7 @@ interface HotkeyConflictCache {
           </div>
         </div>
 
-        <section class="wqc-section">
+        <section class="wqc-section" id="wqc-settings-operation">
           <h4>操作与输入</h4>
           <div class="wqc-settings-list">
             <div class="wqc-setting-row">
@@ -363,7 +389,7 @@ interface HotkeyConflictCache {
           </div>
         </section>
 
-        <section class="wqc-section">
+        <section class="wqc-section" id="wqc-settings-execution">
           <h4>执行</h4>
           <h5 class="wqc-settings-group-title wqc-settings-group-title-first">确认与安全</h5>
           <div class="wqc-settings-list">
@@ -438,7 +464,7 @@ interface HotkeyConflictCache {
           </div>
         </section>
 
-        <section class="wqc-section">
+        <section class="wqc-section" id="wqc-settings-commands">
           <div class="wqc-section-head">
             <div>
               <h4>命令管理与统计</h4>
@@ -525,16 +551,18 @@ interface HotkeyConflictCache {
           </div>
         </section>
 
-        <quick-commands-activity-log
-          [entries]="runtimeLogs"
-          [settings]="activityLogRetention"
-          [sizeBytes]="activityLogSizeBytes"
-          (settingsChange)="updateActivityLogRetention($event)"
-          (clearRequested)="clearLogs()"
-          (openLocationRequested)="openLogLocation()">
-        </quick-commands-activity-log>
+        <div class="wqc-section-anchor" id="wqc-settings-activity">
+          <quick-commands-activity-log
+            [entries]="runtimeLogs"
+            [settings]="activityLogRetention"
+            [sizeBytes]="activityLogSizeBytes"
+            (settingsChange)="updateActivityLogRetention($event)"
+            (clearRequested)="clearLogs()"
+            (openLocationRequested)="openLogLocation()">
+          </quick-commands-activity-log>
+        </div>
 
-        <section class="wqc-section wqc-update-section" id="wqc-plugin-update">
+        <section class="wqc-section wqc-update-section" id="wqc-settings-update">
           <div class="wqc-section-head">
             <div>
               <div class="wqc-update-title-line">
@@ -611,6 +639,8 @@ interface HotkeyConflictCache {
             </div>
           </div>
         </section>
+          </main>
+        </div>
 
         <div class="wqc-config-dialog-backdrop" *ngIf="exportConfigDialogOpen" (click)="closeExportPluginConfig()">
           <section class="wqc-config-dialog wqc-export-dialog" role="dialog" aria-modal="true" aria-labelledby="wqc-config-export-title" (click)="$event.stopPropagation()">
@@ -747,9 +777,163 @@ interface HotkeyConflictCache {
         --wqc-accent: color-mix(in srgb, var(--bs-primary) 72%, var(--wqc-text) 28%);
         --wqc-surface-border: color-mix(in srgb, var(--bs-body-bg) 72%, var(--bs-body-color) 28%);
         --wqc-control-border: color-mix(in srgb, var(--bs-body-bg) 62%, var(--bs-body-color) 38%);
-        max-width: 980px;
-        padding: 18px 24px 28px;
+        padding: 18px 56px 28px 24px;
         color: var(--wqc-text);
+      }
+
+      .wqc-header,
+      .wqc-plugin-intro,
+      .wqc-settings-layout {
+        max-width: 932px;
+      }
+
+      .wqc-settings-layout {
+        display: block;
+      }
+
+      .wqc-settings-content {
+        min-width: 0;
+      }
+
+      .wqc-page-nav {
+        position: sticky;
+        top: 16px;
+        z-index: 30;
+        height: 0;
+        margin: -32px 0 32px;
+        pointer-events: none;
+      }
+
+      .wqc-page-nav-trigger {
+        position: absolute;
+        top: 0;
+        right: -40px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 24px;
+        min-height: 76px;
+        padding: 8px 3px;
+        pointer-events: auto;
+        color: var(--wqc-muted);
+        background: color-mix(in srgb, var(--bs-body-bg) 97%, var(--wqc-text) 3%);
+        border: 1px solid color-mix(in srgb, var(--wqc-surface-border) 55%, transparent);
+        border-radius: 7px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        transition: color 140ms ease, background-color 140ms ease;
+      }
+
+      .wqc-page-nav-handle-label {
+        writing-mode: vertical-rl;
+        letter-spacing: 2px;
+      }
+
+      .wqc-page-nav-trigger:hover,
+      .wqc-page-nav-open .wqc-page-nav-trigger {
+        color: var(--wqc-accent);
+        background: color-mix(in srgb, var(--bs-body-bg) 92%, var(--wqc-accent) 8%);
+      }
+
+      .wqc-page-nav-trigger:focus-visible,
+      .wqc-page-nav-panel button:focus-visible {
+        outline: 2px solid var(--wqc-accent);
+        outline-offset: 2px;
+      }
+
+      .wqc-page-nav-trigger > svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.4;
+      }
+
+      .wqc-page-nav-panel {
+        position: absolute;
+        top: 0;
+        right: -10px;
+        display: none;
+        width: max-content;
+        max-width: min(320px, 100%);
+        max-height: calc(100vh - 116px);
+        overflow-wrap: anywhere;
+        overflow-y: auto;
+        padding: 8px;
+        pointer-events: auto;
+        background: color-mix(in srgb, var(--bs-body-bg) 96%, var(--wqc-text) 4%);
+        border: 1px solid var(--wqc-surface-border);
+        border-radius: 9px;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+      }
+
+      .wqc-page-nav-open .wqc-page-nav-panel {
+        display: grid;
+        gap: 2px;
+      }
+
+      .wqc-page-nav-panel .wqc-page-nav-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 6px 8px;
+        margin-bottom: 4px;
+        color: var(--wqc-text);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .wqc-page-nav-panel button {
+        display: grid;
+        grid-template-columns: 3px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        min-height: 32px;
+        padding: 6px 8px;
+        color: var(--wqc-muted);
+        background: transparent;
+        border: 0;
+        border-radius: 6px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        text-align: left;
+        transition: color 140ms ease, background-color 140ms ease;
+      }
+
+      .wqc-page-nav-panel button:hover,
+      .wqc-page-nav-panel button:focus-visible {
+        color: var(--wqc-text);
+        background: color-mix(in srgb, var(--wqc-text) 6%, transparent);
+      }
+
+      .wqc-page-nav-panel button.wqc-active {
+        color: var(--wqc-accent);
+        background: color-mix(in srgb, var(--wqc-accent) 10%, transparent);
+        font-weight: 650;
+      }
+
+      .wqc-page-nav-marker {
+        width: 3px;
+        height: 16px;
+        background: transparent;
+        border-radius: 999px;
+      }
+
+      .wqc-page-nav-panel button.wqc-active .wqc-page-nav-marker {
+        background: var(--wqc-accent);
+      }
+
+      .wqc-section,
+      .wqc-section-anchor {
+        scroll-margin-top: 18px;
       }
 
       :host-context(body.dark) .wqc-settings,
@@ -3378,6 +3562,8 @@ interface HotkeyConflictCache {
 
       @media (prefers-reduced-motion: reduce) {
         .wqc-settings .form-control,
+        .wqc-page-nav-trigger,
+        .wqc-page-nav-panel button,
         .wqc-select-menu button,
         .wqc-actions .btn {
           transition: none;
@@ -3396,7 +3582,7 @@ interface HotkeyConflictCache {
 
       @media (max-width: 760px) {
         .wqc-settings {
-          padding: 14px 16px 22px;
+          padding: 14px 48px 22px 16px;
         }
 
         .wqc-grid {
@@ -3583,6 +3769,17 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     readonly pluginTitle = pluginIdentity.title
     readonly defaultExportFileName = pluginIdentity.exportFileName
     readonly pluginHotkeyDefinitions = pluginHotkeyDefinitions
+    readonly settingsSections: SettingsSectionLink[] = [
+        { id: 'wqc-settings-config', label: '插件配置' },
+        { id: 'wqc-settings-hotkeys', label: '快捷键' },
+        { id: 'wqc-settings-operation', label: '操作与输入' },
+        { id: 'wqc-settings-execution', label: '执行' },
+        { id: 'wqc-settings-commands', label: '命令管理与统计' },
+        { id: 'wqc-settings-activity', label: '活动日志' },
+        { id: 'wqc-settings-update', label: '版本更新' },
+    ]
+    activeSettingsSection = this.settingsSections[0].id
+    settingsNavigationOpen = false
     recordingHotkeyAction: PluginHotkeyAction | null = null
     recordingCommandHotkeyId: string | null = null
     recordingPressedKeys: string[] = []
@@ -3646,6 +3843,12 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     private hotkeyConflictCache: HotkeyConflictCache | null = null
     private tabbyHotkeysDisabledForCapture = false
     private stopLocalizing: (() => void) | null = null
+    private stopObservingSettingsSections: (() => void) | null = null
+    private requestSettingsSectionUpdate: (() => void) | null = null
+    private settingsScrollTarget: string | null = null
+    private settingsScrollSettleTimer: ReturnType<typeof setTimeout> | null = null
+    private settingsNavigationTimer: ReturnType<typeof setTimeout> | null = null
+    private settingsNavigationReturningFocus = false
     private readonly subscriptions = new Subscription()
 
     constructor (
@@ -3692,6 +3895,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     ngAfterViewInit (): void {
         this.startLocalizing()
+        this.observeSettingsSections()
         this.subscriptions.add(this.i18n.localeChanged$.subscribe(() => {
             this.startLocalizing()
         }))
@@ -3701,11 +3905,15 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     }
 
     ngOnDestroy (): void {
+        this.clearSettingsNavigationTimer()
         this.dismissConfigMessage()
         this.dismissUpdateCheckStatus()
         this.clearCapturedHotkeyFeedback()
         this.stopHotkeyCapture()
 
+        this.stopObservingSettingsSections?.()
+        this.stopObservingSettingsSections = null
+        this.clearSettingsScrollSettleTimer()
         this.stopLocalizing?.()
         this.subscriptions.unsubscribe()
     }
@@ -3727,6 +3935,10 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     get logCount (): number {
         return this.runtimeLogs.length
+    }
+
+    get activeSettingsSectionLabel (): string {
+        return this.settingsSections.find(section => section.id === this.activeSettingsSection)?.label || ''
     }
 
     get activityLogRetention (): ActivityLogRetentionSettings {
@@ -3842,6 +4054,7 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
 
     @HostListener('document:click')
     closeFailureMenu (): void {
+        this.closeSettingsNavigation()
         this.failureMenuOpen = false
         this.updateIntervalMenuOpen = false
         this.commandCategoryMenuOpen = false
@@ -3858,6 +4071,11 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
         }
         if (this.exportConfigDialogOpen) {
             this.closeExportPluginConfig()
+            return
+        }
+        if (this.settingsNavigationOpen) {
+            this.closeSettingsNavigation(true)
+            event?.preventDefault()
             return
         }
         this.failureMenuOpen = false
@@ -4091,11 +4309,197 @@ export class QuickCommandsSettingsTabComponent implements AfterViewInit, OnDestr
     }
 
     scrollToUpdateSettings (): void {
-        this.scrollTo('#wqc-plugin-update')
+        this.scrollToSettingsSection('wqc-settings-update')
     }
 
     scrollToSettingsTop (): void {
+        this.closeSettingsNavigation()
+        this.activeSettingsSection = this.settingsSections[0].id
+        this.beginSettingsScroll(this.activeSettingsSection)
+        this.element.nativeElement.querySelector<HTMLElement>('.wqc-header h3')?.focus({ preventScroll: true })
         this.scrollTo('.wqc-settings')
+    }
+
+    toggleSettingsNavigation (): void {
+        this.clearSettingsNavigationTimer()
+        this.settingsNavigationOpen = !this.settingsNavigationOpen
+    }
+
+    scheduleSettingsNavigationOpen (): void {
+        this.clearSettingsNavigationTimer()
+        if (this.settingsNavigationOpen) { return }
+        this.settingsNavigationTimer = setTimeout(() => {
+            this.settingsNavigationTimer = null
+            this.settingsNavigationOpen = true
+            this.changeDetector.markForCheck()
+        }, 200)
+    }
+
+    scheduleSettingsNavigationClose (): void {
+        this.clearSettingsNavigationTimer()
+        this.settingsNavigationTimer = setTimeout(() => {
+            this.settingsNavigationTimer = null
+            const navigation = this.element.nativeElement.querySelector('.wqc-page-nav')
+            const focused = document.activeElement
+            if (focused && navigation?.contains(focused) && focused.matches(':focus-visible')) { return }
+            this.settingsNavigationOpen = false
+            this.changeDetector.markForCheck()
+        }, 300)
+    }
+
+    onSettingsNavigationFocus (event: FocusEvent): void {
+        if (this.settingsNavigationReturningFocus) { return }
+        this.clearSettingsNavigationTimer()
+        if ((event.target as HTMLElement).matches(':focus-visible')) {
+            this.settingsNavigationOpen = true
+        }
+    }
+
+    onSettingsNavigationBlur (event: FocusEvent): void {
+        if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) {
+            this.scheduleSettingsNavigationClose()
+        }
+    }
+
+    focusSettingsNavigation (event: KeyboardEvent): void {
+        event.preventDefault()
+        this.clearSettingsNavigationTimer()
+        this.settingsNavigationOpen = true
+        this.changeDetector.detectChanges()
+        this.element.nativeElement.querySelector<HTMLElement>('.wqc-page-nav-panel button.wqc-active')?.focus()
+    }
+
+    private clearSettingsNavigationTimer (): void {
+        if (this.settingsNavigationTimer !== null) {
+            clearTimeout(this.settingsNavigationTimer)
+            this.settingsNavigationTimer = null
+        }
+    }
+
+    private closeSettingsNavigation (returnFocus = false): void {
+        this.clearSettingsNavigationTimer()
+        this.settingsNavigationOpen = false
+        if (returnFocus) {
+            this.settingsNavigationReturningFocus = true
+            this.element.nativeElement.querySelector<HTMLElement>('.wqc-page-nav-trigger')?.focus({ preventScroll: true })
+            this.settingsNavigationReturningFocus = false
+        }
+    }
+
+    scrollToSettingsSection (sectionId: string): void {
+        if (!this.settingsSections.some(section => section.id === sectionId)) { return }
+        this.activeSettingsSection = sectionId
+        this.beginSettingsScroll(sectionId)
+        this.closeSettingsNavigation()
+        const heading = this.element.nativeElement.querySelector<HTMLElement>(`#${sectionId} h4`)
+        if (heading) {
+            heading.setAttribute('tabindex', '-1')
+            heading.focus({ preventScroll: true })
+        }
+        this.scrollTo(`#${sectionId}`)
+    }
+
+    private clearSettingsScrollSettleTimer (): void {
+        if (this.settingsScrollSettleTimer !== null) {
+            clearTimeout(this.settingsScrollSettleTimer)
+            this.settingsScrollSettleTimer = null
+        }
+    }
+
+    private beginSettingsScroll (sectionId: string): void {
+        this.settingsScrollTarget = sectionId
+        this.scheduleSettingsScrollSettled()
+    }
+
+    private scheduleSettingsScrollSettled (): void {
+        this.clearSettingsScrollSettleTimer()
+        // Also releases the selection when the destination was already in place.
+        this.settingsScrollSettleTimer = setTimeout(() => this.finishSettingsScroll(), 150)
+    }
+
+    private finishSettingsScroll (): void {
+        this.clearSettingsScrollSettleTimer()
+        this.settingsScrollTarget = null
+        this.requestSettingsSectionUpdate?.()
+    }
+
+    private observeSettingsSections (): void {
+        this.stopObservingSettingsSections?.()
+        const settings = this.element.nativeElement.querySelector<HTMLElement>('.wqc-settings')
+        const sections = this.settingsSections
+            .map(section => this.element.nativeElement.querySelector<HTMLElement>(`#${section.id}`))
+            .filter((section): section is HTMLElement => Boolean(section))
+        if (!settings || !sections.length) { return }
+
+        // Tabby scrolls a settings pane, which need not start at the window top.
+        let scrollRoot = settings.parentElement
+        while (scrollRoot && !/(auto|scroll|overlay)/.test(getComputedStyle(scrollRoot).overflowY)) {
+            scrollRoot = scrollRoot.parentElement
+        }
+        const scrollElement = scrollRoot || document.scrollingElement || document.documentElement
+        const windowScroll = scrollElement === document.scrollingElement
+        const scrollEvents: EventTarget = windowScroll ? window : scrollElement
+        let frame: number | null = null
+
+        const update = (): void => {
+            frame = null
+            if (!settings.getClientRects().length) { return }
+            const viewportTop = windowScroll ? 0 : scrollElement.getBoundingClientRect().top + scrollElement.clientTop
+            const referenceTop = viewportTop + 48
+            let currentSection = sections[0]
+            for (const section of sections) {
+                if (section.getBoundingClientRect().top > referenceTop) { break }
+                currentSection = section
+            }
+            const maxScroll = scrollElement.scrollHeight - scrollElement.clientHeight
+            if (maxScroll > 2 && scrollElement.scrollTop >= maxScroll - 2) {
+                currentSection = sections[sections.length - 1]
+            }
+            const activeId = this.settingsScrollTarget || currentSection.id
+            if (activeId === this.activeSettingsSection) { return }
+            this.zone.run(() => {
+                this.activeSettingsSection = activeId
+                this.changeDetector.markForCheck()
+            })
+        }
+        const requestUpdate = (): void => {
+            if (frame === null) { frame = window.requestAnimationFrame(update) }
+        }
+        const onScroll = (): void => {
+            if (this.settingsScrollTarget) { this.scheduleSettingsScrollSettled() }
+            requestUpdate()
+        }
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
+                this.finishSettingsScroll()
+            }
+        }
+        const interruptScroll = (): void => this.finishSettingsScroll()
+        this.requestSettingsSectionUpdate = requestUpdate
+        this.zone.runOutsideAngular(() => {
+            scrollEvents.addEventListener('scroll', onScroll, { passive: true })
+            window.addEventListener('resize', requestUpdate)
+            scrollElement.addEventListener('wheel', interruptScroll, { passive: true })
+            scrollElement.addEventListener('touchstart', interruptScroll, { passive: true })
+            scrollElement.addEventListener('pointerdown', interruptScroll, { passive: true })
+            scrollElement.addEventListener('keydown', onKeyDown)
+            const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(requestUpdate)
+            resizeObserver?.observe(settings)
+            resizeObserver?.observe(scrollElement)
+            sections.forEach(section => resizeObserver?.observe(section))
+            requestUpdate()
+            this.stopObservingSettingsSections = () => {
+                scrollEvents.removeEventListener('scroll', onScroll)
+                window.removeEventListener('resize', requestUpdate)
+                scrollElement.removeEventListener('wheel', interruptScroll)
+                scrollElement.removeEventListener('touchstart', interruptScroll)
+                scrollElement.removeEventListener('pointerdown', interruptScroll)
+                scrollElement.removeEventListener('keydown', onKeyDown)
+                resizeObserver?.disconnect()
+                if (frame !== null) { window.cancelAnimationFrame(frame) }
+                this.requestSettingsSectionUpdate = null
+            }
+        })
     }
 
     get canInstallUpdate (): boolean {

@@ -31,6 +31,7 @@ const englishPhrases: Record<string, string> = {
     '命令包含删除、重启、清理或数据库高风险关键字，执行前会二次确认。': 'The command contains high-risk delete, restart, cleanup, or database keywords and requires an extra confirmation.',
     '已检测到高风险命令；当前设置不会因此单独弹出确认。': 'A high-risk command was detected; the current setting will not open a confirmation dialog for that reason alone.',
     '项目链接': 'Project links',
+    '目录': 'Contents',
     'GitHub 仓库': 'GitHub repository',
     '问题反馈': 'Report an issue',
     '版本更新': 'Version updates',

@@ -91,10 +91,10 @@ function validateUpdateNotesDocument (packageJson, updateNotes) {
         if (typeof document.title !== 'string' || !document.title.trim()) {
             throw new Error(`update-notes.json 的 ${language} 更新说明缺少 title。`)
         }
-        if (!Array.isArray(document.sections) || !document.sections.length) {
+        if (document.sections !== undefined && (!Array.isArray(document.sections) || !document.sections.length)) {
             throw new Error(`update-notes.json 的 ${language} 更新说明至少需要一个 sections 项。`)
         }
-        document.sections.forEach((section, index) => {
+        ;(document.sections || []).forEach((section, index) => {
             assertObject(section, `update-notes.json 的 ${language} 第 ${index + 1} 个分组格式无效。`)
             if (typeof section.title !== 'string' || !section.title.trim()) {
                 throw new Error(`update-notes.json 的 ${language} 第 ${index + 1} 个分组缺少 title。`)
