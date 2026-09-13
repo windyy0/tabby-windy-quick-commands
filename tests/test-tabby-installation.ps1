@@ -334,6 +334,32 @@ try {
         Assert-Test ($Failure -match 'No restarted Tabby process') 'A launch request is not proof of restart'
     }
 
+    # Multiple Node installations can be visible in PATH (for example NVM plus
+    # an IDE runtime). The detached command line must use only the first match.
+    & {
+        . (Join-Path $ProjectRoot 'scripts/tabby-dev-clean.ps1')
+        $FirstNode = 'C:\node-primary\node.exe'
+        $SecondNode = 'C:\node-secondary\node.exe'
+        $State = @{}
+        function Get-Command {
+            param($Name, $CommandType, [switch]$All, $ErrorAction)
+            @(
+                [pscustomobject]@{ Source = $FirstNode }
+                [pscustomobject]@{ Source = $SecondNode }
+            )
+        }
+        function New-CimInstance { return [pscustomobject]@{} }
+        function Invoke-CimMethod {
+            param($ClassName, $MethodName, $Arguments, $ErrorAction)
+            $State.Arguments = $Arguments
+            return [pscustomobject]@{ ReturnValue = 0; ProcessId = 456 }
+        }
+        $ChildId = Start-TabbyCleanDetachedProcess 'Write-Output ok'
+        Assert-Test ($ChildId -eq 456) 'Detached launcher must return the created process ID'
+        Assert-Test ($State.Arguments.CommandLine.StartsWith("`"$FirstNode`" ")) 'Detached launcher must use the first Node executable in PATH'
+        Assert-Test (!$State.Arguments.CommandLine.Contains($SecondNode)) 'Detached launcher must not merge multiple Node executable paths'
+    }
+
     # Real detached-process smoke test: only writes markers in this temporary test root.
     # It does not invoke the cleanup operation or interact with any Tabby process.
     & {
@@ -390,7 +416,7 @@ while (!(Test-Path -LiteralPath ($Marker + '.ready'))) {
         try { Wait-TabbyCleanWorker $WorkerId $Request } catch { $Failure = $_.Exception.Message }
         Assert-Test ($Failure -match '无法找到 Tabby 可执行文件') 'Worker must return its localized failure'
         Assert-Test ((Test-Path -LiteralPath $DevDataPath) -and ([IO.File]::ReadAllText($Request.LogPath)) -match '未清理数据') 'Worker must preserve data on preflight failure and log the result'
-        Assert-Test (([IO.File]::ReadAllText($Request.LogPath)) -match 'Invoke-TabbyCleanOperation.*line \d+') 'Worker diagnostics must retain the original failure location'
+        Assert-Test (([IO.File]::ReadAllText($Request.LogPath)) -match 'Invoke-TabbyCleanOperation.*(?:line|行)\s+\d+') 'Worker diagnostics must retain the original failure location'
     }
 
     & $DataScript -TabbyConfigDir $ProfilePath

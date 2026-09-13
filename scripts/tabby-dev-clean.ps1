@@ -221,7 +221,7 @@ function Start-TabbyCleanDetachedProcess {
     param([string]$Code)
     $Encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Code))
     $PowerShellExe = Join-Path $PSHOME 'pwsh.exe'
-    $NodeExe = (Get-Command node -CommandType Application -ErrorAction Stop).Source
+    $NodeExe = @(Get-Command node -CommandType Application -All -ErrorAction Stop)[0].Source
     $Broker = Join-Path $PSScriptRoot 'tabby-clean-worker.cjs'
     # WMI brokers creation outside the terminal's process tree/job. No visible window.
     # https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/create-method-in-class-win32-process
