@@ -268,6 +268,15 @@ function testUserContentLocalizationBoundary (): void {
     assert(i18nSource.includes("closest('[data-i18n-skip]')"), 'textarea placeholders should remain translatable while explicitly skipped attributes remain protected')
 }
 
+function testActivityLogDetailLayout (): void {
+    const source = fs.readFileSync(path.join(process.cwd(), 'src', 'activityLog', 'activityLog.component.ts'), 'utf8')
+    assert(source.includes('class="wqc-activity-detail-panel"'), 'activity log details should render inside a dedicated viewport panel')
+    assert(/\.wqc-activity-table-wrap\s*\{[^}]*container-type:\s*inline-size;/s.test(source), 'activity log table should expose its visible inline size to detail rows')
+    assert(/\.wqc-activity-detail-panel\s*\{[^}]*position:\s*sticky;[^}]*left:\s*0;[^}]*width:\s*100cqi;/s.test(source), 'desktop activity log details should stay pinned to the horizontally visible table area')
+    assert(/\.wqc-activity-detail-row pre\s*\{[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;/s.test(source), 'long activity log details should wrap without creating another horizontal scrollbar')
+    assert(/@media \(max-width:\s*760px\)[\s\S]*?\.wqc-activity-detail-panel\s*\{[^}]*position:\s*static;[^}]*width:\s*100%;/s.test(source), 'mobile activity log cards should keep a normal full-width detail panel')
+}
+
 function testPluginVersionComparison (): void {
     assert(isNewerPluginVersion('1.6.0', '1.5.2'), 'minor updates should be detected')
     assert(!isNewerPluginVersion('1.5.2', '1.5.2'), 'equal versions should not be updates')
@@ -1643,6 +1652,7 @@ const style = (code: string, text: string): string => colorEnabled ? `\x1b[${cod
 const tests: Array<[string, () => void | Promise<void>]> = [
     ['中英文界面', testTranslations],
     ['用户内容本地化边界', testUserContentLocalizationBoundary],
+    ['活动日志详情布局', testActivityLogDetailLayout],
     ['设置提示关闭与计时', testSettingsMessages],
     ['插件版本比较', testPluginVersionComparison],
     ['更新源自适应统计', testPluginUpdateSourceStats],

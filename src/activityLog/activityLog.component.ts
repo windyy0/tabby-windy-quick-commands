@@ -131,7 +131,7 @@ import {
                   <td class="wqc-table-fill" aria-hidden="true"></td>
                 </tr>
                 <tr class="wqc-activity-detail-row" *ngIf="isExpanded(entry.id) && detailText(entry)">
-                  <td colspan="9"><pre>{{ detailText(entry) }}</pre></td>
+                  <td colspan="9"><div class="wqc-activity-detail-panel"><pre>{{ detailText(entry) }}</pre></div></td>
                 </tr>
               </ng-container>
               <tr *ngIf="!visibleEntries.length"><td class="wqc-activity-empty" colspan="9">没有匹配的活动日志</td></tr>
@@ -188,7 +188,7 @@ import {
       .wqc-activity-toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) 140px 125px; gap: 8px; margin-top: 14px; }
       .wqc-search-input { font-size: 12px; }
       .wqc-search-input::placeholder { color: var(--wqc-muted, var(--bs-secondary-color)); opacity: 1; }
-      .wqc-activity-table-wrap { margin-top: 12px; overflow-x: auto; border: 1px solid var(--wqc-surface-border, var(--bs-border-color)); border-radius: 8px; }
+      .wqc-activity-table-wrap { container-type: inline-size; margin-top: 12px; overflow-x: auto; border: 1px solid var(--wqc-surface-border, var(--bs-border-color)); border-radius: 8px; }
       .wqc-activity-table { width: 100%; border-collapse: collapse; table-layout: auto; font-size: 12px; }
       .wqc-activity-table th, .wqc-activity-table td { padding: 9px 10px; border-bottom: 1px solid var(--wqc-surface-border, var(--bs-border-color)); text-align: left; vertical-align: middle; }
       .wqc-activity-table th { color: var(--bs-secondary-color); background: color-mix(in srgb, var(--bs-body-color) 4%, var(--bs-body-bg)); font-size: 11px; font-weight: 650; }
@@ -209,7 +209,8 @@ import {
       .wqc-activity-detail-toggle button { padding: 2px 0; border: 0; color: var(--bs-primary); background: transparent; white-space: nowrap; font-size: 11px; }
       .wqc-activity-detail-toggle button:disabled { visibility: hidden; }
       .wqc-activity-detail-row td { padding: 0; background: color-mix(in srgb, var(--bs-body-color) 3%, var(--bs-body-bg)); }
-      .wqc-activity-detail-row pre { max-height: 220px; margin: 0; padding: 11px 13px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--bs-body-color); font: 11px/1.5 "Cascadia Code", "JetBrains Mono", Consolas, monospace; }
+      .wqc-activity-detail-panel { position: sticky; left: 0; width: 100cqi; max-width: 100cqi; box-sizing: border-box; }
+      .wqc-activity-detail-row pre { width: 100%; max-height: 220px; box-sizing: border-box; margin: 0; padding: 11px 13px; overflow-x: hidden; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; color: var(--bs-body-color); font: 11px/1.5 "Cascadia Code", "JetBrains Mono", Consolas, monospace; }
       .wqc-activity-empty { padding: 24px !important; color: var(--bs-secondary-color); text-align: center !important; }
       .wqc-activity-pager { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; color: var(--bs-secondary-color); font-size: 12px; }
       .wqc-pager-count { white-space: nowrap; }
@@ -231,6 +232,7 @@ import {
         .wqc-activity-detail-toggle { display: block !important; padding-left: 86px !important; }
         .wqc-activity-detail-toggle::before { display: none; }
         .wqc-activity-detail-row { margin: -9px 0 9px; border: 1px solid var(--wqc-surface-border, var(--bs-border-color)); border-top: 0; border-radius: 0 0 8px 8px; }
+        .wqc-activity-detail-panel { position: static; width: 100%; max-width: 100%; }
         .wqc-activity-pager { align-items: flex-start; flex-direction: column; gap: 8px; }
         .wqc-pager-controls { justify-content: flex-start; flex-wrap: wrap; }
       }

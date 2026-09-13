@@ -1,9 +1,9 @@
 {
-  "version": "2.1.1",
+  "version": "2.1.2",
   "zh-CN": {
-    "title": "执行命令提示新增命令名称"
+    "title": "优化活动日志详情显示"
   },
   "en": {
-    "title": "Show command names in run button tooltips"
+    "title": "Improve activity log detail display"
   }
 }
